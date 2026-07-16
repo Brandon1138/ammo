@@ -251,18 +251,70 @@ else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
 4. Update the contract section, the adapter, and the test fixtures together, and
    re-date-stamp the section.
 
-## Widget design (phase 3 — to be hardened)
+## iOS app (phase 3 — implemented)
 
-- **Small widget:** one account — provider glyph + name, one bar per window
-  ("% left" framing, like the app that inspired this), "Resets in …" via relative
-  date text.
-- **Medium widget:** all enabled accounts, one compact row each (provider, best/worst
-  window bar, %).
-- **Lock-screen (accessory) widgets:** single gauge (`accessoryCircular`) for a
-  chosen account+window.
-- Per-widget configuration through `AppIntentConfiguration` (pick accounts/windows).
-- Color semantics: normal → tint, ≥75% used → amber, ≥90% → red. Respect dark mode
-  by using system materials — no hardcoded backgrounds.
+Generated project: `cd Apps/iOS && xcodegen` → `Ammo.xcodeproj` (gitignored;
+`project.yml` is the source of truth). Two targets, both depending on the local
+`UsageKit` package:
+
+- **Ammo** (app, `com.brandon.ammo`) — sources in `Apps/iOS/Ammo/` + `Shared/`.
+- **AmmoWidgets** (widget extension, `com.brandon.ammo.widgets`) — sources in
+  `Apps/iOS/AmmoWidgets/` + `Shared/`.
+
+Both targets carry the App Group `group.com.brandon.ammo`. `Shared/` is compiled
+into each target (not a framework): `SharedStore` (accounts + latest snapshots as
+JSON in the App Group; app writes, widget reads) and the usage color/glyph styling.
+
+### Storage & trust boundaries
+
+- **Keychain** (`KeychainStore`, service `com.brandon.ammo.tokens`): one generic
+  password item per account UUID, `kSecAttrAccessibleAfterFirstUnlock` (so
+  `BGAppRefreshTask` can read while locked), non-synchronizable. Only the app
+  target touches the Keychain — the widget renders purely from the App Group cache.
+- **`StoredAccount.tokensImported`**: set when tokens were pasted from a desktop
+  CLI. The fetch pipeline **never calls refresh for imported accounts** (rotation
+  could log the CLI out); on 401 it surfaces "re-import" instead.
+
+### Fetch pipeline (`AccountStore`)
+
+Foreground (`scenePhase == .active`, pull-to-refresh) and background
+(`BGAppRefreshTask`, id `com.brandon.ammo.refresh`, re-armed each run, earliest
+30 min): per account — refresh if `expiresAt` within 5 min (persisting rotated
+tokens to the Keychain *before* the fetch can fail), `fetchUsage`, retry once
+through refresh on 401, write `AccountState` JSON to the App Group, then
+`WidgetCenter.reloadAllTimelines()`.
+
+### Onboarding
+
+- **Claude** (`ClaudeOnboardingView`): fresh `PKCE` per attempt →
+  `ClaudeProvider.authorizationRequestURL` opened in `SFSafariViewController` →
+  user copies the displayed code → `exchangeCode(_:verifier:state:)`. The phone
+  gets its own token pair; no interaction with CLI logins.
+- **Codex** (`CodexOnboardingView`): primary path `CodexAuthFlow` —
+  `LoopbackServer` (NWListener, localhost:1455) captures the redirect during
+  `ASWebAuthenticationSession` (started with a nil callback scheme; cancelled
+  programmatically once the listener yields the code), state checked, then
+  `CodexProvider.exchangeCode`; the ChatGPT account id is pulled from the JWT
+  claims (`https://api.openai.com/auth` → `chatgpt_account_id`). Fallback:
+  paste `~/.codex/auth.json` (whole file or its `tokens` object) → stored with
+  `tokensImported = true`, never refreshed.
+
+## Widget design (phase 3 — implemented)
+
+- **Small widget** (`AmmoAccount`, systemSmall): one account — provider glyph +
+  label, one bar per window ("% left" framing), soonest reset as a live relative
+  countdown (`Text(_:style: .relative)`).
+- **Medium widget** (`AmmoAllAccounts`, systemMedium): all accounts, one compact
+  row each (glyph, label, worst-window bar, %).
+- **Lock-screen** (`AmmoAccount`, accessoryCircular): gauge of "% left" for the
+  account's most-consumed window.
+- Per-widget account choice through `AppIntentConfiguration` (`SelectAccountIntent`
+  → `AccountEntity`, hydrated from the App Group snapshot file — the widget process
+  never touches Keychain or network).
+- Timeline: one entry from cache, `.after(30 min)` policy; the app also forces a
+  reload after every successful fetch.
+- Color semantics: normal → tint, ≥75% used → amber, ≥90% → red. Dark mode via
+  `containerBackground(.fill.tertiary, for: .widget)` — no hardcoded backgrounds.
 
 ## macOS (explicit non-goal for now)
 
@@ -279,16 +331,23 @@ ammo/
 ├── Package.swift              ← UsageKit + ammo-harness (SwiftPM)
 ├── Sources/UsageKit/          ← models, adapters, OAuth helpers
 ├── Sources/AmmoHarness/       ← macOS CLI: proves adapters w/ real local creds
-├── Tests/UsageKitTests/       ← decode tests over captured fixtures
-└── Apps/iOS/                  ← (phase 3) project.yml → xcodegen → Ammo.xcodeproj
+├── Tests/UsageKitTests/       ← decode + onboarding tests
+└── Apps/iOS/
+    ├── project.yml            ← XcodeGen manifest (source of truth; .xcodeproj gitignored)
+    ├── Shared/                ← compiled into app AND widget: App Group store, styling
+    ├── Ammo/                  ← app: onboarding, Keychain, fetch pipeline, BG refresh, UI
+    └── AmmoWidgets/           ← widget extension: intents, timelines, widget views
 ```
 
 ## Build & verify
 
 ```sh
-swift test                 # decode/mapping tests over captured fixtures
+swift test                 # decode/mapping/onboarding tests over fixtures
 swift run ammo-harness     # live check against your own logged-in CLIs (macOS)
-# phase 3: cd Apps/iOS && xcodegen && open Ammo.xcodeproj
+cd Apps/iOS && xcodegen    # generate Ammo.xcodeproj, then:
+xcodebuild -project Ammo.xcodeproj -scheme Ammo \
+  -destination 'generic/platform=iOS Simulator' build
+open Ammo.xcodeproj        # set your team under Signing & Capabilities, run on device
 ```
 
 The harness intentionally **never refreshes tokens** (rotation could log out your

@@ -14,8 +14,8 @@ architecture — so you never have to trust anyone else's binary with your accou
 
 - [x] `UsageKit` — provider adapters (Claude, Codex), verified against live accounts
 - [x] `ammo-harness` — macOS CLI proving the data layer end-to-end
-- [ ] iOS app (onboarding, Keychain, background refresh)
-- [ ] WidgetKit widgets (home screen + lock screen)
+- [x] iOS app (onboarding, Keychain, background refresh)
+- [x] WidgetKit widgets (home screen + lock screen)
 - [ ] macOS menu bar app (stretch)
 
 ## Quick start
@@ -23,4 +23,8 @@ architecture — so you never have to trust anyone else's binary with your accou
 ```sh
 swift test                 # offline decode tests
 swift run ammo-harness     # live usage bars in your terminal (needs logged-in CLIs)
+
+# iOS app (needs Xcode 16+ and `brew install xcodegen`):
+cd Apps/iOS && xcodegen && open Ammo.xcodeproj
+# select your team under Signing & Capabilities → run on your iPhone
 ```
