@@ -10,8 +10,10 @@ public struct CodexProvider: UsageProvider {
 
     public static let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
     public static let tokenURL = URL(string: "https://auth.openai.com/oauth/token")!
+    public static let authorizeURL = URL(string: "https://auth.openai.com/oauth/authorize")!
     /// Public client id used by the Codex CLI itself.
     public static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+    public static let scopes = "openid profile email offline_access"
     /// The Codex CLI login flow redirects here; on iOS, Ammo runs a loopback listener
     /// on this port during ASWebAuthenticationSession (SPEC.md §Codex onboarding).
     public static let redirectURI = "http://localhost:1455/auth/callback"
@@ -69,6 +71,69 @@ public struct CodexProvider: UsageProvider {
                            accountID: tokens.accountID)
     }
 
+    /// Builds the authorize URL for the loopback (localhost:1455) redirect flow.
+    /// The two non-standard params mirror the Codex CLI's own login request.
+    public static func authorizationRequestURL(pkce: PKCE) -> URL {
+        var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "scope", value: scopes),
+            URLQueryItem(name: "code_challenge", value: pkce.challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "id_token_add_organizations", value: "true"),
+            URLQueryItem(name: "codex_cli_simplified_flow", value: "true"),
+            URLQueryItem(name: "state", value: pkce.state),
+        ]
+        return components.url!
+    }
+
+    /// Exchanges the authorization code captured from the loopback redirect.
+    /// The ChatGPT account id is not a token-response field — it rides inside the
+    /// JWT claims (`https://api.openai.com/auth` → `chatgpt_account_id`).
+    public func exchangeCode(_ code: String, verifier: String) async throws -> OAuthTokens {
+        let body = formURLEncode([
+            "grant_type": "authorization_code",
+            "code": code.trimmingCharacters(in: .whitespacesAndNewlines),
+            "redirect_uri": Self.redirectURI,
+            "client_id": Self.clientID,
+            "code_verifier": verifier,
+        ])
+        let data = try await transport.post(Self.tokenURL,
+                                            headers: ["Content-Type": "application/x-www-form-urlencoded"],
+                                            body: body)
+        let t: TokenResponse
+        do {
+            t = try Self.decoder.decode(TokenResponse.self, from: data)
+        } catch {
+            throw UsageError.malformedResponse("codex token: \(error)")
+        }
+        let accountID = Self.chatGPTAccountID(fromJWT: t.idToken)
+            ?? Self.chatGPTAccountID(fromJWT: t.accessToken)
+        return OAuthTokens(accessToken: t.accessToken,
+                           refreshToken: t.refreshToken,
+                           expiresAt: t.expiresIn.map { Date(timeIntervalSinceNow: $0) },
+                           accountID: accountID)
+    }
+
+    /// Extracts `chatgpt_account_id` from a JWT's payload without verifying the
+    /// signature (we only need the claim; the token is already trusted material).
+    static func chatGPTAccountID(fromJWT jwt: String?) -> String? {
+        guard let jwt else { return nil }
+        let segments = jwt.split(separator: ".")
+        guard segments.count >= 2 else { return nil }
+        var base64 = segments[1]
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        guard let payload = Data(base64Encoded: base64),
+              let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let auth = claims["https://api.openai.com/auth"] as? [String: Any]
+        else { return nil }
+        return auth["chatgpt_account_id"] as? String
+    }
+
     // MARK: - Response mapping
 
     static let decoder: JSONDecoder = {
@@ -97,6 +162,7 @@ public struct CodexProvider: UsageProvider {
         let accessToken: String
         let refreshToken: String?
         let expiresIn: Double?
+        let idToken: String?
     }
 
     static func windows(from response: Response) -> [LimitWindow] {

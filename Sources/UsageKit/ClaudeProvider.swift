@@ -54,6 +54,23 @@ public struct ClaudeProvider: UsageProvider {
         return try Self.tokens(fromTokenResponse: data, fallbackRefresh: refreshToken)
     }
 
+    /// Builds the `code=true` authorize URL: the callback page renders the auth
+    /// code on-screen for the user to copy — no redirect capture needed on iOS.
+    public static func authorizationRequestURL(pkce: PKCE) -> URL {
+        var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "code", value: "true"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "scope", value: scopes),
+            URLQueryItem(name: "code_challenge", value: pkce.challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "state", value: pkce.state),
+        ]
+        return components.url!
+    }
+
     /// Exchanges a pasted authorization code (code=true flow) for tokens.
     /// `code` is what the user pasted; anything after `#` is a state fragment.
     public func exchangeCode(_ code: String, verifier: String, state: String) async throws -> OAuthTokens {

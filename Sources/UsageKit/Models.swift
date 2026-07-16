@@ -1,12 +1,23 @@
 import Foundation
 
 /// A service whose usage limits Ammo can display.
-public enum ProviderID: String, Codable, CaseIterable, Sendable {
+public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
     case claude
     case codex
     // Known issue: planned, not yet implemented. See SPEC.md "Deferred providers".
     case cursor
     case antigravity
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .claude: "Claude"
+        case .codex: "Codex"
+        case .cursor: "Cursor"
+        case .antigravity: "Antigravity"
+        }
+    }
 }
 
 public enum WindowKind: String, Codable, Sendable {
