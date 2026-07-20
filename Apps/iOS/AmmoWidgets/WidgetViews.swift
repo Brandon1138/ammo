@@ -49,7 +49,7 @@ struct SmallAccountView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 ProviderLogo(provider: state.account.provider, size: 20)
-                Text(state.account.provider.displayName)
+                Text(state.account.label)
                     .font(.headline)
                     .lineLimit(1)
                     .layoutPriority(1)
@@ -162,7 +162,7 @@ struct ProviderListView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
                         ProviderLogo(provider: state.account.provider, size: 18)
-                        Text(state.account.provider.displayName)
+                        Text(state.account.label)
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
@@ -206,7 +206,7 @@ struct MediumAccountsView: View {
             ForEach(states.widgetOrdered.prefix(4)) { state in
                 HStack(spacing: 8) {
                     ProviderLogo(provider: state.account.provider, size: 20)
-                    Text(state.account.provider.displayName)
+                    Text(state.account.label)
                         .font(.body)
                         .lineLimit(1)
                         .frame(width: 76, alignment: .leading)
@@ -264,7 +264,7 @@ private struct LargeProviderSection: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 ProviderLogo(provider: state.account.provider, size: 20)
-                Text(state.account.provider.displayName)
+                Text(state.account.label)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)

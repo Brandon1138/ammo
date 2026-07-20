@@ -124,7 +124,7 @@ private struct AccountSection: View {
             } header: {
                 HStack(spacing: 7) {
                     ProviderLogo(provider: state.account.provider, size: 20)
-                    Text(state.account.provider.displayName)
+                    Text(state.account.label)
                         .font(.headline.weight(.bold))
                         .foregroundStyle(.primary)
                         .textCase(nil)
