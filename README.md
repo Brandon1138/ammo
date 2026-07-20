@@ -1,7 +1,7 @@
 # AMMO
 
 How much ammo do you have left? iOS widgets for your AI coding usage limits —
-Claude Code and Codex now; Cursor and Antigravity planned.
+Claude Code, Codex, and Cursor now; Antigravity planned.
 
 **No server. No stranger's OAuth app. Your tokens stay in your Keychain, on your
 device, in an app you built.**
@@ -12,10 +12,10 @@ architecture — so you never have to trust anyone else's binary with your accou
 
 ## Status
 
-- [x] `UsageKit` — provider adapters (Claude, Codex), verified against live accounts
+- [x] `UsageKit` — provider adapters for Claude, Codex, and Cursor
 - [x] `ammo-harness` — macOS CLI proving the data layer end-to-end
-- [x] iOS app (onboarding, Keychain, background refresh)
-- [x] WidgetKit widgets (home screen + lock screen)
+- [x] iOS app (onboarding, shared 60-second fetch gate, adaptive background refresh)
+- [x] WidgetKit widgets (home screen + lock screen, direct throttled refresh)
 - [ ] macOS menu bar app (stretch)
 
 ## Quick start

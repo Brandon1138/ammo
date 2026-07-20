@@ -18,11 +18,32 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Claude", systemImage: ProviderID.claude.symbolName) {
+                        Button {
                             addingProvider = .claude
+                        } label: {
+                            Label {
+                                Text("Claude")
+                            } icon: {
+                                ProviderLogo(provider: .claude, size: 16, role: .menu)
+                            }
                         }
-                        Button("Codex", systemImage: ProviderID.codex.symbolName) {
+                        Button {
                             addingProvider = .codex
+                        } label: {
+                            Label {
+                                Text("Codex")
+                            } icon: {
+                                ProviderLogo(provider: .codex, size: 16, role: .menu)
+                            }
+                        }
+                        Button {
+                            addingProvider = .cursor
+                        } label: {
+                            Label {
+                                Text("Cursor")
+                            } icon: {
+                                ProviderLogo(provider: .cursor, size: 16, role: .menu)
+                            }
                         }
                     } label: {
                         Label("Add Account", systemImage: "plus")
@@ -33,7 +54,8 @@ struct ContentView: View {
                 switch provider {
                 case .claude: ClaudeOnboardingView()
                 case .codex: CodexOnboardingView()
-                case .cursor, .antigravity: EmptyView() // deferred, see SPEC.md
+                case .cursor: CursorOnboardingView()
+                case .antigravity: EmptyView() // deferred, see SPEC.md
                 }
             }
         }
@@ -43,21 +65,25 @@ struct ContentView: View {
         ContentUnavailableView {
             Label("No accounts yet", systemImage: "battery.0percent")
         } description: {
-            Text("Add a Claude or Codex account to see how much ammo you have left.")
+            Text("Add a Claude, Codex, or Cursor account to see how much ammo you have left.")
         } actions: {
             Button("Add Claude") { addingProvider = .claude }
             Button("Add Codex") { addingProvider = .codex }
+            Button("Add Cursor") { addingProvider = .cursor }
         }
     }
 
     private var accountList: some View {
-        List {
-            ForEach(store.states) { state in
-                AccountSection(state: state)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            List {
+                ForEach(store.states) { state in
+                    AccountSection(state: state, referenceDate: context.date)
+                }
             }
-        }
-        .refreshable {
-            await store.refreshAll()
+            .refreshable {
+                await store.refreshAll(reason: .manual)
+            }
+            .listSectionSpacing(.custom(10))
         }
     }
 }
@@ -65,78 +91,92 @@ struct ContentView: View {
 private struct AccountSection: View {
     @Environment(AccountStore.self) private var store
     let state: AccountState
+    let referenceDate: Date
 
     var body: some View {
-        Section {
-            if let snapshot = state.snapshot {
-                ForEach(snapshot.windows) { window in
-                    WindowRow(window: window)
-                }
-                if let credits = snapshot.resetCreditsAvailable, credits > 0 {
-                    Label("\(credits) reset\(credits == 1 ? "" : "s") available",
-                          systemImage: "arrow.clockwise.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else if state.lastError == nil {
-                HStack {
-                    ProgressView()
-                    Text("Fetching…").foregroundStyle(.secondary)
-                }
-            }
-        } header: {
-            HStack {
-                Label(state.account.label, systemImage: state.account.provider.symbolName)
-                if let plan = state.snapshot?.plan {
-                    Text(plan.capitalized)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
-                }
-                Spacer()
-                Menu {
-                    Button("Remove Account", systemImage: "trash", role: .destructive) {
-                        store.remove(state.account)
+        Group {
+            Section {
+                if let snapshot = state.snapshot {
+                    ForEach(snapshot.windowGroups, id: \.first!.id) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(group) { window in
+                                UsageWindowRow(window: window, font: .subheadline, barHeight: 8)
+                            }
+                            ResetStatusLine(snapshot: snapshot,
+                                            group: group,
+                                            referenceDate: referenceDate,
+                                            font: .footnote)
+                        }
+                        .padding(.vertical, 4)
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    if let credits = snapshot.resetCreditsAvailable, credits > 0 {
+                        Label("\(credits) reset\(credits == 1 ? "" : "s") available",
+                              systemImage: "arrow.clockwise.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if state.activeFailure == nil {
+                    HStack {
+                        ProgressView()
+                        Text("Fetching…").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                HStack(spacing: 7) {
+                    ProviderLogo(provider: state.account.provider, size: 20)
+                    Text(state.account.provider.displayName)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .textCase(nil)
+                    if let plan = state.snapshot?.plan {
+                        Text(plan.capitalized)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .textCase(nil)
+                    }
+                    Spacer()
+                    Menu {
+                        Button("Remove Account", systemImage: "trash", role: .destructive) {
+                            store.remove(state.account)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+                .padding(.bottom, 2)
+            } footer: {
+                if state.activeFailure == nil {
+                    updatedFooter
                 }
             }
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                if let error = state.lastError {
-                    Text(error).foregroundStyle(.red)
-                }
-                if let updatedAt = state.updatedAt {
-                    Text("Updated \(Text(updatedAt, style: .relative)) ago")
+
+            if let failure = state.activeFailure {
+                Section {
+                    RefreshIssueNotice(
+                        providerName: state.account.provider.displayName,
+                        failure: failure,
+                        hasCachedSnapshot: state.snapshot != nil) {
+                            Task {
+                                await store.refresh(ids: [state.id], reason: .manual)
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } footer: {
+                    updatedFooter
                 }
             }
         }
     }
-}
 
-private struct WindowRow: View {
-    let window: LimitWindow
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(window.label)
-                    .font(.subheadline.weight(.medium))
-                Spacer()
-                Text("\(Int(window.remainingPercent.rounded()))% left")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(window.barColor)
-            }
-            ProgressView(value: window.remainingPercent, total: 100)
-                .tint(window.barColor)
-            if let resetsAt = window.resetsAt, resetsAt > Date() {
-                Text("Resets in \(Text(resetsAt, style: .relative))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    @ViewBuilder
+    private var updatedFooter: some View {
+        if let updatedAt = state.updatedAt {
+            Text("Updated \(Text(updatedAt, style: .relative)) ago")
+                .textCase(nil)
         }
-        .padding(.vertical, 2)
     }
 }

@@ -1,8 +1,9 @@
 import BackgroundTasks
 import Foundation
+import UsageKit
 
 /// BGAppRefreshTask plumbing. iOS decides the actual cadence from its budget;
-/// we ask for no sooner than 30 minutes and re-arm on every run.
+/// we adapt the requested date to remaining usage and known reset times.
 enum BackgroundRefresh {
     static let taskID = "com.brandon.ammo.refresh"
 
@@ -10,8 +11,8 @@ enum BackgroundRefresh {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskID, using: nil) { task in
             nonisolated(unsafe) let task = task
             Task { @MainActor in
-                schedule() // keep the chain alive for the next wake
-                await AccountStore.shared.refreshAll()
+                await AccountStore.shared.refreshAll(reason: .background)
+                schedule() // re-arm using the newly committed snapshots
                 task.setTaskCompleted(success: true)
             }
         }
@@ -19,7 +20,7 @@ enum BackgroundRefresh {
 
     static func schedule() {
         let request = BGAppRefreshTaskRequest(identifier: taskID)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        request.earliestBeginDate = RefreshLedgerStore.nextRefreshDate(states: SharedStore.load())
         // Errors here are expected (e.g. simulator, task already queued) — the
         // foreground path still refreshes.
         try? BGTaskScheduler.shared.submit(request)

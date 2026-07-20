@@ -1,6 +1,8 @@
 import Foundation
 import UsageKit
 
+#if os(macOS)
+
 /// Development harness: proves the UsageKit adapters against real accounts using the
 /// credentials the Claude Code and Codex CLIs already store on this Mac.
 ///
@@ -137,3 +139,17 @@ struct Harness {
         return formatter.string(from: Date())
     }
 }
+
+#else
+
+/// `ammo-harness` reads credentials from the Mac's Keychain and home directory, so it
+/// is intentionally unavailable on iOS. This fallback lets the package be indexed by
+/// Xcode for the Simulator while keeping the executable macOS-only in practice.
+@main
+struct Harness {
+    static func main() {
+        fatalError("ammo-harness can only run on macOS")
+    }
+}
+
+#endif

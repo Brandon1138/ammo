@@ -46,6 +46,28 @@ private let codexFixture = """
 }
 """
 
+private let cursorFixture = """
+{
+  "billingCycleStart": "2026-07-10T00:00:00.000Z",
+  "billingCycleEnd": "2026-08-10T00:00:00.000Z",
+  "membershipType": "pro",
+  "individualUsage": {
+    "plan": {
+      "used": 20,
+      "limit": 2000,
+      "autoPercentUsed": 1.0,
+      "apiPercentUsed": 0.0,
+      "totalPercentUsed": 1.0
+    },
+    "onDemand": {
+      "enabled": false,
+      "used": 0,
+      "limit": null
+    }
+  }
+}
+"""
+
 @Suite struct ClaudeDecodeTests {
     @Test func mapsLimitsArrayToWindows() throws {
         let response = try ClaudeProvider.decoder.decode(
@@ -102,5 +124,41 @@ private let codexFixture = """
         #expect(CodexProvider.classify(windowSeconds: 604800) == (.weekly, "Weekly"))
         #expect(CodexProvider.classify(windowSeconds: 2_592_000) == (.monthly, "Monthly"))
         #expect(CodexProvider.classify(windowSeconds: nil) == (.unknown, "Usage"))
+    }
+}
+
+@Suite struct CursorDecodeTests {
+    @Test func mapsOnlyIncludedComposerAndAPIUsage() throws {
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(cursorFixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(response.membershipType == "pro")
+        #expect(windows.count == 2)
+        #expect(windows[0].kind == .monthly)
+        #expect(windows[0].label == "Composer")
+        #expect(windows[0].usedPercent == 1)
+        #expect(windows[1].kind == .monthly)
+        #expect(windows[1].label == "API")
+        #expect(windows[1].usedPercent == 0)
+        #expect(windows[0].resetsAt == windows[1].resetsAt)
+        #expect(windows[0].resetsAt == ISO8601.parse("2026-08-10T00:00:00.000Z"))
+    }
+
+    @Test func acceptsRenamedFirstPartyPercentageAndClampsValues() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"firstPartyPercentUsed": 101, "apiPercentUsed": -1}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.usedPercent) == [100, 0])
     }
 }

@@ -1,0 +1,69 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : "automatic"
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "ammo-bars.svg",
+          "name" : "ammo-bars",
+          "position" : {
+            "scale" : 1.05,
+            "translation-in-points" : [
+              0.5249999999999773,
+              174.82500000000005
+            ]
+          }
+        },
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : "automatic"
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "ammo-tracks.svg",
+          "name" : "ammo-tracks",
+          "position" : {
+            "scale" : 1.05,
+            "translation-in-points" : [
+              0.5249999999999773,
+              174.82500000000005
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "hidden" : true,
+          "image-name" : "ammo-background.svg",
+          "name" : "ammo-background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.6
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

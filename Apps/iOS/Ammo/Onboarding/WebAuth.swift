@@ -86,3 +86,97 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
         }
     }
 }
+
+/// Drives Cursor's callback-less first-party login. Cursor binds a browser
+/// approval to a UUID + PKCE challenge; Ammo polls until the token pair is ready.
+@MainActor
+final class CursorAuthFlow: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private var session: ASWebAuthenticationSession?
+    private var pollTask: Task<Void, Never>?
+    private var continuation: CheckedContinuation<OAuthTokens, Error>?
+
+    struct CancelledError: Error, CustomStringConvertible {
+        var description: String { "Sign-in was cancelled" }
+    }
+
+    struct TimeoutError: Error, CustomStringConvertible {
+        var description: String { "Cursor sign-in timed out — try again" }
+    }
+
+    func signIn() async throws -> OAuthTokens {
+        defer {
+            pollTask?.cancel()
+            pollTask = nil
+            session = nil
+        }
+
+        let pkce = PKCE()
+        let uuid = UUID()
+        let provider = CursorProvider()
+        return try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<OAuthTokens, Error>) in
+            self.continuation = continuation
+            pollTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    // Cursor 3.7.27 polls every 500 ms. Give a phone user five
+                    // minutes to complete an external identity-provider login.
+                    for _ in 0..<600 {
+                        try Task.checkCancellation()
+                        if let tokens = try await provider.pollForTokens(
+                            uuid: uuid, verifier: pkce.verifier) {
+                            finish(tokens: tokens)
+                            return
+                        }
+                        try await Task.sleep(for: .milliseconds(500))
+                    }
+                    fail(TimeoutError())
+                } catch is CancellationError {
+                    // Dismissing the auth sheet is an expected cancellation path.
+                } catch {
+                    fail(error)
+                }
+            }
+
+            let session = ASWebAuthenticationSession(
+                url: CursorProvider.authorizationRequestURL(pkce: pkce, uuid: uuid),
+                callbackURLScheme: nil
+            ) { [weak self] _, _ in
+                Task { @MainActor in self?.abort() }
+            }
+            session.presentationContextProvider = self
+            session.prefersEphemeralWebBrowserSession = false
+            self.session = session
+            if !session.start() {
+                fail(UsageError.notAuthenticated("cursor: unable to start browser sign-in"))
+            }
+        }
+    }
+
+    private func finish(tokens: OAuthTokens) {
+        guard let continuation else { return }
+        self.continuation = nil
+        session?.cancel()
+        continuation.resume(returning: tokens)
+    }
+
+    private func fail(_ error: Error) {
+        guard let continuation else { return }
+        self.continuation = nil
+        pollTask?.cancel()
+        session?.cancel()
+        continuation.resume(throwing: error)
+    }
+
+    private func abort() {
+        fail(CancelledError())
+    }
+
+    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        MainActor.assumeIsolated {
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+                .first ?? ASPresentationAnchor()
+        }
+    }
+}

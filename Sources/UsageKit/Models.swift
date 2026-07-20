@@ -70,7 +70,8 @@ public struct OAuthTokens: Codable, Sendable, Equatable {
     public var accessToken: String
     public var refreshToken: String?
     public var expiresAt: Date?
-    /// Codex: ChatGPT account id, sent as the `ChatGPT-Account-Id` header.
+    /// Provider-specific account id. Codex sends it as `ChatGPT-Account-Id`;
+    /// Cursor uses it to construct its first-party web-session cookie.
     public var accountID: String?
 
     public init(accessToken: String, refreshToken: String? = nil,

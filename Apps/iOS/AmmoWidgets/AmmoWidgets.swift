@@ -27,7 +27,8 @@ struct AmmoAccountWidget: Widget {
     }
 }
 
-/// Medium widget: every configured account, one compact row each.
+/// Every configured account. Small: percent list. Medium: bar per account.
+/// Large: every window with bars and reset countdowns.
 struct AmmoAllAccountsWidget: Widget {
     let kind = "AmmoAllAccounts"
 
@@ -38,6 +39,6 @@ struct AmmoAllAccountsWidget: Widget {
         }
         .configurationDisplayName("All Accounts")
         .description("Usage left across every account.")
-        .supportedFamilies([.systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

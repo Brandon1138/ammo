@@ -26,7 +26,7 @@ instructions for re-deriving any contract that has drifted since this spec was w
 
 ## Requirements
 
-- Xcode 16+ / Swift 6 toolchain, iOS 17+ target.
+- Xcode 16+ / Swift 6 toolchain, iOS 18+ app target.
 - An Apple Developer account (free works, with the 7-day re-sign caveat).
 - Logged-in subscriptions to the providers you want to track.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`) to
@@ -78,15 +78,51 @@ and any number of accounts per provider reuse one adapter.
 
 ### Data flow
 
-1. App (foreground or `BGAppRefreshTask`) iterates enabled accounts.
-2. For each: refresh token if `expiresAt` is near (persist rotated refresh tokens
-   immediately), call `fetchUsage`, write the `UsageSnapshot` JSON into the shared
-   App Group container.
-3. Call `WidgetCenter.shared.reloadAllTimelines()`.
-4. Widget timeline provider reads snapshots from the App Group, renders, and asks for
-   a refresh ~every 30 minutes (WidgetKit budgets roughly 40–70 refreshes/day; each
-   render also computes "resets in Xh Ym" locally from `resetsAt`, so countdowns stay
-   fresh between fetches via `Text(_:style: .relative)`).
+1. Foreground activation, pull-to-refresh, `BGAppRefreshTask`, account creation, and
+   WidgetKit timeline requests all enter one `UsageRefreshCoordinator`.
+2. A persistent per-account ledger in the App Group enforces a 60-second minimum
+   between upstream requests across the app and widget processes. An in-flight lease
+   plus an in-process task table coalesces races; failures use exponential backoff,
+   with a longer starting backoff for HTTP 429.
+   Raw transport/provider errors are written only to private system logs. Persisted
+   state stores a stable failure category so the app can show concise timeout,
+   offline, authentication, service, response, and rate-limit messages without
+   exposing developer diagnostics or provider response bodies to users.
+3. For each eligible account: refresh its token if `expiresAt` is near (persist
+   rotation immediately), call `fetchUsage`, and atomically commit the normalized
+   `UsageSnapshot` to the App Group. Credentials use a dedicated Keychain Sharing
+   access group common to the app and widget, remain non-synchronizable, and never
+   leave the device.
+4. App-owned fetches call `WidgetCenter.shared.reloadAllTimelines()`. Widget-owned
+   fetches return the newly committed snapshot in the timeline being generated.
+5. Passive scheduling follows observed activity rather than remaining percentage.
+   A changed snapshot enters a 5-minute active cadence; the first unchanged fetch
+   cools to 15 minutes and the next unchanged fetch returns to 30 minutes, even if
+   only 5% remains. A known reset can request an earlier refresh just after its
+   boundary. Foreground/manual work may bypass the adaptive wait but still obeys
+   the shared 60-second floor and provider backoff. These dates are hints; iOS
+   controls actual background execution.
+6. Countdown UI is derived from absolute `resetsAt` values, never cached strings.
+   The foreground app recomputes once per minute; widget timelines preload local
+   5/15/60-minute display entries through the eight-day horizon plus exact reset
+   boundaries. These entries do no networking. An expired unconfirmed snapshot
+   retains its meter and says `Reset due`; an untouched Claude session with no
+   reset timestamp says `Not started`.
+
+### Future reset notifications
+
+All successful fetches commit through `SharedStore.commit(snapshot:for:)`, which
+captures both the previous and current snapshot as a `SnapshotTransition` before the
+old value is replaced. A later notification feature should attach its detector at
+this single seam so app-owned and widget-owned refreshes behave identically.
+
+The detector should create durable, deduplicated events for: a window's `resetsAt`
+advancing with utilization falling (scheduled 5-hour, weekly, or Cursor allocation
+rollover); a material utilization drop without a corresponding scheduled rollover
+(provider/account-specific reset); and an increase in Codex
+`resetCreditsAvailable` (a newly banked usage reset). Notification authorization and
+delivery remain separate from detection, allowing events to be recorded even when
+notifications are disabled and delivered at most once if the user enables them.
 
 ---
 
@@ -208,6 +244,31 @@ else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
   copy — this is why on-device login (own token pair) is the primary onboarding, and
   why the dev harness never calls refresh.
 
+### Cursor — IMPLEMENTED 2026-07-17; LIVE VERIFICATION PENDING
+
+Cursor has no public individual-plan usage API. Ammo uses Cursor's first-party
+PKCE browser login and its private dashboard summary directly from the device.
+The full reverse-engineered contract and drift notes live in
+[`CURSOR_RESEARCH.md`](CURSOR_RESEARCH.md).
+
+```
+GET https://cursor.com/api/usage-summary
+Cookie: WorkosCursorSessionToken=<user_id>%3A%3A<access_token>
+Accept: application/json
+```
+
+For this implementation, `individualUsage.plan.autoPercentUsed` (the dashboard's
+current "First-party models" lane) maps to a monthly **Composer** window and
+`apiPercentUsed` maps to a monthly **API** window. Both use `billingCycleEnd` as
+their reset. `totalPercentUsed`, monetary plan fields, legacy request counts, and
+all on-demand spending fields are deliberately ignored.
+
+Onboarding opens `https://cursor.com/loginDeepControl` with a PKCE challenge and
+UUID, then polls `https://api2.cursor.sh/auth/poll` until Cursor returns a token
+pair. Refresh uses the current first-party `POST https://api2.cursor.sh/oauth/token`
+refresh-token grant. The access-token JWT supplies both its expiry and the user id
+needed to derive the web-session cookie.
+
 ### Desktop credential locations (dev harness / macOS app)
 
 - Claude Code: macOS Keychain, generic password item **`Claude Code-credentials`** —
@@ -221,15 +282,15 @@ else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
 
 ## Known issues / deferred providers
 
-- **Cursor** — deferred. No third-party OAuth; the dashboard's JSON endpoints are
-  gated on the `WorkosCursorSessionToken` browser cookie. An adapter means "paste
-  your session cookie" onboarding and periodic re-auth when it expires. Endpoint
-  research exists in [CodexBar](https://github.com/steipete/CodexBar) (MIT), which
-  ships a working Cursor provider to crib from.
-- **Antigravity** (Google; the IDE — Gemini remains the model brand) — deferred.
-  Auth is a Google account; the usage surface is not yet mapped. Needs a research
-  spike (proxy the IDE's traffic, or check CodexBar's `gemini.md`/provider list for
-  prior art) before an adapter is promised.
+- **Cursor live proof** — the adapter, mapping, PKCE URL, polling, JWT derivation,
+  and refresh decoding have offline coverage, but the complete flow still needs to
+  be exercised on-device against a real Cursor account. Its individual usage API is
+  private and may drift.
+- **Antigravity** (Google; Gemini remains the model brand) — implementation deferred.
+  The available local and remote quota surfaces, authentication constraints,
+  policy risk, architecture options, and required live proof are documented in
+  [ANTIGRAVITY_RESEARCH.md](ANTIGRAVITY_RESEARCH.md). No adapter is promised until
+  the direct-iOS OAuth and quota-fidelity questions in that document are validated.
 - **Claude refresh grant** — implemented per standard OAuth but not yet exercised
   live (see §Claude).
 - **Codex `additional_rate_limits[]`** — always `null` in observed responses; decode
@@ -269,20 +330,19 @@ JSON in the App Group; app writes, widget reads) and the usage color/glyph styli
 
 - **Keychain** (`KeychainStore`, service `com.brandon.ammo.tokens`): one generic
   password item per account UUID, `kSecAttrAccessibleAfterFirstUnlock` (so
-  `BGAppRefreshTask` can read while locked), non-synchronizable. Only the app
-  target touches the Keychain — the widget renders purely from the App Group cache.
+  background work can read while locked), non-synchronizable, and shared with the
+  widget extension through a dedicated Keychain Sharing access group.
 - **`StoredAccount.tokensImported`**: set when tokens were pasted from a desktop
   CLI. The fetch pipeline **never calls refresh for imported accounts** (rotation
   could log the CLI out); on 401 it surfaces "re-import" instead.
 
-### Fetch pipeline (`AccountStore`)
+### Fetch pipeline (`UsageRefreshCoordinator`)
 
-Foreground (`scenePhase == .active`, pull-to-refresh) and background
-(`BGAppRefreshTask`, id `com.brandon.ammo.refresh`, re-armed each run, earliest
-30 min): per account — refresh if `expiresAt` within 5 min (persisting rotated
-tokens to the Keychain *before* the fetch can fail), `fetchUsage`, retry once
-through refresh on 401, write `AccountState` JSON to the App Group, then
-`WidgetCenter.reloadAllTimelines()`.
+Foreground, pull-to-refresh, widget timelines, and `BGAppRefreshTask` all use the
+same cross-process claim. Per account: refresh if `expiresAt` is within 5 minutes
+(persisting rotated tokens before the fetch can fail), `fetchUsage`, retry once
+through refresh on 401, atomically commit `AccountState`, update adaptive activity
+state, then request widget reloads after app-owned changes.
 
 ### Onboarding
 
@@ -302,16 +362,17 @@ through refresh on 401, write `AccountState` JSON to the App Group, then
 ## Widget design (phase 3 — implemented)
 
 - **Small widget** (`AmmoAccount`, systemSmall): one account — provider glyph +
-  label, one bar per window ("% left" framing), soonest reset as a live relative
-  countdown (`Text(_:style: .relative)`).
+  label, one bar per window ("% left" framing), and locally advancing reset
+  countdowns. Untouched Claude sessions say `Not started`; unconfirmed elapsed
+  resets say `Reset due` without changing the last provider-reported meter.
 - **Medium widget** (`AmmoAllAccounts`, systemMedium): all accounts, one compact
   row each (glyph, label, worst-window bar, %).
 - **Lock-screen** (`AmmoAccount`, accessoryCircular): gauge of "% left" for the
   account's most-consumed window.
 - Per-widget account choice through `AppIntentConfiguration` (`SelectAccountIntent`
-  → `AccountEntity`, hydrated from the App Group snapshot file — the widget process
-  never touches Keychain or network).
-- Timeline: one entry from cache, `.after(30 min)` policy; the app also forces a
+  → `AccountEntity`, hydrated from the App Group snapshot file).
+- Timeline: local countdown entries plus an adaptive reload policy; timeline
+  generation may fetch through the shared coordinator, and the app also forces a
   reload after every successful fetch.
 - Color semantics: normal → tint, ≥75% used → amber, ≥90% → red. Dark mode via
   `containerBackground(.fill.tertiary, for: .widget)` — no hardcoded backgrounds.
