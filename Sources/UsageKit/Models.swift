@@ -46,6 +46,125 @@ public struct LimitWindow: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// How a provider funds usage after (or instead of) an included allowance.
+/// These values deliberately stay separate from `LimitWindow`: money and
+/// provider credits cannot be combined honestly with a time-window percentage.
+public enum OnDemandKind: String, Codable, Sendable, Equatable {
+    case creditBalance
+    case spendingLimit
+    case personalAllocation
+    case teamBudget
+    case pooledBudget
+}
+
+public enum OnDemandScope: String, Codable, Sendable, Equatable {
+    case personal
+    case team
+    case organization
+}
+
+/// The native unit used by an on-demand pool. Provider credits are deliberately
+/// distinct from money: a credit balance must never be formatted as USD merely
+/// because another provider reports monetary spend controls.
+public enum OnDemandUnit: String, Codable, Sendable, Equatable {
+    case currency
+    case credits
+}
+
+/// One provider-reported pool of paid, on-demand capacity.
+/// Monetary values are normalized to major currency units (for example,
+/// dollars rather than cents) before entering this model.
+public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let label: String
+    public let kind: OnDemandKind
+    public let scope: OnDemandScope
+    public let isEnabled: Bool?
+    public let isUnlimited: Bool
+    /// Optional only so snapshots persisted by builds before unit-aware balances
+    /// continue to decode. New values always set this through the initializer.
+    public let unit: OnDemandUnit?
+    public let currencyCode: String
+    public let used: Double?
+    public let limit: Double?
+    /// The provider's explicit remaining value when one exists. If omitted,
+    /// `remainingAmount` derives it from `limit - used`.
+    public let remaining: Double?
+    /// Provider-reported utilization when it cannot be reconstructed exactly
+    /// from monetary values (0...100).
+    public let usedPercent: Double?
+    public let periodStart: Date?
+    public let resetsAt: Date?
+    /// Credit grants expire; that is not the same event as a recurring spend-cap reset.
+    public let expiresAt: Date?
+    /// Optional provider-page conversion for non-monetary balances.
+    public let equivalentAmount: Double?
+    public let equivalentCurrencyCode: String?
+    /// Some providers explicitly report exhaustion even when they omit an amount.
+    public let isExhaustedReported: Bool?
+
+    public init(
+        id: String,
+        label: String,
+        kind: OnDemandKind,
+        scope: OnDemandScope,
+        isEnabled: Bool? = nil,
+        isUnlimited: Bool = false,
+        unit: OnDemandUnit = .currency,
+        currencyCode: String = "USD",
+        used: Double? = nil,
+        limit: Double? = nil,
+        remaining: Double? = nil,
+        usedPercent: Double? = nil,
+        periodStart: Date? = nil,
+        resetsAt: Date? = nil,
+        expiresAt: Date? = nil,
+        equivalentAmount: Double? = nil,
+        equivalentCurrencyCode: String? = nil,
+        isExhaustedReported: Bool? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.kind = kind
+        self.scope = scope
+        self.isEnabled = isEnabled
+        self.isUnlimited = isUnlimited
+        self.unit = unit
+        self.currencyCode = currencyCode.uppercased()
+        self.used = used
+        self.limit = limit
+        self.remaining = remaining
+        self.usedPercent = usedPercent.map { min(100, max(0, $0)) }
+        self.periodStart = periodStart
+        self.resetsAt = resetsAt
+        self.expiresAt = expiresAt
+        self.equivalentAmount = equivalentAmount.map { max(0, $0) }
+        self.equivalentCurrencyCode = equivalentCurrencyCode?.uppercased()
+        self.isExhaustedReported = isExhaustedReported
+    }
+
+    public var remainingAmount: Double? {
+        if let remaining { return max(0, remaining) }
+        guard let limit else { return nil }
+        return max(0, limit - (used ?? 0))
+    }
+
+    public var remainingFraction: Double? {
+        if let limit, limit > 0, let remainingAmount {
+            return min(1, max(0, remainingAmount / limit))
+        }
+        return usedPercent.map { min(1, max(0, (100 - $0) / 100)) }
+    }
+
+    public var isExhausted: Bool {
+        guard isEnabled != false, !isUnlimited else { return false }
+        if isExhaustedReported == true { return true }
+        return remainingAmount.map { $0 <= 0.000_001 } ?? false
+    }
+
+    public var effectiveUnit: OnDemandUnit { unit ?? .currency }
+}
+
 /// The result of one usage fetch for one account.
 public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
@@ -53,15 +172,42 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let windows: [LimitWindow]
     /// Codex: number of "rate limit reset" credits available (nil where not applicable).
     public let resetCreditsAvailable: Int?
+    /// Paid continuation capacity reported by the provider. `nil` means the
+    /// contract supplied no on-demand data; an entry with `isEnabled == false`
+    /// means the provider explicitly reported that pool as disabled.
+    public let onDemand: [OnDemandUsage]?
     public let fetchedAt: Date
 
     public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
-                resetCreditsAvailable: Int? = nil, fetchedAt: Date = Date()) {
+                resetCreditsAvailable: Int? = nil,
+                onDemand: [OnDemandUsage]? = nil,
+                fetchedAt: Date = Date()) {
         self.provider = provider
         self.plan = plan
         self.windows = windows
         self.resetCreditsAvailable = resetCreditsAvailable
+        self.onDemand = onDemand
         self.fetchedAt = fetchedAt
+    }
+}
+
+public extension UsageSnapshot {
+    /// Stable, provider-aware plan copy for UI badges. Unknown future values get
+    /// a readable word-wise fallback instead of Swift's underscore-preserving
+    /// `capitalized` output.
+    var displayPlan: String? {
+        guard let plan, !plan.isEmpty else { return nil }
+        switch (provider, plan.lowercased()) {
+        case (.codex, "self_serve_business_usage_based"):
+            return "Business"
+        default:
+            return plan
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
     }
 }
 

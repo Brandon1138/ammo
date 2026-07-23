@@ -6,6 +6,24 @@ struct AmmoWidgetsBundle: WidgetBundle {
     var body: some Widget {
         AmmoAccountWidget()
         AmmoAllAccountsWidget()
+        AmmoActivityWidget()
+    }
+}
+
+/// Contribution-style daily activity for one account and allowance.
+struct AmmoActivityWidget: Widget {
+    let kind = "AmmoActivity"
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind,
+                               intent: SelectLimitIntent.self,
+                               provider: ActivityTimelineProvider()) { entry in
+            ActivityWidgetView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("Activity")
+        .description("Daily usage activity for one account and limit.")
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 
@@ -27,18 +45,20 @@ struct AmmoAccountWidget: Widget {
     }
 }
 
-/// Every configured account. Small: percent list. Medium: bar per account.
-/// Large: every window with bars and reset countdowns.
+/// Ordered configured accounts. Small: percent list. Medium: bar per account.
+/// Large: full details for the first two accounts.
 struct AmmoAllAccountsWidget: Widget {
     let kind = "AmmoAllAccounts"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: AllAccountsProvider()) { entry in
+        AppIntentConfiguration(kind: kind,
+                               intent: SelectAccountsIntent.self,
+                               provider: AllAccountsProvider()) { entry in
             AllAccountsWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("All Accounts")
-        .description("Usage left across every account.")
+        .configurationDisplayName("Accounts")
+        .description("Usage left across selected accounts in your preferred order.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

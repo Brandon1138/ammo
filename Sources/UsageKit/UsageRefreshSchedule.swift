@@ -26,8 +26,10 @@ public enum UsageRefreshSchedule {
 
         let activityDate = Date(timeInterval: activityInterval, since: now)
         let minimumDate = Date(timeInterval: minimumInterval, since: now)
-        let nextResetDate = windows
-            .compactMap(\.resetsAt)
+        let onDemand = snapshots.flatMap { $0.onDemand ?? [] }
+        let nextResetDate = (windows.compactMap(\.resetsAt)
+            + onDemand.compactMap(\.resetsAt)
+            + onDemand.compactMap(\.expiresAt))
             .filter { $0 > now }
             .min()
             .map { Date(timeInterval: 30, since: $0) }
@@ -45,6 +47,7 @@ public enum UsageRefreshSchedule {
         guard let previous else { return false }
         guard previous.provider == current.provider,
               previous.resetCreditsAvailable == current.resetCreditsAvailable,
+              previous.onDemand == current.onDemand,
               previous.windows.count == current.windows.count else { return true }
 
         let previousByID = Dictionary(uniqueKeysWithValues: previous.windows.map { ($0.id, $0) })

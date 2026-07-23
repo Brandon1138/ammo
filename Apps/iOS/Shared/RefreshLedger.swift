@@ -66,6 +66,31 @@ enum RefreshLedgerStore {
         }
     }
 
+    /// The next time a refresh for this reason may contact the provider.
+    /// Returns nil when the account is eligible now.
+    static func nextEligibleAt(
+        accountID: UUID,
+        reason: RefreshReason,
+        now: Date = Date()
+    ) -> Date? {
+        do {
+            return try lock.withLock {
+                let record = load().accounts[accountID.uuidString]
+                let hardEligibleAt = max(
+                    max(record?.lastAttemptAt?.addingTimeInterval(minimumFetchInterval) ?? .distantPast,
+                        record?.nextEligibleAt ?? .distantPast),
+                    record?.inFlightUntil ?? .distantPast)
+                let eligibleAt = reason.usesAdaptiveSchedule
+                    ? max(hardEligibleAt, record?.nextScheduledAt ?? .distantPast)
+                    : hardEligibleAt
+                return eligibleAt > now ? eligibleAt : nil
+            }
+        } catch {
+            AmmoLog.refresh.error("Unable to read refresh eligibility: \(String(describing: error), privacy: .private)")
+            return now.addingTimeInterval(5)
+        }
+    }
+
     static func finishSuccess(
         accountID: UUID,
         snapshot: UsageSnapshot,
@@ -126,11 +151,9 @@ enum RefreshLedgerStore {
         update(accountID: accountID) { record in
             record.inFlightUntil = nil
             record.consecutiveFailures += 1
-
-            let exponent = min(record.consecutiveFailures - 1, 6)
-            let base: TimeInterval = status == 429 ? 5 * 60 : minimumFetchInterval
-            let ceiling: TimeInterval = status == 429 ? 60 * 60 : 15 * 60
-            let backoff = min(ceiling, base * pow(2, Double(exponent)))
+            let backoff = RefreshFailureBackoff.delay(
+                consecutiveFailures: record.consecutiveFailures,
+                status: status)
             record.nextEligibleAt = date.addingTimeInterval(backoff)
         }
     }

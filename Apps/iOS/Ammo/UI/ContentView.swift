@@ -1,9 +1,74 @@
 import SwiftUI
 import UsageKit
 
+private enum AppTab: Hashable {
+    case usage
+    case onDemand
+    case history
+}
+
 struct ContentView: View {
     @Environment(AccountStore.self) private var store
+    @State private var selectedTab: AppTab
+    @State private var historySelection = HistorySelection()
+
+    init() {
+#if targetEnvironment(simulator)
+        let arguments = ProcessInfo.processInfo.arguments
+        let environment = ProcessInfo.processInfo.environment
+        let initialTab: AppTab
+        if arguments.contains("--ammo-on-demand-preview")
+            || environment["AMMO_ON_DEMAND_PREVIEW"] == "1" {
+            initialTab = .onDemand
+        } else if arguments.contains("--ammo-history-preview")
+            || environment["AMMO_HISTORY_PREVIEW"] == "1" {
+            initialTab = .history
+        } else {
+            initialTab = .usage
+        }
+#else
+        let initialTab: AppTab = .usage
+#endif
+        _selectedTab = State(initialValue: initialTab)
+    }
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            Tab("Usage", systemImage: "gauge.with.dots.needle.50percent", value: .usage) {
+                UsageView(
+                    openOnDemand: { selectedTab = .onDemand },
+                    openHistory: { accountID, windowID in
+                        historySelection = HistorySelection(accountID: accountID, windowID: windowID)
+                        selectedTab = .history
+                    }
+                )
+            }
+            Tab("On-demand", systemImage: "bolt.fill", value: .onDemand) {
+                OnDemandView()
+            }
+            Tab("History", systemImage: "chart.xyaxis.line", value: .history) {
+                HistoryView(selection: $historySelection)
+            }
+        }
+        .onOpenURL { url in
+#if targetEnvironment(simulator)
+            if url.scheme == HistoryLink.scheme, url.host == "preview-history" {
+                store.installHistoryPreview()
+                return
+            }
+#endif
+            guard let link = HistoryLink(url: url) else { return }
+            historySelection = HistorySelection(accountID: link.accountID, windowID: link.windowID)
+            selectedTab = .history
+        }
+    }
+}
+
+private struct UsageView: View {
+    @Environment(AccountStore.self) private var store
     @State private var addingProvider: ProviderID?
+    let openOnDemand: () -> Void
+    let openHistory: (UUID, String) -> Void
 
     var body: some View {
         NavigationStack {
@@ -77,7 +142,10 @@ struct ContentView: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             List {
                 ForEach(store.states) { state in
-                    AccountSection(state: state, referenceDate: context.date)
+                    AccountSection(state: state,
+                                   referenceDate: context.date,
+                                   openOnDemand: openOnDemand,
+                                   openHistory: openHistory)
                 }
             }
             .refreshable {
@@ -92,6 +160,8 @@ private struct AccountSection: View {
     @Environment(AccountStore.self) private var store
     let state: AccountState
     let referenceDate: Date
+    let openOnDemand: () -> Void
+    let openHistory: (UUID, String) -> Void
 
     var body: some View {
         Group {
@@ -100,7 +170,15 @@ private struct AccountSection: View {
                     ForEach(snapshot.windowGroups, id: \.first!.id) { group in
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(group) { window in
-                                UsageWindowRow(window: window, font: .subheadline, barHeight: 8)
+                                Button {
+                                    openHistory(state.id, window.id)
+                                } label: {
+                                    UsageWindowRow(window: window,
+                                                   font: .subheadline,
+                                                   barHeight: 8)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint("Shows usage history")
                             }
                             ResetStatusLine(snapshot: snapshot,
                                             group: group,
@@ -115,6 +193,9 @@ private struct AccountSection: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if snapshot.onDemand?.isEmpty == false {
+                        OnDemandSummaryButton(snapshot: snapshot, action: openOnDemand)
+                    }
                 } else if state.activeFailure == nil {
                     HStack {
                         ProgressView()
@@ -125,12 +206,12 @@ private struct AccountSection: View {
                 HStack(spacing: 7) {
                     ProviderLogo(provider: state.account.provider, size: 20)
                     Text(state.account.label)
-                        .font(.headline.weight(.bold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .textCase(nil)
-                    if let plan = state.snapshot?.plan {
-                        Text(plan.capitalized)
-                            .font(.caption2)
+                    if let plan = state.snapshot?.displayPlan {
+                        Text(plan)
+                            .font(.caption)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(.quaternary, in: Capsule())
@@ -157,7 +238,9 @@ private struct AccountSection: View {
                     RefreshIssueNotice(
                         providerName: state.account.provider.displayName,
                         failure: failure,
-                        hasCachedSnapshot: state.snapshot != nil) {
+                        hasCachedSnapshot: state.snapshot != nil,
+                        retryState: store.retryState(for: state.id,
+                                                     at: referenceDate)) {
                             Task {
                                 await store.refresh(ids: [state.id], reason: .manual)
                             }

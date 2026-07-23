@@ -1,8 +1,8 @@
 # AMMO — Build-It-Yourself Spec
 
-**Ammo** is an iOS app + home-screen widgets that show how much usage you have left
-across your AI coding subscriptions — Claude Code and Codex today, Cursor and
-Antigravity later.
+**Ammo** is an iOS app + home-screen widgets that show how much included and
+on-demand usage you have left across your AI coding subscriptions — Claude Code,
+Codex, and Cursor today; Antigravity later.
 
 This document is the deliverable. It exists so that **you can rebuild Ammo yourself**
 by handing this spec to a coding agent (Claude Code or similar), instead of granting a
@@ -59,10 +59,16 @@ Three layers, strictly separated:
 ```swift
 enum ProviderID { case claude, codex, cursor, antigravity }
 enum WindowKind { case session, weekly, monthly, modelScoped, unknown }
+enum OnDemandKind { case creditBalance, spendingLimit, personalAllocation,
+                    teamBudget, pooledBudget }
+enum OnDemandScope { case personal, team, organization }
 
 struct LimitWindow { kind, label, usedPercent, resetsAt }   // normalized unit
+struct OnDemandUsage { id, label, kind, scope, isEnabled, isUnlimited,
+                       currencyCode, used, limit, remaining, usedPercent,
+                       periodStart, resetsAt }
 struct UsageSnapshot { provider, plan, windows: [LimitWindow],
-                       resetCreditsAvailable, fetchedAt }
+                       resetCreditsAvailable, onDemand: [OnDemandUsage]?, fetchedAt }
 struct OAuthTokens { accessToken, refreshToken?, expiresAt?, accountID? }
 
 protocol UsageProvider {
@@ -109,6 +115,22 @@ and any number of accounts per provider reuse one adapter.
    retains its meter and says `Reset due`; an untouched Claude session with no
    reset timestamp says `Not started`.
 
+### Local usage history
+
+Every successfully accepted snapshot also enters a local App Group history file.
+History is downsampled to at most one observation per account every 15 minutes,
+except that confirmed cycle changes are always retained. Samples expire after 90
+days and are deleted with their account. No history leaves the device.
+
+The app presents `Usage`, `On-demand`, and `History` as three native tabs. Included
+rate-limit windows remain in Usage; monetary balances and spending controls remain
+separate in On-demand and are never blended into a synthetic percentage. History is
+scoped to one account and one provider limit at a time. Its 12-week activity grid sums positive,
+reset-aware changes in `usedPercent` on the day Ammo first observed them; it does
+not imply exact prompt, message, or token counts. The remaining-allowance chart uses
+the original observations, marks confirmed rollovers, and breaks the line across
+large observation gaps rather than interpolating missing data.
+
 ### Future reset notifications
 
 All successful fetches commit through `SharedStore.commit(snapshot:for:)`, which
@@ -119,18 +141,25 @@ this single seam so app-owned and widget-owned refreshes behave identically.
 The detector should create durable, deduplicated events for: a window's `resetsAt`
 advancing with utilization falling (scheduled 5-hour, weekly, or Cursor allocation
 rollover); a material utilization drop without a corresponding scheduled rollover
-(provider/account-specific reset); and an increase in Codex
-`resetCreditsAvailable` (a newly banked usage reset). Notification authorization and
-delivery remain separate from detection, allowing events to be recorded even when
-notifications are disabled and delivered at most once if the user enables them.
+(provider/account-specific reset); an increase in Codex `resetCreditsAvailable` (a
+newly banked usage reset); on-demand spend beginning after included usage is
+exhausted; low remaining balance; an exhausted balance/cap; and provider
+replenishment. `OnDemandUsage.id` is the stable comparison key. Notification
+authorization and delivery remain separate from detection, allowing events to be
+recorded even when notifications are disabled and delivered at most once if the
+user enables them. The implementation comment at `SharedStore.commit` marks this
+integration seam; notification delivery is outside the current on-demand scope.
 
 ---
 
 ## Provider contracts
 
-> **Date-stamped:** every contract below was verified live on **2026-07-16**. These
-> are undocumented APIs; they drift. If a request fails or a field is missing, go to
-> "Re-deriving the contracts" before changing any code.
+> **Date-stamped:** the core endpoints and captured account fixtures were verified
+> live on **2026-07-16**. The expanded on-demand shapes were rechecked on
+> **2026-07-21** against the current maintained CodexBar parsers and tests; Cursor's
+> authenticated live proof remains explicitly pending below. These are undocumented
+> APIs and may drift. If a request fails or a field is missing, go to "Re-deriving
+> the contracts" before changing code.
 
 ### Claude (Anthropic) — VERIFIED 2026-07-16
 
@@ -154,7 +183,13 @@ Response (fields Ammo consumes):
     { "kind": "weekly_scoped", "percent": 7,  "resets_at": "…",
       "scope": { "model": { "display_name": "Fable" } } }       // per-model bucket
   ],
-  "extra_usage": { /* overage credits — optional display */ }
+  "extra_usage": {
+    "is_enabled": true,
+    "monthly_limit": 2000,     // minor currency units ($20.00)
+    "used_credits": 520,       // minor currency units ($5.20)
+    "utilization": 26.0,
+    "currency": "USD"
+  }
 }
 ```
 
@@ -163,6 +198,26 @@ Mapping: `limits[]` entries → `LimitWindow`s (`session`→Session, `weekly_all
 `five_hour`/`seven_day` buckets if `limits` is absent. Timestamps are ISO 8601 with
 **6-digit fractional seconds** — `ISO8601DateFormatter` rejects these; trim to
 milliseconds before parsing.
+
+`extra_usage` maps to one personal `OnDemandUsage.spendingLimit`. Convert
+`monthly_limit` and `used_credits` from minor to major currency units, retain the
+provider-reported utilization, and preserve `is_enabled == false` as an explicit
+disabled entry rather than treating the field as absent.
+
+**Plan profile (best effort)**
+
+```
+GET https://api.anthropic.com/api/oauth/profile
+Authorization: Bearer <access_token>
+anthropic-beta: oauth-2025-04-20
+```
+
+Fetch this alongside usage so it adds no serial latency. Plan metadata is supplemental:
+profile HTTP or decode failure must never fail the usage refresh. Prefer
+`subscription_type`, then organization `organization_type`, then `rate_limit_tier` /
+`seat_tier`; normalize only recognized Pro, Max, Team, Enterprise, and Ultra values.
+The current Claude CLI exposes this profile surface, but it is undocumented and must
+remain tolerant of missing or moved fields.
 
 **OAuth (PKCE, public client — the same client the Claude Code CLI uses)**
 
@@ -194,7 +249,7 @@ https://claude.ai/oauth/authorize?code=true
 Ammo. The phone gets its **own token pair** — it never shares tokens with, nor can it
 invalidate, a CLI login elsewhere.
 
-### Codex (OpenAI) — VERIFIED 2026-07-16
+### Codex (OpenAI) — VERIFIED 2026-07-21
 
 **Usage endpoint**
 
@@ -209,13 +264,23 @@ Response (fields Ammo consumes):
 
 ```jsonc
 {
-  "plan_type": "plus",
+  "plan_type": "self_serve_business_usage_based",
   "rate_limit": {
     "primary_window":   { "used_percent": 5, "limit_window_seconds": 604800,
                           "reset_after_seconds": 590909, "reset_at": 1784797038 },
     "secondary_window": null
   },
   "additional_rate_limits": null,          // shape unverified (null in the wild)
+  "credits": {
+    "has_credits": true, "unlimited": false, "balance": null,
+    "overage_limit_reached": false
+  },
+  "spend_control": {
+    "individual_limit": {                  // enterprise/personal spend control
+      "limit": 100, "used": 37.5, "remaining_percent": 62.5,
+      "resets_at": 1784797038
+    }
+  },
   "rate_limit_reset_credits": { "available_count": 1 }   // "1 reset available"
 }
 ```
@@ -225,6 +290,54 @@ position** — OpenAI removed the 5-hour Codex session limit, so plans currently
 a weekly window only, and windows may reshuffle again (<24 h → Session, <8 d → Weekly,
 else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
 "N resets available".
+
+Map `self_serve_business_usage_based` to the user-facing badge **Business**; unknown
+raw tags get word-wise formatting instead of exposing underscores. `credits` is a
+provider-credit unit, not USD. For Business it is organization-scoped, and
+`balance: null` means only that OAuth cannot read the amount—not that the balance is
+zero. Decode `credits.overage_limit_reached`. Decode the current
+`spend_control.individual_limit` nesting, while retaining the older top-level and
+`rate_limit.individual_limit` fallbacks. Purchased usage credits and
+`rate_limit_reset_credits` are different products and must never share a label or
+normalized field.
+
+**Separately authenticated workspace billing**
+
+Codex OAuth remains the rate-limit source. To resolve the organization credit amount,
+Ammo offers an explicit, persistent `WKWebView` session at
+`https://chatgpt.com/admin/billing`. The user signs in to the owning workspace inside
+Ammo; Ammo does not import Safari/desktop cookies and does not reuse the Codex OAuth
+token. In the authenticated page's same-origin JavaScript world Ammo calls:
+
+```
+GET https://chatgpt.com/backend-api/accounts/{account_id}/remaining_balance
+Authorization: Bearer <web-session access token>
+ChatGPT-Account-ID: <account_id>
+```
+
+Live response captured 2026-07-21:
+
+```json
+{
+  "balance": "21062.8748975000",
+  "expiring_balance_details": [
+    {
+      "amount_granted": "25000",
+      "amount_remaining": "21062.8748975000",
+      "expiry_date": "2026-07-29T20:59:00Z",
+      "grant_type": "promotional_credit"
+    }
+  ]
+}
+```
+
+The billing UI rendered `21,063 / RON 3,622.81`; Ammo stores the exact credit balance
+and expiration plus this local-currency equivalent when present. Only the sanitized
+parsed balance is cached in the App Group. Web cookies and tokens remain in the
+`WKWebsiteDataStore`. Subsequent OAuth refreshes enrich an unresolved credit marker
+from that account-bound cache so widgets can use it. If OAuth says credits exist but
+billing is not connected, render **Balance unavailable** with a Connect workspace
+billing action.
 
 **OAuth**
 
@@ -257,11 +370,27 @@ Cookie: WorkosCursorSessionToken=<user_id>%3A%3A<access_token>
 Accept: application/json
 ```
 
-For this implementation, `individualUsage.plan.autoPercentUsed` (the dashboard's
-current "First-party models" lane) maps to a monthly **Composer** window and
+For included usage, `individualUsage.plan.autoPercentUsed` (the dashboard's current
+"First-party models" lane) maps to a monthly **Composer** window and
 `apiPercentUsed` maps to a monthly **API** window. Both use `billingCycleEnd` as
-their reset. `totalPercentUsed`, monetary plan fields, legacy request counts, and
-all on-demand spending fields are deliberately ignored.
+their reset. Percent fields are already percentages, including fractional values
+below one; do not multiply by 100.
+
+Cursor's monetary structures are all decoded independently and converted from cents
+to major USD units:
+
+- `individualUsage.onDemand` → personal on-demand spending limit.
+- `individualUsage.overall` → enterprise/team member personal allocation.
+- `teamUsage.onDemand` → team on-demand budget.
+- `teamUsage.pooled` → shared organization pool.
+
+Each present block remains a distinct `OnDemandUsage` entry, including an explicitly
+disabled block. Do not collapse personal and shared money into one preferred balance.
+`billingCycleStart` and `billingCycleEnd` provide the period boundaries. If an
+enterprise payload contains monetary data but no Composer/API percentages, the
+snapshot remains valid so its On-demand tab can still render.
+An enabled block with omitted `used`/`limit`/`remaining` is **amount unavailable**,
+not implicitly unlimited; only an explicit `isUnlimited` value can claim unlimited.
 
 Onboarding opens `https://cursor.com/loginDeepControl` with a PKCE challenge and
 UUID, then polls `https://api2.cursor.sh/auth/poll` until Cursor returns a token
@@ -326,6 +455,11 @@ Both targets carry the App Group `group.com.brandon.ammo`. `Shared/` is compiled
 into each target (not a framework): `SharedStore` (accounts + latest snapshots as
 JSON in the App Group; app writes, widget reads) and the usage color/glyph styling.
 
+The app shell uses three tabs: **Usage** for included allowance, **On-demand** for
+prepaid balances and personal/team/organization spend controls, and **History** for
+local rate-limit observations. A compact row in each Usage account section links to
+On-demand when that provider reports monetary capacity.
+
 ### Storage & trust boundaries
 
 - **Keychain** (`KeychainStore`, service `com.brandon.ammo.tokens`): one generic
@@ -365,12 +499,20 @@ state, then request widget reloads after app-owned changes.
   label, one bar per window ("% left" framing), and locally advancing reset
   countdowns. Untouched Claude sessions say `Not started`; unconfirmed elapsed
   resets say `Reset due` without changing the last provider-reported meter.
-- **Medium widget** (`AmmoAllAccounts`, systemMedium): all accounts, one compact
-  row each (glyph, label, worst-window bar, %).
+- **Accounts widget** (`AmmoAllAccounts`): systemSmall shows the first two configured
+  accounts as compact cards; systemMedium shows the first four as rows; systemLarge
+  shows full details for the first two. Each instance exposes ordered First–Fourth
+  account slots. With no explicit configuration, accounts with quota windows sort
+  first, metered-only accounts follow, and unavailable accounts are last.
 - **Lock-screen** (`AmmoAccount`, accessoryCircular): gauge of "% left" for the
   account's most-consumed window.
-- Per-widget account choice through `AppIntentConfiguration` (`SelectAccountIntent`
-  → `AccountEntity`, hydrated from the App Group snapshot file).
+- **Activity widget** (`AmmoActivity`, systemSmall/systemMedium): a configurable
+  account + limit heatmap. Small shows seven weeks; medium shows thirteen weeks
+  beside the current remaining percentage. Tapping opens that exact limit in the
+  app's History tab.
+- Per-widget account choice through `AppIntentConfiguration`: `SelectAccountIntent`
+  chooses one account, while `SelectAccountsIntent` stores the ordered multi-account
+  slots. Both hydrate `AccountEntity` values from the App Group snapshot file.
 - Timeline: local countdown entries plus an adaptive reload policy; timeline
   generation may fetch through the shared coordinator, and the app also forces a
   reload after every successful fetch.

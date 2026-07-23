@@ -20,7 +20,20 @@ private let claudeFixture = """
      "resets_at": "2026-07-17T17:59:59.838327+00:00",
      "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}, "is_active": false}
   ],
-  "extra_usage": {"is_enabled": false, "monthly_limit": 1700, "used_credits": 140.0}
+  "extra_usage": {"is_enabled": false, "monthly_limit": 1700, "used_credits": 140.0,
+                  "utilization": 8.235, "currency": "EUR"}
+}
+"""
+
+private let claudeProfileFixture = """
+{
+  "account": {"uuid": "account-test", "email_address": "test@example.com"},
+  "organization": {
+    "uuid": "organization-test",
+    "organization_type": "claude_max",
+    "rate_limit_tier": "default_claude_max_20x",
+    "seat_tier": null
+  }
 }
 """
 
@@ -28,7 +41,7 @@ private let codexFixture = """
 {
   "user_id": "user-TESTTESTTESTTESTTESTTEST",
   "email": "test@example.com",
-  "plan_type": "plus",
+  "plan_type": "self_serve_business_usage_based",
   "rate_limit": {
     "allowed": true,
     "limit_reached": false,
@@ -41,8 +54,32 @@ private let codexFixture = """
     "secondary_window": null
   },
   "additional_rate_limits": null,
-  "credits": {"has_credits": false, "unlimited": false, "balance": "0"},
+  "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": null,
+    "overage_limit_reached": false
+  },
+  "spend_control": {
+    "individual_limit": {
+      "limit": "100", "used": 37.5, "remaining_percent": "62.5", "resets_at": "1784797038"
+    }
+  },
   "rate_limit_reset_credits": {"available_count": 1}
+}
+"""
+
+private let codexBillingFixture = """
+{
+  "balance": "21062.8748975000",
+  "expiring_balance_details": [
+    {
+      "amount_granted": "25000",
+      "amount_remaining": "21062.8748975000",
+      "expiry_date": "2026-07-29T20:59:00Z",
+      "grant_type": "promotional_credit"
+    }
+  ]
 }
 """
 
@@ -60,10 +97,16 @@ private let cursorFixture = """
       "totalPercentUsed": 1.0
     },
     "onDemand": {
-      "enabled": false,
-      "used": 0,
-      "limit": null
-    }
+      "enabled": true,
+      "used": 550,
+      "limit": 5000,
+      "remaining": 4450
+    },
+    "overall": {"enabled": true, "used": 7384, "limit": 10000, "remaining": 2616}
+  },
+  "teamUsage": {
+    "onDemand": {"enabled": true, "used": 2500, "limit": 25000, "remaining": 22500},
+    "pooled": {"enabled": true, "used": 120000, "limit": 500000, "remaining": 380000}
   }
 }
 """
@@ -102,6 +145,33 @@ private let cursorFixture = """
         let date = ISO8601.parse("2026-07-16T15:19:59.837992+00:00")
         #expect(date != nil)
     }
+
+    @Test func mapsExtraUsageMinorUnitsAndDisabledState() throws {
+        let response = try ClaudeProvider.decoder.decode(
+            ClaudeProvider.Response.self, from: Data(claudeFixture.utf8))
+        let extra = try #require(ClaudeProvider.onDemand(from: response)?.first)
+
+        #expect(extra.id == "claude-extra-usage")
+        #expect(extra.isEnabled == false)
+        #expect(extra.currencyCode == "EUR")
+        #expect(extra.used == 1.4)
+        #expect(extra.limit == 17)
+        #expect(extra.remainingAmount == 15.6)
+        #expect(extra.usedPercent == 8.235)
+    }
+
+    @Test func mapsOAuthProfileToPlanBadge() throws {
+        let profile = try #require(ClaudeProvider.profile(from: Data(claudeProfileFixture.utf8)))
+        #expect(ClaudeProvider.plan(from: profile) == "max")
+    }
+
+    @Test func prefersSubscriptionTypeAndIgnoresGenericTiers() throws {
+        let data = Data("""
+        {"subscription_type":"pro","rate_limit_tier":"default_claude_ai"}
+        """.utf8)
+        let profile = try #require(ClaudeProvider.profile(from: data))
+        #expect(ClaudeProvider.plan(from: profile) == "pro")
+    }
 }
 
 @Suite struct CodexDecodeTests {
@@ -110,7 +180,7 @@ private let cursorFixture = """
             CodexProvider.Response.self, from: Data(codexFixture.utf8))
         let windows = CodexProvider.windows(from: response)
 
-        #expect(response.planType == "plus")
+        #expect(response.planType == "self_serve_business_usage_based")
         #expect(response.rateLimitResetCredits?.availableCount == 1)
         #expect(windows.count == 1)
         #expect(windows[0].kind == .weekly)
@@ -124,6 +194,51 @@ private let cursorFixture = """
         #expect(CodexProvider.classify(windowSeconds: 604800) == (.weekly, "Weekly"))
         #expect(CodexProvider.classify(windowSeconds: 2_592_000) == (.monthly, "Monthly"))
         #expect(CodexProvider.classify(windowSeconds: nil) == (.unknown, "Usage"))
+    }
+
+    @Test func keepsPurchasedCreditsSeparateFromResetTokensAndSpendControls() throws {
+        let response = try CodexProvider.decoder.decode(
+            CodexProvider.Response.self, from: Data(codexFixture.utf8))
+        let entries = try #require(CodexProvider.onDemand(from: response))
+
+        #expect(entries.count == 2)
+        #expect(entries[0].id == "codex-usage-credits")
+        #expect(entries[0].remainingAmount == nil)
+        #expect(entries[0].kind == .creditBalance)
+        #expect(entries[0].scope == .organization)
+        #expect(entries[0].effectiveUnit == .credits)
+        #expect(entries[0].isExhausted == false)
+        #expect(entries[1].id == "codex-individual-limit")
+        #expect(entries[1].used == 37.5)
+        #expect(entries[1].limit == 100)
+        #expect(entries[1].remainingAmount == 62.5)
+        #expect(entries[1].resetsAt == Date(timeIntervalSince1970: 1_784_797_038))
+        #expect(response.rateLimitResetCredits?.availableCount == 1)
+    }
+
+    @Test func mapsBusinessPlanToReadableBadge() throws {
+        let response = try CodexProvider.decoder.decode(
+            CodexProvider.Response.self, from: Data(codexFixture.utf8))
+        let snapshot = UsageSnapshot(
+            provider: .codex,
+            plan: response.planType,
+            windows: [])
+
+        #expect(snapshot.displayPlan == "Business")
+    }
+
+    @Test func parsesAuthenticatedWorkspaceBillingBalance() throws {
+        let usage = try CodexProvider.billingOnDemandUsage(
+            from: Data(codexBillingFixture.utf8),
+            pageText: "Credits balance\n21,063 credits expiring on July 29\n21,063 / RON 3,622.81")
+
+        #expect(usage.id == "codex-usage-credits")
+        #expect(usage.scope == .organization)
+        #expect(usage.effectiveUnit == .credits)
+        #expect(usage.remainingAmount == 21_062.8748975)
+        #expect(usage.expiresAt == ISO8601.parse("2026-07-29T20:59:00Z"))
+        #expect(usage.equivalentCurrencyCode == "RON")
+        #expect(usage.equivalentAmount == 3_622.81)
     }
 }
 
@@ -160,5 +275,46 @@ private let cursorFixture = """
         let windows = CursorProvider.windows(from: response)
 
         #expect(windows.map(\.usedPercent) == [100, 0])
+    }
+
+    @Test func preservesPersonalTeamAndEnterpriseOnDemandPools() throws {
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(cursorFixture.utf8))
+        let entries = try #require(CursorProvider.onDemand(from: response))
+
+        #expect(entries.map(\.id) == [
+            "cursor-personal-on-demand",
+            "cursor-personal-allocation",
+            "cursor-team-on-demand",
+            "cursor-shared-pool",
+        ])
+        #expect(entries[0].used == 5.5)
+        #expect(entries[0].limit == 50)
+        #expect(entries[0].remainingAmount == 44.5)
+        #expect(entries[1].remainingAmount == 26.16)
+        #expect(entries[2].scope == .team)
+        #expect(entries[2].limit == 250)
+        #expect(entries[3].scope == .organization)
+        #expect(entries[3].used == 1_200)
+        #expect(entries[3].limit == 5_000)
+        #expect(entries.allSatisfy { $0.resetsAt == ISO8601.parse("2026-08-10T00:00:00.000Z") })
+    }
+
+    @Test func doesNotInventUnlimitedFromMissingCursorAmounts() throws {
+        let fixture = """
+        {
+          "membershipType": "team",
+          "individualUsage": {
+            "onDemand": {"enabled": true}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let usage = try #require(CursorProvider.onDemand(from: response)?.first)
+
+        #expect(usage.isEnabled == true)
+        #expect(usage.isUnlimited == false)
+        #expect(usage.remainingAmount == nil)
     }
 }

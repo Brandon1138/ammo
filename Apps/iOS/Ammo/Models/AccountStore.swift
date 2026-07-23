@@ -10,16 +10,35 @@ final class AccountStore {
     static let shared = AccountStore()
 
     private(set) var states: [AccountState]
-    private(set) var isRefreshing = false
+    private(set) var historySamples: [UsageHistorySample]
+    private(set) var retryStates: [UUID: AccountRetryState] = [:]
+    private var refreshGenerations: [UUID: UInt] = [:]
+
+    var isRefreshing: Bool {
+        retryStates.values.contains(.refreshing)
+    }
 
     private init() {
-#if DEBUG
+#if targetEnvironment(simulator)
+        if Self.usesHistoryPreview {
+            states = Self.historyPreviewStates
+            historySamples = Self.historyPreviewSamples
+            return
+        }
         if Self.usesErrorPreview {
             states = Self.errorPreviewStates
+            historySamples = []
+            retryStates = Self.errorPreviewRetryStates(for: states)
             return
         }
 #endif
         states = SharedStore.load()
+        historySamples = UsageHistoryStore.load()
+        retryStates = Dictionary(uniqueKeysWithValues: states.map { state in
+            let eligibleAt = RefreshLedgerStore.nextEligibleAt(accountID: state.id,
+                                                                reason: .manual)
+            return (state.id, eligibleAt.map(AccountRetryState.coolingDown) ?? .ready)
+        })
         for state in states {
             do {
                 try KeychainStore.migrateLegacyItemIfNeeded(for: state.account.id)
@@ -46,9 +65,11 @@ final class AccountStore {
     func remove(_ account: StoredAccount) {
         KeychainStore.delete(for: account.id)
         RefreshLedgerStore.remove(accountID: account.id)
+        CodexBillingCache.remove(accountID: account.id)
         do {
             try SharedStore.remove(id: account.id)
             states = SharedStore.load()
+            historySamples = UsageHistoryStore.load()
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
             AmmoLog.sharedStore.error("Unable to remove account: \(String(describing: error), privacy: .private)")
@@ -64,26 +85,125 @@ final class AccountStore {
 
     @discardableResult
     func refresh(ids: [UUID], reason: RefreshReason = .manual) async -> [RefreshOutcome] {
-#if DEBUG
-        if Self.usesErrorPreview { return [] }
+#if targetEnvironment(simulator)
+        if Self.usesErrorPreview || Self.usesHistoryPreview { return [] }
 #endif
         guard !ids.isEmpty else { return [] }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        let outcomes = await UsageRefreshCoordinator.shared.refresh(accountIDs: ids,
+        let uniqueIDs = Array(Set(ids))
+        var generations: [UUID: UInt] = [:]
+        for id in uniqueIDs {
+            let generation = (refreshGenerations[id] ?? 0) &+ 1
+            refreshGenerations[id] = generation
+            generations[id] = generation
+            retryStates[id] = .refreshing
+        }
+        let outcomes = await UsageRefreshCoordinator.shared.refresh(accountIDs: uniqueIDs,
                                                                      reason: reason)
         states = SharedStore.load()
+        historySamples = UsageHistoryStore.load()
+        let outcomesByID = Dictionary(uniqueKeysWithValues: outcomes.map { ($0.accountID, $0) })
+        for id in uniqueIDs where refreshGenerations[id] == generations[id] {
+            retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
+        }
         if outcomes.contains(where: \.changedSnapshot) {
             WidgetCenter.shared.reloadAllTimelines()
         }
         return outcomes
     }
+
+    func retryState(for accountID: UUID, at date: Date) -> AccountRetryState {
+        guard let state = retryStates[accountID] else { return .ready }
+        if case .coolingDown(let eligibleAt) = state, eligibleAt <= date {
+            return .ready
+        }
+        return state
+    }
+
+    func reloadHistory() {
+#if targetEnvironment(simulator)
+        if Self.usesHistoryPreview {
+            historySamples = Self.historyPreviewSamples
+            return
+        }
+#endif
+        historySamples = UsageHistoryStore.load()
+    }
+
+    // MARK: - Codex workspace billing
+
+    func codexBillingAccountID(for account: StoredAccount) -> String? {
+        guard account.provider == .codex else { return nil }
+        return KeychainStore.load(for: account.id)?.accountID
+    }
+
+    func captureCodexBilling(
+        responseData: Data,
+        pageText: String?,
+        billingAccountID: String,
+        for account: StoredAccount
+    ) throws {
+        guard account.provider == .codex else {
+            throw UsageError.malformedResponse("billing capture attached to a non-Codex account")
+        }
+        let usage = try CodexProvider.billingOnDemandUsage(
+            from: responseData,
+            pageText: pageText)
+        try CodexBillingCache.save(CodexBillingCacheEntry(
+            accountID: account.id,
+            billingAccountID: billingAccountID,
+            usage: usage,
+            fetchedAt: Date()))
+
+        guard let state = states.first(where: { $0.account.id == account.id }),
+              let snapshot = state.snapshot
+        else { return }
+        var entries = snapshot.onDemand ?? []
+        entries.removeAll { $0.id == usage.id }
+        entries.insert(usage, at: 0)
+        let enriched = UsageSnapshot(
+            provider: snapshot.provider,
+            plan: snapshot.plan,
+            windows: snapshot.windows,
+            resetCreditsAvailable: snapshot.resetCreditsAvailable,
+            onDemand: entries,
+            fetchedAt: Date())
+        try SharedStore.commit(snapshot: enriched, for: account.id)
+        states = SharedStore.load()
+        historySamples = UsageHistoryStore.load()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+#if targetEnvironment(simulator)
+    func installHistoryPreview() {
+        states = Self.historyPreviewStates
+        historySamples = Self.historyPreviewSamples
+    }
+#endif
 }
 
-#if DEBUG
+#if targetEnvironment(simulator)
 private extension AccountStore {
+    static var usesHistoryPreview: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ammo-history-preview")
+            || ProcessInfo.processInfo.environment["AMMO_HISTORY_PREVIEW"] == "1"
+            || UserDefaults.standard.bool(forKey: "AmmoHistoryPreview")
+    }
+
     static var usesErrorPreview: Bool {
         ProcessInfo.processInfo.arguments.contains("--ammo-error-preview")
+    }
+
+    static func errorPreviewRetryStates(for states: [AccountState]) -> [UUID: AccountRetryState] {
+        let arguments = ProcessInfo.processInfo.arguments
+        let state: AccountRetryState
+        if arguments.contains("--ammo-error-preview-refreshing") {
+            state = .refreshing
+        } else if arguments.contains("--ammo-error-preview-cooldown") {
+            state = .coolingDown(until: Date().addingTimeInterval(42))
+        } else {
+            state = .ready
+        }
+        return Dictionary(uniqueKeysWithValues: states.map { ($0.id, state) })
     }
 
     static var errorPreviewStates: [AccountState] {
@@ -124,6 +244,185 @@ private extension AccountStore {
                 lastFailure: .rateLimited,
                 updatedAt: now.addingTimeInterval(-7 * 60)),
         ]
+    }
+
+    static var historyPreviewStates: [AccountState] {
+        let now = Date()
+        return [
+            AccountState(
+                account: StoredAccount(
+                    id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                    provider: .codex,
+                    label: "Codex"
+                ),
+                snapshot: UsageSnapshot(
+                    provider: .codex,
+                    plan: "self_serve_business_usage_based",
+                    windows: [
+                        LimitWindow(kind: .weekly,
+                                    label: "Weekly",
+                                    usedPercent: 71,
+                                    resetsAt: now.addingTimeInterval(5.6 * 24 * 60 * 60)),
+                    ],
+                    onDemand: [
+                        OnDemandUsage(id: "codex-usage-credits",
+                                      label: "Usage credits",
+                                      kind: .creditBalance,
+                                      scope: .organization,
+                                      isEnabled: true,
+                                      unit: .credits,
+                                      currencyCode: "",
+                                      remaining: 21_062.8748975,
+                                      expiresAt: now.addingTimeInterval(8 * 24 * 60 * 60),
+                                      equivalentAmount: 3_622.81,
+                                      equivalentCurrencyCode: "RON"),
+                        OnDemandUsage(id: "codex-individual-limit",
+                                      label: "Personal limit",
+                                      kind: .personalAllocation,
+                                      scope: .personal,
+                                      isEnabled: true,
+                                      used: 37.50,
+                                      limit: 100,
+                                      remaining: 62.50,
+                                      resetsAt: now.addingTimeInterval(9 * 24 * 60 * 60)),
+                    ],
+                    fetchedAt: now
+                ),
+                lastError: nil,
+                lastFailure: nil,
+                updatedAt: now
+            ),
+            AccountState(
+                account: StoredAccount(
+                    id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+                    provider: .claude,
+                    label: "Claude"
+                ),
+                snapshot: UsageSnapshot(
+                    provider: .claude,
+                    plan: "max",
+                    windows: [
+                        LimitWindow(kind: .session,
+                                    label: "Session",
+                                    usedPercent: 67,
+                                    resetsAt: now.addingTimeInterval(3.7 * 60 * 60)),
+                        LimitWindow(kind: .weekly,
+                                    label: "Weekly",
+                                    usedPercent: 67,
+                                    resetsAt: now.addingTimeInterval(3.4 * 24 * 60 * 60)),
+                    ],
+                    onDemand: [
+                        OnDemandUsage(id: "claude-extra-usage",
+                                      label: "Extra usage",
+                                      kind: .spendingLimit,
+                                      scope: .personal,
+                                      isEnabled: true,
+                                      currencyCode: "EUR",
+                                      used: 7.63,
+                                      limit: 20,
+                                      remaining: 12.37,
+                                      usedPercent: 38.15),
+                    ],
+                    fetchedAt: now
+                ),
+                lastError: nil,
+                lastFailure: nil,
+                updatedAt: now
+            ),
+            AccountState(
+                account: StoredAccount(
+                    id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+                    provider: .cursor,
+                    label: "Cursor Enterprise"
+                ),
+                snapshot: UsageSnapshot(
+                    provider: .cursor,
+                    plan: "enterprise",
+                    windows: [
+                        LimitWindow(kind: .monthly,
+                                    label: "Composer",
+                                    usedPercent: 42,
+                                    resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                        LimitWindow(kind: .monthly,
+                                    label: "API",
+                                    usedPercent: 18,
+                                    resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                    ],
+                    onDemand: [
+                        OnDemandUsage(id: "cursor-personal-on-demand",
+                                      label: "Personal on-demand",
+                                      kind: .spendingLimit,
+                                      scope: .personal,
+                                      isEnabled: true,
+                                      used: 5.50,
+                                      limit: 50,
+                                      remaining: 44.50,
+                                      resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                        OnDemandUsage(id: "cursor-personal-allocation",
+                                      label: "Personal allocation",
+                                      kind: .personalAllocation,
+                                      scope: .personal,
+                                      isEnabled: true,
+                                      used: 73.84,
+                                      limit: 100,
+                                      remaining: 26.16,
+                                      resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                        OnDemandUsage(id: "cursor-team-on-demand",
+                                      label: "Team on-demand",
+                                      kind: .teamBudget,
+                                      scope: .team,
+                                      isEnabled: true,
+                                      used: 25,
+                                      limit: 250,
+                                      remaining: 225,
+                                      resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                        OnDemandUsage(id: "cursor-shared-pool",
+                                      label: "Shared pool",
+                                      kind: .pooledBudget,
+                                      scope: .organization,
+                                      isEnabled: true,
+                                      used: 1_200,
+                                      limit: 5_000,
+                                      remaining: 3_800,
+                                      resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                    ],
+                    fetchedAt: now
+                ),
+                lastError: nil,
+                lastFailure: nil,
+                updatedAt: now
+            ),
+        ]
+    }
+
+    static var historyPreviewSamples: [UsageHistorySample] {
+        historyPreviewStates.flatMap { state -> [UsageHistorySample] in
+            guard let snapshot = state.snapshot else { return [] }
+            return (-83...0).map { dayOffset in
+                let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: Date()) ?? Date()
+                let daysFromStart = dayOffset + 83
+                let cycleDay = daysFromStart % 7
+                let resetDate = Calendar.current.date(byAdding: .day,
+                                                      value: 7 - cycleDay,
+                                                      to: Calendar.current.startOfDay(for: date))
+                let windows = snapshot.windows.map { window in
+                    let activity = Double((daysFromStart * (state.account.provider == .codex ? 7 : 11)) % 16)
+                    let used = min(96, Double(cycleDay * 11) + activity)
+                    return LimitWindow(kind: window.kind,
+                                       label: window.label,
+                                       usedPercent: used,
+                                       resetsAt: resetDate)
+                }
+                return UsageHistorySample(
+                    accountID: state.id,
+                    snapshot: UsageSnapshot(provider: snapshot.provider,
+                                            plan: snapshot.plan,
+                                            windows: windows,
+                                            onDemand: snapshot.onDemand,
+                                            fetchedAt: date)
+                )
+            }
+        }
     }
 }
 #endif

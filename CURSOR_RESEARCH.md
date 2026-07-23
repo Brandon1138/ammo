@@ -43,10 +43,10 @@ manual escape hatch; (b) on a future macOS build, read Cursor.app's local auth
 from `state.vscdb` (zero-onboarding, macOS-only).
 
 Open items before shipping: confirm the `usage-summary` JSON against a live
-authenticated response from a real plan, confirm the access-token lifetime, and
-confirm the refresh response/rotation behavior. Product scope is settled for this
-pass: show only Composer (first-party models) and included API usage; ignore Total
-and all on-demand spending data.
+authenticated response from real personal and enterprise plans, confirm the
+access-token lifetime, and confirm the refresh response/rotation behavior. Ammo now
+shows Composer/API included usage plus every reported personal, team, and pooled
+on-demand structure without merging their scopes.
 
 ## Terminology
 
@@ -247,10 +247,16 @@ Map `numRequestsTotal / maxRequestUsage` → a percent window.
 | `windows[]` "API"               | `plan.apiPercentUsed` (included API allowance)              |
 | both windows' `kind`            | `.monthly`                                                  |
 | both windows' `resetsAt`        | `billingCycleEnd`                                           |
+| `onDemand[]` personal           | `individualUsage.onDemand` (cents → USD)                    |
+| `onDemand[]` personal allocation| `individualUsage.overall` (cents → USD)                     |
+| `onDemand[]` team               | `teamUsage.onDemand` (cents → USD)                          |
+| `onDemand[]` organization pool  | `teamUsage.pooled` (cents → USD)                            |
 
-`totalPercentUsed`, dollar amounts, legacy request counts, and on-demand fields
-are not mapped in this pass. Compact widgets naturally show the more-consumed of
-Composer/API; detailed app and widget layouts show both with one shared reset.
+`totalPercentUsed`, monetary plan fields, and legacy request counts remain outside
+the On-demand surface. Every present on-demand block is mapped independently,
+including disabled blocks, and uses `billingCycleStart` / `billingCycleEnd` as its
+period boundary. Compact widgets continue to show included Composer/API usage; the
+app's dedicated On-demand tab owns monetary presentation.
 
 **Gotchas to encode as tests/fixtures:**
 
@@ -259,8 +265,12 @@ Composer/API; detailed app and widget layouts show both with one shared reset.
 2. **`billingCycleEnd` uses ISO 8601 with fractional seconds** — same parsing
    hazard the SPEC flags for Claude; strip to milliseconds or use
    `ISO8601DateFormatter` with `.withFractionalSeconds`.
-3. **On-demand is deliberately ignored.** API here means Cursor's included API
-   allowance, not on-demand spending.
+3. **Money is in cents.** Convert `used`, `limit`, and `remaining` to major USD
+   units exactly once. API percentage means Cursor's included API allowance; it is
+   not the same as any `onDemand` block.
+4. **Enterprise scopes stay distinct.** `individualUsage.overall`,
+   `teamUsage.onDemand`, and `teamUsage.pooled` must retain stable, different IDs so
+   the UI and future notification detector never attribute shared spend to a person.
 
 ## Adapter shape (sketch — matches `CodexProvider`)
 
@@ -268,7 +278,8 @@ A `CursorProvider: UsageProvider` would mirror the Codex adapter closely, since
 both use bearer/cookie auth + JWT-claim extraction + a token-refresh POST:
 
 - `fetchUsage(tokens:)` — build the cookie from `tokens.accessToken` + `sub`,
-  `GET /api/usage-summary`, parse only Composer/API per the table above.
+  `GET /api/usage-summary`, parse Composer/API and every on-demand scope in the
+  table above.
 - `refresh(tokens:)` — `POST …/oauth/token` with the refresh-token JSON grant,
   persist rotation.
 - `authorizationRequestURL(pkce:uuid:)` + `pollForTokens(uuid:verifier:)` — the

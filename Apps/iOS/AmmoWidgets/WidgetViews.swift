@@ -39,6 +39,56 @@ struct SetupHintView: View {
     }
 }
 
+// MARK: - Activity (systemSmall + systemMedium)
+
+struct ActivityWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: ActivityEntry
+
+    private var weekCount: Int {
+        family == .systemMedium ? 17 : 7
+    }
+
+    var body: some View {
+        if let state = entry.state,
+           let windowID = entry.windowID,
+           let window = state.snapshot?.windows.first(where: { $0.id == windowID }) {
+            graph(
+                days: UsageHistoryAnalysis.activityDays(
+                    samples: entry.samples,
+                    accountID: state.id,
+                    windowID: window.id,
+                    endingAt: entry.date,
+                    weekCount: weekCount
+                )
+            )
+            .widgetURL(HistoryLink(accountID: state.id, windowID: window.id).url)
+        } else {
+            graph(days: emptyDays)
+        }
+    }
+
+    private var emptyDays: [UsageActivityDay] {
+        UsageHistoryAnalysis.activityDays(
+            samples: [],
+            accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+            windowID: "",
+            endingAt: entry.date,
+            weekCount: weekCount
+        )
+    }
+
+    private func graph(days: [UsageActivityDay]) -> some View {
+        ActivityHeatmap(
+            days: days,
+            spacing: 4,
+            cornerRadius: 2,
+            matchesContainerCorners: true
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// systemSmall: logo + bold name header, then up to two windows as
 /// label / percent / thick bar / reset countdown.
 struct SmallAccountView: View {
@@ -55,7 +105,7 @@ struct SmallAccountView: View {
                     .layoutPriority(1)
                 Spacer(minLength: 0)
             }
-            if let snapshot = state.snapshot {
+            if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
                 ForEach(compactGroups(snapshot), id: \.first!.id) { group in
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(group) { window in
@@ -73,7 +123,7 @@ struct SmallAccountView: View {
                 Spacer(minLength: 0)
             } else {
                 Spacer(minLength: 0)
-                Text(state.activeFailure == nil ? "No data yet" : "Update paused — open Ammo")
+                Text(state.widgetAvailabilityText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -158,7 +208,7 @@ struct ProviderListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(states.widgetOrdered.prefix(2)) { state in
+            ForEach(states.prefix(2)) { state in
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
                         ProviderLogo(provider: state.account.provider, size: 18)
@@ -175,8 +225,8 @@ struct ProviderListView: View {
                                 .widgetAccentable()
                                 .fixedSize(horizontal: true, vertical: false)
                         } else {
-                            Text("—")
-                                .font(.headline)
+                            Text(state.widgetCompactAvailabilityText)
+                                .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -203,7 +253,7 @@ struct MediumAccountsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(states.widgetOrdered.prefix(4)) { state in
+            ForEach(states.prefix(4)) { state in
                 HStack(spacing: 8) {
                     ProviderLogo(provider: state.account.provider, size: 20)
                     Text(state.account.label)
@@ -219,7 +269,7 @@ struct MediumAccountsView: View {
                             .widgetAccentable()
                             .frame(width: 48, alignment: .trailing)
                     } else {
-                        Text(state.activeFailure == nil ? "no data" : "update paused")
+                        Text(state.widgetCompactAvailabilityText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -237,7 +287,7 @@ struct LargeAccountsView: View {
     let referenceDate: Date
 
     private var visibleStates: [AccountState] {
-        Array(states.widgetOrdered.prefix(2))
+        Array(states.prefix(2))
     }
 
     var body: some View {
@@ -269,13 +319,13 @@ private struct LargeProviderSection: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            if let snapshot = state.snapshot {
+            if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
                 ForEach(detailGroups(snapshot), id: \.first!.id) { group in
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(group) { window in
                             UsageWindowRow(window: window,
                                            font: .subheadline,
-                                           barHeight: 6,
+                                           barHeight: 7,
                                            spacing: 3)
                         }
                         ResetStatusLine(snapshot: snapshot,
@@ -285,7 +335,7 @@ private struct LargeProviderSection: View {
                     }
                 }
             } else {
-                Text(state.activeFailure == nil ? "No data yet" : "Update paused — open Ammo")
+                Text(state.widgetAvailabilityText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -306,24 +356,14 @@ private struct LargeProviderSection: View {
     }
 }
 
-private extension Array where Element == AccountState {
-    var widgetOrdered: [AccountState] {
-        sorted { lhs, rhs in
-            let leftOrder = lhs.account.provider.widgetOrder
-            let rightOrder = rhs.account.provider.widgetOrder
-            if leftOrder != rightOrder { return leftOrder < rightOrder }
-            return lhs.account.label.localizedCaseInsensitiveCompare(rhs.account.label) == .orderedAscending
-        }
+private extension AccountState {
+    var widgetAvailabilityText: String {
+        if snapshot?.onDemand?.isEmpty == false { return "Metered usage only" }
+        return activeFailure == nil ? "No usage limits yet" : "Update paused — open Ammo"
     }
-}
 
-private extension ProviderID {
-    var widgetOrder: Int {
-        switch self {
-        case .codex: 0
-        case .claude: 1
-        case .cursor: 2
-        case .antigravity: 3
-        }
+    var widgetCompactAvailabilityText: String {
+        if snapshot?.onDemand?.isEmpty == false { return "Metered" }
+        return activeFailure == nil ? "No limits" : "Paused"
     }
 }

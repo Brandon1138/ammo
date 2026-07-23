@@ -21,7 +21,16 @@ enum RefreshReason: String, Sendable {
 enum RefreshOutcome: Sendable {
     case refreshed(accountID: UUID)
     case cached(accountID: UUID, nextEligibleAt: Date)
-    case failed(accountID: UUID, message: String)
+    case failed(accountID: UUID, message: String, nextEligibleAt: Date?)
+
+    var accountID: UUID {
+        switch self {
+        case .refreshed(let accountID),
+             .cached(let accountID, _),
+             .failed(let accountID, _, _):
+            accountID
+        }
+    }
 
     var changedSnapshot: Bool {
         if case .refreshed = self { return true }
@@ -74,18 +83,20 @@ actor UsageRefreshCoordinator {
         guard let account = SharedStore.load()
             .first(where: { $0.account.id == accountID })?.account
         else {
-            return .failed(accountID: accountID, message: "Account no longer exists")
+            return .failed(accountID: accountID,
+                           message: "Account no longer exists",
+                           nextEligibleAt: nil)
         }
 
         guard let provider = provider(for: account.provider) else {
             let message = "\(account.provider.displayName) is not supported yet"
             try? SharedStore.record(failure: .unavailable, for: accountID)
-            return .failed(accountID: accountID, message: message)
+            return .failed(accountID: accountID, message: message, nextEligibleAt: nil)
         }
         guard var tokens = KeychainStore.load(for: accountID) else {
             let message = "No credentials in Keychain — open Ammo and re-add this account"
             try? SharedStore.record(failure: .authentication, for: accountID)
-            return .failed(accountID: accountID, message: message)
+            return .failed(accountID: accountID, message: message, nextEligibleAt: nil)
         }
 
         let claim = RefreshLedgerStore.claim(accountID: accountID, reason: reason)
@@ -112,11 +123,15 @@ actor UsageRefreshCoordinator {
                 snapshot = try await provider.fetchUsage(tokens: tokens)
             }
 
-            let transition = try SharedStore.commit(snapshot: snapshot, for: accountID)
+            let enrichedSnapshot = CodexBillingCache.enrich(
+                snapshot,
+                accountID: accountID,
+                billingAccountID: tokens.accountID)
+            let transition = try SharedStore.commit(snapshot: enrichedSnapshot, for: accountID)
             RefreshLedgerStore.finishSuccess(accountID: accountID,
-                                             snapshot: snapshot,
+                                             snapshot: enrichedSnapshot,
                                              previousSnapshot: transition?.previousSnapshot,
-                                             at: snapshot.fetchedAt)
+                                             at: enrichedSnapshot.fetchedAt)
             AmmoLog.refresh.info("Refreshed \(account.provider.displayName, privacy: .public) usage from \(reason.rawValue, privacy: .public)")
             return .refreshed(accountID: accountID)
         } catch UsageError.http(let status, _) where status == 401 && account.tokensImported {
@@ -146,8 +161,12 @@ actor UsageRefreshCoordinator {
     ) -> RefreshOutcome {
         try? SharedStore.record(failure: failure, for: accountID)
         RefreshLedgerStore.finishFailure(accountID: accountID, status: status)
+        let nextEligibleAt = RefreshLedgerStore.nextEligibleAt(accountID: accountID,
+                                                               reason: .manual)
         AmmoLog.refresh.error("Usage refresh failed: \(technicalError, privacy: .private)")
-        return .failed(accountID: accountID, message: failure.rawValue)
+        return .failed(accountID: accountID,
+                       message: failure.rawValue,
+                       nextEligibleAt: nextEligibleAt)
     }
 
     private nonisolated static func provider(for id: ProviderID) -> (any UsageProvider)? {

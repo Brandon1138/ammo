@@ -37,9 +37,6 @@ struct ProviderLogo: View {
     }
 
     private var artworkScale: CGFloat {
-        if role == .menu, provider == .codex || provider == .cursor {
-            return 0.82
-        }
         if provider == .codex || provider == .cursor,
            renderingMode != .fullColor {
             return 0.875
@@ -55,6 +52,15 @@ struct ProviderLogo: View {
     }
 
     private var assetName: String? {
+        // Native menus extract the image from Label and ignore SwiftUI frame
+        // modifiers, so these variants carry their optical inset in the asset.
+        if role == .menu {
+            switch provider {
+            case .codex: return "logo-codex-menu"
+            case .cursor: return "logo-cursor-menu"
+            case .claude, .antigravity: break
+            }
+        }
         if provider == .codex, renderingMode != .fullColor {
             return "logo-openai-monochrome"
         }

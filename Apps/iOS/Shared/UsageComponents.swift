@@ -138,6 +138,7 @@ struct InlineStatusNotice: View {
     let systemImage: String
     var actionTitle: String?
     var action: (() -> Void)?
+    var showsActionProgress = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -157,12 +158,34 @@ struct InlineStatusNotice: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let actionTitle, let action {
-                    Button(actionTitle, action: action)
+                    Button(action: action) {
+                        HStack(spacing: 6) {
+                            if showsActionProgress {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                            Text(actionTitle)
+                        }
+                    }
                         .font(.footnote.weight(.semibold))
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .tint(.primary)
+                        .disabled(showsActionProgress)
                         .padding(.top, 3)
+                } else if let actionTitle {
+                    HStack(spacing: 6) {
+                        if showsActionProgress {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            Image(systemName: "clock")
+                        }
+                        Text(actionTitle)
+                    }
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 3)
                 }
             }
             Spacer(minLength: 0)
@@ -178,16 +201,39 @@ struct RefreshIssueNotice: View {
     let providerName: String
     let failure: UsageFailureKind
     let hasCachedSnapshot: Bool
+    let retryState: AccountRetryState
     var retry: (() -> Void)?
 
     var body: some View {
-        InlineStatusNotice(
-            title: failure.refreshTitle,
-            message: failure.refreshMessage(providerName: providerName,
-                                            hasCachedSnapshot: hasCachedSnapshot),
-            systemImage: failure.systemImage,
-            actionTitle: failure.canRetryImmediately ? "Try Again" : nil,
-            action: failure.canRetryImmediately ? retry : nil)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let currentState = retryState.resolved(at: context.date)
+            InlineStatusNotice(
+                title: failure.refreshTitle,
+                message: failure.refreshMessage(providerName: providerName,
+                                                hasCachedSnapshot: hasCachedSnapshot),
+                systemImage: failure.systemImage,
+                actionTitle: actionTitle(for: currentState, at: context.date),
+                action: action(for: currentState),
+                showsActionProgress: currentState == .refreshing)
+        }
+    }
+
+    private func actionTitle(for state: AccountRetryState, at date: Date) -> String? {
+        guard failure.canRetryImmediately else { return nil }
+        switch state {
+        case .ready:
+            return "Try Again"
+        case .coolingDown(let eligibleAt):
+            let seconds = max(1, Int(ceil(eligibleAt.timeIntervalSince(date))))
+            return "Try again in \(seconds)s"
+        case .refreshing:
+            return "Trying again…"
+        }
+    }
+
+    private func action(for state: AccountRetryState) -> (() -> Void)? {
+        guard failure.canRetryImmediately, state == .ready else { return nil }
+        return retry
     }
 }
 

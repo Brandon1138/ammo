@@ -92,11 +92,23 @@ enum SharedStore {
         try mutate { states in
             states.removeAll { $0.account.id == id }
         }
+        do {
+            try UsageHistoryStore.remove(accountID: id)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to remove usage history: \(String(describing: error), privacy: .private)")
+        }
     }
 
-    /// The single snapshot-acceptance seam. A later reset-notification service
-    /// can inspect `previousSnapshot` and `currentSnapshot` here before the new
-    /// value replaces the old one, regardless of whether app or widget fetched.
+    /// The single snapshot-acceptance seam. A later notification service should
+    /// inspect `previousSnapshot` and `currentSnapshot` here before the new value
+    /// replaces the old one, regardless of whether app or widget fetched.
+    ///
+    /// On-demand notification detection belongs at this seam too: compare stable
+    /// `OnDemandUsage.id` values to detect the first paid spend after included
+    /// quota is exhausted ("on-demand started"), low remaining balance, exhausted
+    /// balance/cap, and provider replenishment or reset. Persist deduplicated
+    /// events separately; notification authorization and delivery must not be
+    /// coupled to accepting the snapshot.
     @discardableResult
     static func commit(snapshot: UsageSnapshot, for id: UUID) throws -> SnapshotTransition? {
         var transition: SnapshotTransition?
@@ -110,6 +122,11 @@ enum SharedStore {
             transition = SnapshotTransition(account: states[index].account,
                                             previousSnapshot: previous,
                                             currentSnapshot: snapshot)
+        }
+        do {
+            try UsageHistoryStore.record(snapshot: snapshot, for: id)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to record usage history: \(String(describing: error), privacy: .private)")
         }
         return transition
     }

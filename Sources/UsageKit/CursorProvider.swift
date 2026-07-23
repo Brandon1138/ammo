@@ -34,13 +34,15 @@ public struct CursorProvider: UsageProvider {
             throw UsageError.malformedResponse("cursor usage: \(error)")
         }
         let windows = Self.windows(from: response)
-        guard windows.count == 2 else {
+        let onDemand = Self.onDemand(from: response)
+        guard !windows.isEmpty || onDemand != nil else {
             throw UsageError.malformedResponse(
-                "cursor usage: expected both Composer and included API percentages")
+                "cursor usage: response contained no included or on-demand usage")
         }
         return UsageSnapshot(provider: .cursor,
                              plan: response.membershipType,
-                             windows: windows)
+                             windows: windows,
+                             onDemand: onDemand)
     }
 
     public func refresh(tokens: OAuthTokens) async throws -> OAuthTokens {
@@ -120,23 +122,60 @@ public struct CursorProvider: UsageProvider {
     }()
 
     struct Response: Decodable {
+        struct MonetaryUsage: Decodable {
+            let enabled: Bool?
+            let isUnlimited: Bool?
+            /// Cursor reports all monetary values in cents.
+            let used: Int?
+            let limit: Int?
+            let remaining: Int?
+        }
+
         struct IndividualUsage: Decodable {
             struct Plan: Decodable {
+                struct Breakdown: Decodable {
+                    let included: Int?
+                    let bonus: Int?
+                    let total: Int?
+                }
+
+                let enabled: Bool?
+                let used: Int?
+                let limit: Int?
+                let remaining: Int?
+                let breakdown: Breakdown?
                 let autoPercentUsed: Double?
                 let composerPercentUsed: Double?
                 let firstPartyPercentUsed: Double?
                 let apiPercentUsed: Double?
+                let totalPercentUsed: Double?
 
                 var composerUsedPercent: Double? {
                     firstPartyPercentUsed ?? composerPercentUsed ?? autoPercentUsed
                 }
             }
             let plan: Plan?
+            let onDemand: MonetaryUsage?
+            /// Team and enterprise members may receive a personal cap here
+            /// even when the ordinary `plan` block is absent.
+            let overall: MonetaryUsage?
         }
 
+        struct TeamUsage: Decodable {
+            let onDemand: MonetaryUsage?
+            /// Shared team/enterprise pool across members.
+            let pooled: MonetaryUsage?
+        }
+
+        let billingCycleStart: String?
         let billingCycleEnd: String?
         let membershipType: String?
+        let limitType: String?
+        let isUnlimited: Bool?
+        let autoModelSelectedDisplayMessage: String?
+        let namedModelSelectedDisplayMessage: String?
         let individualUsage: IndividualUsage?
+        let teamUsage: TeamUsage?
     }
 
     struct PollResponse: Decodable {
@@ -167,6 +206,62 @@ public struct CursorProvider: UsageProvider {
                                        resetsAt: reset))
         }
         return windows
+    }
+
+    static func onDemand(from response: Response) -> [OnDemandUsage]? {
+        let periodStart = ISO8601.parse(response.billingCycleStart)
+        let resetsAt = ISO8601.parse(response.billingCycleEnd)
+        var entries: [OnDemandUsage] = []
+
+        func append(
+            _ value: Response.MonetaryUsage?,
+            id: String,
+            label: String,
+            kind: OnDemandKind,
+            scope: OnDemandScope
+        ) {
+            guard let value else { return }
+            let used = value.used.map(Self.majorCurrencyUnits)
+            let limit = value.limit.map(Self.majorCurrencyUnits)
+            let remaining = value.remaining.map(Self.majorCurrencyUnits)
+            entries.append(OnDemandUsage(
+                id: id,
+                label: label,
+                kind: kind,
+                scope: scope,
+                isEnabled: value.enabled,
+                isUnlimited: value.isUnlimited == true,
+                currencyCode: "USD",
+                used: used,
+                limit: limit,
+                remaining: remaining,
+                periodStart: periodStart,
+                resetsAt: resetsAt
+            ))
+        }
+
+        append(response.individualUsage?.onDemand,
+               id: "cursor-personal-on-demand",
+               label: "Personal on-demand",
+               kind: .spendingLimit,
+               scope: .personal)
+        append(response.individualUsage?.overall,
+               id: "cursor-personal-allocation",
+               label: "Personal allocation",
+               kind: .personalAllocation,
+               scope: .personal)
+        append(response.teamUsage?.onDemand,
+               id: "cursor-team-on-demand",
+               label: "Team on-demand",
+               kind: .teamBudget,
+               scope: .team)
+        append(response.teamUsage?.pooled,
+               id: "cursor-shared-pool",
+               label: "Shared pool",
+               kind: .pooledBudget,
+               scope: .organization)
+
+        return entries.isEmpty ? nil : entries
     }
 
     static func cookieHeader(tokens: OAuthTokens) throws -> String {
@@ -205,5 +300,9 @@ public struct CursorProvider: UsageProvider {
 
     private static func clampPercent(_ value: Double) -> Double {
         min(100, max(0, value))
+    }
+
+    private static func majorCurrencyUnits(_ cents: Int) -> Double {
+        max(0, Double(cents)) / 100
     }
 }
