@@ -17,7 +17,9 @@ struct AccountWidgetView: View {
         if let state = entry.state {
             switch family {
             case .accessoryCircular:
-                CircularGaugeView(state: state)
+                CircularGaugeView(state: state, referenceDate: entry.date)
+            case .systemMedium:
+                MediumAccountView(state: state, referenceDate: entry.date)
             default:
                 SmallAccountView(state: state, referenceDate: entry.date)
             }
@@ -151,27 +153,272 @@ struct SmallAccountView: View {
     }
 }
 
-/// accessoryCircular: gauge of remaining percent for the account's most-consumed window.
+/// accessoryCircular: provider-reported window drives native capacity
+/// indicator and, when another window exists, its remaining percent becomes
+/// numeric value. Single-window providers show only their real window.
 struct CircularGaugeView: View {
     let state: AccountState
+    let referenceDate: Date
 
+    @ViewBuilder
     var body: some View {
-        if let worst = state.snapshot?.worstWindow {
-            Gauge(value: worst.remainingPercent, in: 0...100) {
-                ProviderLogo(provider: state.account.provider, size: 12)
-            } currentValueLabel: {
-                Text("\(Int(worst.remainingPercent.rounded()))%")
+        if let snapshot = state.snapshot,
+           let presentation = LockScreenUsagePresentation(snapshot: snapshot) {
+            if presentation.numericWindow != nil {
+                usageGauge(presentation: presentation)
+                    .gaugeStyle(.accessoryCircularCapacity)
+                    .statusOverlay(symbol: statusSymbol(for: presentation))
+            } else {
+                usageGauge(presentation: presentation)
+                    .gaugeStyle(.accessoryCircular)
+                    .statusOverlay(symbol: statusSymbol(for: presentation))
             }
-            .gaugeStyle(.accessoryCircular)
-            .tint(worst.barColor)
         } else {
             Gauge(value: 0, in: 0...100) {
                 ProviderLogo(provider: state.account.provider, size: 12)
             } currentValueLabel: {
-                Text("—")
+                if state.activeFailure != nil || state.snapshot != nil {
+                    Image(systemName: "exclamationmark")
+                } else {
+                    Text("…")
+                }
             }
             .gaugeStyle(.accessoryCircular)
+            .accessibilityLabel(emptyAccessibilityLabel)
         }
+    }
+
+    private func usageGauge(
+        presentation: LockScreenUsagePresentation
+    ) -> some View {
+        let indicator = presentation.indicatorWindow
+        let numeric = presentation.numericWindow ?? indicator
+        return Gauge(value: indicator.remainingPercent, in: 0...100) {
+            ProviderLogo(provider: state.account.provider, size: 12)
+        } currentValueLabel: {
+            Text(numeric.remainingPercentText)
+        }
+        .tint(indicator.barColor)
+        .accessibilityLabel(accessibilityLabel(for: presentation))
+    }
+
+    private func statusSymbol(
+        for presentation: LockScreenUsagePresentation
+    ) -> String? {
+        if state.activeFailure != nil {
+            return "exclamationmark.circle.fill"
+        }
+        if presentation.isStale(at: referenceDate) {
+            return "clock.badge.exclamationmark"
+        }
+        return nil
+    }
+
+    private func accessibilityLabel(
+        for presentation: LockScreenUsagePresentation
+    ) -> String {
+        var values = [
+            "\(presentation.indicatorWindow.label) \(presentation.indicatorWindow.remainingPercentText) remaining"
+        ]
+        if let numeric = presentation.numericWindow {
+            values.append("\(numeric.label) \(numeric.remainingPercentText) remaining")
+        }
+        if state.activeFailure != nil {
+            values.append("Update failed; showing cached data")
+        } else if presentation.isStale(at: referenceDate) {
+            values.append("Update is stale")
+        }
+        return values.joined(separator: ", ")
+    }
+
+    private var emptyAccessibilityLabel: String {
+        if state.activeFailure != nil {
+            return "\(state.account.provider.displayName) update failed; open Ammo"
+        }
+        if state.snapshot != nil {
+            return "\(state.account.provider.displayName) returned no usage windows"
+        }
+        return "\(state.account.provider.displayName) is waiting for its first update"
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func statusOverlay(symbol: String?) -> some View {
+        if let symbol {
+            overlay(alignment: .topTrailing) {
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .bold))
+                    .accessibilityHidden(true)
+            }
+        } else {
+            self
+        }
+    }
+}
+
+// MARK: - Single account medium (Headline + Ledger)
+
+/// systemMedium, one selected account. Dominant headline meter fills left;
+/// right ledger carries honest, unit-native reset, credit, and on-demand facts.
+/// Rows appear only when provider-reported data exists.
+struct MediumAccountView: View {
+    let state: AccountState
+    let referenceDate: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            if let snapshot = state.snapshot, let hero = snapshot.worstWindow {
+                content(snapshot: snapshot, hero: hero)
+            } else {
+                Spacer(minLength: 0)
+                Text(state.widgetAvailabilityText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var header: some View {
+        HStack(spacing: 7) {
+            ProviderLogo(provider: state.account.provider, size: 20)
+            Text(state.account.label)
+                .font(.headline)
+                .lineLimit(1)
+                .layoutPriority(1)
+            if let planBadge {
+                Text(planBadge)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func content(snapshot: UsageSnapshot, hero: LimitWindow) -> some View {
+        let rows = ledgerRows(snapshot: snapshot, hero: hero)
+        return HStack(alignment: .top, spacing: 14) {
+            headline(hero: hero)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !rows.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(rows) { row in
+                        HStack(spacing: 6) {
+                            Text(row.label)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(row.value)
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(row.tint)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 128, alignment: .leading)
+            }
+        }
+    }
+
+    private func headline(hero: LimitWindow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Spacer(minLength: 0)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(hero.remainingPercentText)
+                    .font(.system(.largeTitle, design: .rounded).weight(.semibold).monospacedDigit())
+                    .foregroundStyle(hero.isRunningLow ? hero.barColor : .primary)
+                    .widgetAccentable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(qualifier(for: hero))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            CapsuleBar(fraction: hero.remainingPercent / 100, color: hero.barColor, height: 9)
+            if let freshness {
+                Text(freshness)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private struct LedgerItem: Identifiable {
+        let id: String
+        let label: String
+        let value: String
+        var tint: Color = .primary
+    }
+
+    /// Money, provider credits, and window percentages stay in native units.
+    /// Legacy on-demand values without MIK-26 provenance never render here.
+    private func ledgerRows(snapshot: UsageSnapshot, hero: LimitWindow) -> [LedgerItem] {
+        var rows: [LedgerItem] = []
+        if let reset = resetValue(for: hero) {
+            rows.append(LedgerItem(id: "resets", label: "Resets", value: reset))
+        }
+        if let banked = snapshot.resetCreditsAvailable, banked > 0 {
+            rows.append(LedgerItem(id: "banked", label: "Banked",
+                                   value: "\(banked) reset\(banked == 1 ? "" : "s")"))
+        }
+        if let usage = snapshot.verifiedMonetaryOnDemandBalance,
+           let remaining = usage.remainingAmount {
+            rows.append(LedgerItem(
+                id: "on-demand-\(usage.id)",
+                label: "On-demand",
+                value: remaining.formatted(
+                    .currency(code: usage.currencyCode)
+                    .precision(.fractionLength(2))),
+                tint: usage.isExhausted ? .red : .primary))
+        }
+        return rows
+    }
+
+    private func resetValue(for hero: LimitWindow) -> String? {
+        guard let resetsAt = hero.resetsAt else { return nil }
+        if resetsAt <= referenceDate { return "Due" }
+        return compactDuration(Int(resetsAt.timeIntervalSince(referenceDate)))
+    }
+
+    private var planBadge: String? {
+        state.snapshot?.displayPlan
+    }
+
+    private var freshness: String? {
+        guard let updatedAt = state.updatedAt else { return nil }
+        return "Updated \(compactDuration(Int(referenceDate.timeIntervalSince(updatedAt)))) ago"
+    }
+
+    private func qualifier(for hero: LimitWindow) -> String {
+        switch hero.kind {
+        case .session: "left this session"
+        case .weekly: "left this week"
+        case .monthly: "left this month"
+        case .modelScoped, .unknown: "left"
+        }
+    }
+
+    private func compactDuration(_ seconds: Int) -> String {
+        let total = max(0, seconds)
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(max(1, minutes))m"
     }
 }
 

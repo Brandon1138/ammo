@@ -32,9 +32,11 @@ enum RefreshOutcome: Sendable {
         }
     }
 
-    var changedSnapshot: Bool {
-        if case .refreshed = self { return true }
-        return false
+    var requiresTimelineReload: Bool {
+        switch self {
+        case .refreshed, .failed: true
+        case .cached: false
+        }
     }
 }
 
@@ -123,15 +125,11 @@ actor UsageRefreshCoordinator {
                 snapshot = try await provider.fetchUsage(tokens: tokens)
             }
 
-            let enrichedSnapshot = CodexBillingCache.enrich(
-                snapshot,
-                accountID: accountID,
-                billingAccountID: tokens.accountID)
-            let transition = try SharedStore.commit(snapshot: enrichedSnapshot, for: accountID)
+            let transition = try SharedStore.commit(snapshot: snapshot, for: accountID)
             RefreshLedgerStore.finishSuccess(accountID: accountID,
-                                             snapshot: enrichedSnapshot,
+                                             snapshot: snapshot,
                                              previousSnapshot: transition?.previousSnapshot,
-                                             at: enrichedSnapshot.fetchedAt)
+                                             at: snapshot.fetchedAt)
             AmmoLog.refresh.info("Refreshed \(account.provider.displayName, privacy: .public) usage from \(reason.rawValue, privacy: .public)")
             return .refreshed(accountID: accountID)
         } catch UsageError.http(let status, _) where status == 401 && account.tokensImported {

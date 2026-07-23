@@ -65,7 +65,6 @@ final class AccountStore {
     func remove(_ account: StoredAccount) {
         KeychainStore.delete(for: account.id)
         RefreshLedgerStore.remove(accountID: account.id)
-        CodexBillingCache.remove(accountID: account.id)
         do {
             try SharedStore.remove(id: account.id)
             states = SharedStore.load()
@@ -105,7 +104,10 @@ final class AccountStore {
         for id in uniqueIDs where refreshGenerations[id] == generations[id] {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
-        if outcomes.contains(where: \.changedSnapshot) {
+        // Failures mutate shared render state too. Reloading only after a
+        // successful snapshot leaves widgets showing stale loading or cached
+        // entries until WidgetKit's next passive request.
+        if outcomes.contains(where: \.requiresTimelineReload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
         return outcomes
@@ -127,50 +129,6 @@ final class AccountStore {
         }
 #endif
         historySamples = UsageHistoryStore.load()
-    }
-
-    // MARK: - Codex workspace billing
-
-    func codexBillingAccountID(for account: StoredAccount) -> String? {
-        guard account.provider == .codex else { return nil }
-        return KeychainStore.load(for: account.id)?.accountID
-    }
-
-    func captureCodexBilling(
-        responseData: Data,
-        pageText: String?,
-        billingAccountID: String,
-        for account: StoredAccount
-    ) throws {
-        guard account.provider == .codex else {
-            throw UsageError.malformedResponse("billing capture attached to a non-Codex account")
-        }
-        let usage = try CodexProvider.billingOnDemandUsage(
-            from: responseData,
-            pageText: pageText)
-        try CodexBillingCache.save(CodexBillingCacheEntry(
-            accountID: account.id,
-            billingAccountID: billingAccountID,
-            usage: usage,
-            fetchedAt: Date()))
-
-        guard let state = states.first(where: { $0.account.id == account.id }),
-              let snapshot = state.snapshot
-        else { return }
-        var entries = snapshot.onDemand ?? []
-        entries.removeAll { $0.id == usage.id }
-        entries.insert(usage, at: 0)
-        let enriched = UsageSnapshot(
-            provider: snapshot.provider,
-            plan: snapshot.plan,
-            windows: snapshot.windows,
-            resetCreditsAvailable: snapshot.resetCreditsAvailable,
-            onDemand: entries,
-            fetchedAt: Date())
-        try SharedStore.commit(snapshot: enriched, for: account.id)
-        states = SharedStore.load()
-        historySamples = UsageHistoryStore.load()
-        WidgetCenter.shared.reloadAllTimelines()
     }
 
 #if targetEnvironment(simulator)

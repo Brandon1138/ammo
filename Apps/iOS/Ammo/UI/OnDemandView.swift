@@ -1,10 +1,14 @@
+import StoreKit
 import SwiftUI
 import UsageKit
 
 struct OnDemandView: View {
     @Environment(AccountStore.self) private var store
-    @State private var billingAccount: StoredAccount?
+    @Environment(\.openURL) private var openURL
     @State private var referenceDate = Date.now
+    @State private var storefrontCountryCode: String?
+    @State private var billingAvailability = CodexWorkspaceBillingAvailability.checking
+    @State private var isConfirmingWorkspaceBilling = false
 
     var body: some View {
         NavigationStack {
@@ -30,8 +34,17 @@ struct OnDemandView: View {
                 }
             }
             .navigationTitle("On-demand")
-            .sheet(item: $billingAccount) { account in
-                CodexBillingView(account: account)
+            .confirmationDialog(
+                "Update workspace balance",
+                isPresented: $isConfirmingWorkspaceBilling,
+                titleVisibility: .visible
+            ) {
+                Button("Continue in Browser") {
+                    openCodexDestination(.updateWorkspaceBalance)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Workspace Owners can manage shared Business credits. Sign in to ChatGPT and choose the correct workspace.")
             }
             .task {
                 while !Task.isCancelled {
@@ -42,6 +55,12 @@ struct OnDemandView: View {
                     }
                     referenceDate = .now
                 }
+            }
+            .task {
+                let storefront = await Storefront.current
+                storefrontCountryCode = storefront?.countryCode
+                billingAvailability = CodexWorkspaceBillingPolicy.availability(
+                    storefrontCountryCode: storefront?.countryCode)
             }
         }
     }
@@ -58,7 +77,14 @@ struct OnDemandView: View {
                 AccountOnDemandSection(
                     state: state,
                     referenceDate: referenceDate,
-                    connectBilling: { billingAccount = state.account })
+                    billingAvailability: billingAvailability,
+                    updateWorkspaceBalance: {
+                        guard billingAvailability.permitsWorkspaceBilling else { return }
+                        isConfirmingWorkspaceBilling = true
+                    },
+                    viewCodexUsage: {
+                        openCodexDestination(.viewUsage)
+                    })
             }
         }
         .refreshable {
@@ -66,12 +92,22 @@ struct OnDemandView: View {
         }
         .listSectionSpacing(.custom(10))
     }
+
+    private func openCodexDestination(_ action: CodexExternalAction) {
+        guard let destination = CodexWorkspaceBillingPolicy.destination(
+            for: action,
+            storefrontCountryCode: storefrontCountryCode)
+        else { return }
+        openURL(destination)
+    }
 }
 
 private struct AccountOnDemandSection: View {
     let state: AccountState
     let referenceDate: Date
-    let connectBilling: () -> Void
+    let billingAvailability: CodexWorkspaceBillingAvailability
+    let updateWorkspaceBalance: () -> Void
+    let viewCodexUsage: () -> Void
 
     var body: some View {
         Section {
@@ -80,9 +116,19 @@ private struct AccountOnDemandSection: View {
                     .padding(.vertical, 4)
             }
             if state.account.provider == .codex {
-                Button(action: connectBilling) {
-                    Label(codexBillingButtonTitle, systemImage: "building.2.crop.circle")
+                Button(action: updateWorkspaceBalance) {
+                    Label("Update workspace balance", systemImage: "building.2.crop.circle")
                 }
+                .disabled(!billingAvailability.permitsWorkspaceBilling)
+
+                Button(action: viewCodexUsage) {
+                    Label("View Codex usage", systemImage: "safari")
+                }
+
+                Text(workspaceBillingNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
             HStack(spacing: 7) {
@@ -108,11 +154,17 @@ private struct AccountOnDemandSection: View {
         }
     }
 
-    private var codexBillingButtonTitle: String {
-        let balance = state.snapshot?.onDemand?
-            .first(where: { $0.id == "codex-usage-credits" })?
-            .remainingAmount
-        return balance == nil ? "Connect workspace billing" : "Update workspace balance"
+    private var workspaceBillingNote: String {
+        switch billingAvailability {
+        case .checking:
+            "Checking App Store region. Workspace Owners manage shared Business credits in ChatGPT."
+        case .allowed:
+            "Workspace Owners manage shared Business credits after signing in to the correct ChatGPT workspace."
+        case .restricted:
+            "Workspace billing links aren't available from Ammo in this App Store region. A Workspace Owner can manage credits in ChatGPT."
+        case .unknown:
+            "Ammo couldn't verify the App Store region, so workspace billing stays unavailable."
+        }
     }
 
     private func elapsedText(since date: Date) -> String {
@@ -131,13 +183,16 @@ private struct OnDemandUsageRow: View {
     let referenceDate: Date
 
     var body: some View {
+        let presentation = OnDemandUsagePresentation(
+            usage: usage,
+            referenceDate: referenceDate)
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 5) {
                 usageLabel
                 statusBadge
             }
 
-            Text(primaryText)
+            Text(presentation.primaryText)
                 .font(.headline.weight(.semibold).monospacedDigit())
                 .foregroundStyle(primaryColor)
                 .fixedSize(horizontal: false, vertical: true)
@@ -147,16 +202,19 @@ private struct OnDemandUsageRow: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(detailText)
-                Text(scopeText)
+                Text(presentation.detailText)
+                Text(presentation.scopeText)
             }
             .font(.footnote)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
             if let resetsAt = usage.resetsAt, resetsAt > referenceDate {
+                let resetText = OnDemandUsagePresentation.remainingText(
+                    until: resetsAt,
+                    referenceDate: referenceDate)
                 Label {
-                    Text("Resets in \(remainingText(until: resetsAt))")
+                    Text("Resets in \(resetText)")
                 } icon: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -165,13 +223,10 @@ private struct OnDemandUsageRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let expiresAt = usage.expiresAt {
+            if let expiresAt = usage.expiresAt,
+               let expirationText = presentation.expirationText {
                 Label {
-                    if expiresAt > referenceDate {
-                        Text("Expires in \(remainingText(until: expiresAt))")
-                    } else {
-                        Text("Expired")
-                    }
+                    Text(expirationText)
                 } icon: {
                     Image(systemName: "calendar.badge.exclamationmark")
                 }
@@ -190,61 +245,13 @@ private struct OnDemandUsageRow: View {
     }
 
     private var statusBadge: some View {
-        Text(statusText)
+        Text(OnDemandUsagePresentation(usage: usage, referenceDate: referenceDate).statusText)
             .font(.caption.weight(.medium))
             .foregroundStyle(statusColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(statusColor.opacity(0.12), in: Capsule())
             .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var primaryText: String {
-        if usage.isEnabled == false { return "On-demand is off" }
-        if usage.isUnlimited { return "Unlimited" }
-        if let remaining = usage.remainingAmount { return "\(amount(remaining)) remaining" }
-        if let used = usage.used { return "\(amount(used)) used" }
-        if usage.effectiveUnit == .credits { return "Balance unavailable" }
-        return "Amount unavailable"
-    }
-
-    private var detailText: String {
-        if usage.isEnabled == false {
-            if let limit = usage.limit { return "\(amount(limit)) configured limit" }
-            return "Not available for paid continuation"
-        }
-        if let equivalentAmount = usage.equivalentAmount,
-           let code = usage.equivalentCurrencyCode {
-            return "\(money(equivalentAmount, currencyCode: code)) equivalent"
-        }
-        if usage.isUnlimited, let used = usage.used { return "\(amount(used)) used" }
-        if let used = usage.used, let limit = usage.limit {
-            return "\(amount(used)) of \(amount(limit)) used"
-        }
-        if usage.kind == .creditBalance {
-            return usage.remainingAmount == nil
-                ? "Connect workspace billing to read the balance"
-                : "Prepaid usage balance"
-        }
-        if let limit = usage.limit { return "\(amount(limit)) limit" }
-        return "Provider-reported capacity"
-    }
-
-    private var statusText: String {
-        if usage.isEnabled == false { return "Off" }
-        if usage.isUnlimited { return "Unlimited" }
-        if usage.isExhausted { return "Exhausted" }
-        if usage.remainingAmount == nil && usage.effectiveUnit == .credits { return "Connect" }
-        if (usage.used ?? 0) > 0 { return "Active" }
-        return "Ready"
-    }
-
-    private var scopeText: String {
-        switch usage.scope {
-        case .personal: "Personal"
-        case .team: "Team"
-        case .organization: "Organization"
-        }
     }
 
     private var statusColor: Color {
@@ -264,22 +271,86 @@ private struct OnDemandUsageRow: View {
         return .accentColor
     }
 
-    private func amount(_ value: Double) -> String {
-        if usage.effectiveUnit == .credits {
-            return value.formatted(
-                .number.grouping(.automatic).precision(.fractionLength(0))) + " credits"
+}
+
+struct OnDemandUsagePresentation: Equatable {
+    let primaryText: String
+    let detailText: String
+    let statusText: String
+    let scopeText: String
+    let expirationText: String?
+
+    init(usage: OnDemandUsage, referenceDate: Date) {
+        if usage.isEnabled == false {
+            primaryText = "On-demand is off"
+        } else if usage.isUnlimited {
+            primaryText = "Unlimited"
+        } else if let remaining = usage.remainingAmount {
+            primaryText = "\(Self.amount(remaining, usage: usage)) remaining"
+        } else if let used = usage.used {
+            primaryText = "\(Self.amount(used, usage: usage)) used"
+        } else if usage.effectiveUnit == .credits {
+            primaryText = "Balance unavailable"
+        } else {
+            primaryText = "Amount unavailable"
         }
-        return money(value, currencyCode: usage.currencyCode)
+
+        if usage.isEnabled == false {
+            if let limit = usage.limit {
+                detailText = "\(Self.amount(limit, usage: usage)) configured limit"
+            } else {
+                detailText = "Not available for paid continuation"
+            }
+        } else if let equivalentAmount = usage.equivalentAmount,
+                  let code = usage.equivalentCurrencyCode {
+            detailText = "\(Self.money(equivalentAmount, currencyCode: code)) equivalent"
+        } else if usage.isUnlimited, let used = usage.used {
+            detailText = "\(Self.amount(used, usage: usage)) used"
+        } else if let used = usage.used, let limit = usage.limit {
+            detailText = "\(Self.amount(used, usage: usage)) of \(Self.amount(limit, usage: usage)) used"
+        } else if usage.kind == .creditBalance {
+            detailText = usage.remainingAmount == nil
+                ? "Balance not reported to Ammo"
+                : "Prepaid usage balance"
+        } else if let limit = usage.limit {
+            detailText = "\(Self.amount(limit, usage: usage)) limit"
+        } else {
+            detailText = "Provider-reported capacity"
+        }
+
+        if usage.isEnabled == false {
+            statusText = "Off"
+        } else if usage.isUnlimited {
+            statusText = "Unlimited"
+        } else if usage.isExhausted {
+            statusText = "Exhausted"
+        } else if usage.remainingAmount == nil && usage.effectiveUnit == .credits {
+            statusText = "Unavailable"
+        } else if (usage.used ?? 0) > 0 {
+            statusText = "Active"
+        } else {
+            statusText = "Ready"
+        }
+
+        switch usage.scope {
+        case .personal: scopeText = "Personal"
+        case .team: scopeText = "Team"
+        case .organization: scopeText = "Organization"
+        }
+
+        if let expiresAt = usage.expiresAt {
+            let remaining = Self.remainingText(
+                until: expiresAt,
+                referenceDate: referenceDate)
+            expirationText = expiresAt > referenceDate
+                ? "Expires in \(remaining)"
+                : "Expired"
+        } else {
+            expirationText = nil
+        }
     }
 
-    private func money(_ amount: Double, currencyCode: String) -> String {
-        amount.formatted(
-            .currency(code: currencyCode)
-            .precision(.fractionLength(2))
-        )
-    }
-
-    private func remainingText(until date: Date) -> String {
+    static func remainingText(until date: Date, referenceDate: Date) -> String {
         let seconds = max(0, Int(date.timeIntervalSince(referenceDate)))
         let days = seconds / 86_400
         let hours = (seconds % 86_400) / 3_600
@@ -287,6 +358,21 @@ private struct OnDemandUsageRow: View {
         if days > 0 { return "\(days)d \(hours)h" }
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(max(1, minutes))m"
+    }
+
+    private static func amount(_ value: Double, usage: OnDemandUsage) -> String {
+        if usage.effectiveUnit == .credits {
+            return value.formatted(
+                .number.grouping(.automatic).precision(.fractionLength(0))) + " credits"
+        }
+        return money(value, currencyCode: usage.currencyCode)
+    }
+
+    private static func money(_ amount: Double, currencyCode: String) -> String {
+        amount.formatted(
+            .currency(code: currencyCode)
+            .precision(.fractionLength(2))
+        )
     }
 }
 

@@ -69,20 +69,6 @@ private let codexFixture = """
 }
 """
 
-private let codexBillingFixture = """
-{
-  "balance": "21062.8748975000",
-  "expiring_balance_details": [
-    {
-      "amount_granted": "25000",
-      "amount_remaining": "21062.8748975000",
-      "expiry_date": "2026-07-29T20:59:00Z",
-      "grant_type": "promotional_credit"
-    }
-  ]
-}
-"""
-
 private let cursorFixture = """
 {
   "billingCycleStart": "2026-07-10T00:00:00.000Z",
@@ -110,6 +96,15 @@ private let cursorFixture = """
   }
 }
 """
+
+private struct FixtureTransport: HTTPTransport {
+    let data: Data
+    let status: Int
+
+    func request(_ request: URLRequest) async throws -> (Data, Int) {
+        (data, status)
+    }
+}
 
 @Suite struct ClaudeDecodeTests {
     @Test func mapsLimitsArrayToWindows() throws {
@@ -196,6 +191,25 @@ private let cursorFixture = """
         #expect(CodexProvider.classify(windowSeconds: nil) == (.unknown, "Usage"))
     }
 
+    @Test func fetchRejectsResponseWithoutUsageWindows() async {
+        let provider = CodexProvider(
+            transport: FixtureTransport(
+                data: Data(#"{"plan_type":"plus","rate_limit":null}"#.utf8),
+                status: 200))
+
+        do {
+            _ = try await provider.fetchUsage(tokens: OAuthTokens(accessToken: "test"))
+            Issue.record("Expected an explicit malformed-response failure")
+        } catch let error as UsageError {
+            guard case .malformedResponse = error else {
+                Issue.record("Expected malformedResponse, received \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
     @Test func keepsPurchasedCreditsSeparateFromResetTokensAndSpendControls() throws {
         let response = try CodexProvider.decoder.decode(
             CodexProvider.Response.self, from: Data(codexFixture.utf8))
@@ -227,18 +241,54 @@ private let cursorFixture = """
         #expect(snapshot.displayPlan == "Business")
     }
 
-    @Test func parsesAuthenticatedWorkspaceBillingBalance() throws {
-        let usage = try CodexProvider.billingOnDemandUsage(
-            from: Data(codexBillingFixture.utf8),
-            pageText: "Credits balance\n21,063 credits expiring on July 29\n21,063 / RON 3,622.81")
+    @Test func preservesExactBalanceOnlyFromProviderUsageResponse() throws {
+        let fixture = codexFixture.replacingOccurrences(
+            of: "\"balance\": null",
+            with: "\"balance\": \"9112.25\"")
+        let response = try CodexProvider.decoder.decode(
+            CodexProvider.Response.self, from: Data(fixture.utf8))
+        let usage = try #require(CodexProvider.onDemand(from: response)?.first)
+        let snapshot = UsageSnapshot(
+            provider: .codex,
+            plan: response.planType,
+            windows: [],
+            onDemand: [usage])
+        let sanitized = CodexProvider.removingUnverifiedBillingData(from: snapshot)
+        let preserved = try #require(sanitized.onDemand?.first)
 
-        #expect(usage.id == "codex-usage-credits")
-        #expect(usage.scope == .organization)
-        #expect(usage.effectiveUnit == .credits)
-        #expect(usage.remainingAmount == 21_062.8748975)
-        #expect(usage.expiresAt == ISO8601.parse("2026-07-29T20:59:00Z"))
-        #expect(usage.equivalentCurrencyCode == "RON")
-        #expect(usage.equivalentAmount == 3_622.81)
+        #expect(preserved.dataSource == .providerUsageResponse)
+        #expect(preserved.remainingAmount == 9_112.25)
+        #expect(preserved.expiresAt == nil)
+    }
+
+    @Test func removesLegacyPrivateBillingValuesFromDisplaySnapshot() throws {
+        let legacyCapture = OnDemandUsage(
+            id: "codex-usage-credits",
+            label: "Usage credits",
+            kind: .creditBalance,
+            scope: .organization,
+            isEnabled: true,
+            unit: .credits,
+            dataSource: nil,
+            currencyCode: "",
+            remaining: 9_112,
+            expiresAt: ISO8601.parse("2026-07-29T20:59:00Z"),
+            equivalentAmount: 1_500,
+            equivalentCurrencyCode: "RON")
+        let snapshot = UsageSnapshot(
+            provider: .codex,
+            plan: "self_serve_business_usage_based",
+            windows: [],
+            onDemand: [legacyCapture])
+        let usage = try #require(
+            CodexProvider.removingUnverifiedBillingData(from: snapshot).onDemand?.first)
+
+        #expect(usage.dataSource == nil)
+        #expect(usage.isEnabled == true)
+        #expect(usage.remainingAmount == nil)
+        #expect(usage.expiresAt == nil)
+        #expect(usage.equivalentAmount == nil)
+        #expect(usage.equivalentCurrencyCode == nil)
     }
 }
 
@@ -275,6 +325,70 @@ private let cursorFixture = """
         let windows = CursorProvider.windows(from: response)
 
         #expect(windows.map(\.usedPercent) == [100, 0])
+    }
+
+    @Test func fetchAcceptsOneAvailableIncludedWindow() async throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"firstPartyPercentUsed": 25}
+          }
+        }
+        """
+        let provider = CursorProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        let snapshot = try await provider.fetchUsage(tokens: OAuthTokens(
+            accessToken: "test",
+            accountID: "user-test"))
+
+        #expect(snapshot.windows.count == 1)
+        #expect(snapshot.windows.first?.label == "Composer")
+        #expect(snapshot.windows.first?.usedPercent == 25)
+    }
+
+    @Test func fetchRejectsResponseWithoutIncludedOrOnDemandUsage() async {
+        let provider = CursorProvider(
+            transport: FixtureTransport(
+                data: Data(#"{"membershipType":"pro","individualUsage":{"plan":{}}}"#.utf8),
+                status: 200))
+
+        do {
+            _ = try await provider.fetchUsage(tokens: OAuthTokens(
+                accessToken: "test",
+                accountID: "user-test"))
+            Issue.record("Expected an explicit malformed-response failure")
+        } catch let error as UsageError {
+            guard case .malformedResponse = error else {
+                Issue.record("Expected malformedResponse, received \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
+    @Test func fetchPreservesOnDemandOnlyResponse() async throws {
+        let fixture = """
+        {
+          "membershipType": "team",
+          "individualUsage": {
+            "plan": {},
+            "onDemand": {"enabled": true, "used": 550, "limit": 5000, "remaining": 4450}
+          }
+        }
+        """
+        let provider = CursorProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        let snapshot = try await provider.fetchUsage(tokens: OAuthTokens(
+            accessToken: "test",
+            accountID: "user-test"))
+
+        #expect(snapshot.windows.isEmpty)
+        #expect(snapshot.onDemand?.first?.remainingAmount == 44.5)
     }
 
     @Test func preservesPersonalTeamAndEnterpriseOnDemandPools() throws {
@@ -316,5 +430,73 @@ private let cursorFixture = """
         #expect(usage.isEnabled == true)
         #expect(usage.isUnlimited == false)
         #expect(usage.remainingAmount == nil)
+    }
+}
+
+@Suite struct OnDemandModelTests {
+    @Test func verifiedMonetaryBalanceFailsClosedOnLegacyAndCreditValues() throws {
+        let legacy = OnDemandUsage(
+            id: "legacy",
+            label: "Legacy balance",
+            kind: .creditBalance,
+            scope: .organization,
+            isEnabled: true,
+            unit: .currency,
+            dataSource: nil,
+            currencyCode: "USD",
+            remaining: 999)
+        let credits = OnDemandUsage(
+            id: "credits",
+            label: "Usage credits",
+            kind: .creditBalance,
+            scope: .organization,
+            isEnabled: true,
+            unit: .credits,
+            currencyCode: "",
+            remaining: 100)
+        let exactMoney = OnDemandUsage(
+            id: "money",
+            label: "On-demand",
+            kind: .spendingLimit,
+            scope: .personal,
+            isEnabled: true,
+            unit: .currency,
+            currencyCode: "USD",
+            remaining: 44.5)
+        let snapshot = UsageSnapshot(
+            provider: .cursor,
+            plan: "pro",
+            windows: [],
+            onDemand: [legacy, credits, exactMoney])
+
+        let selected = try #require(snapshot.verifiedMonetaryOnDemandBalance)
+        #expect(selected.id == "money")
+        #expect(selected.remainingAmount == 44.5)
+        #expect(selected.dataSource == .providerUsageResponse)
+    }
+
+    @Test func verifiedMonetaryBalanceOmitsDisabledOrAmountlessPools() {
+        let disabled = OnDemandUsage(
+            id: "disabled",
+            label: "On-demand",
+            kind: .spendingLimit,
+            scope: .personal,
+            isEnabled: false,
+            currencyCode: "USD",
+            remaining: 20)
+        let amountless = OnDemandUsage(
+            id: "amountless",
+            label: "On-demand",
+            kind: .spendingLimit,
+            scope: .personal,
+            isEnabled: true,
+            currencyCode: "USD")
+        let snapshot = UsageSnapshot(
+            provider: .cursor,
+            plan: "pro",
+            windows: [],
+            onDemand: [disabled, amountless])
+
+        #expect(snapshot.verifiedMonetaryOnDemandBalance == nil)
     }
 }

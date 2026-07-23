@@ -39,9 +39,14 @@ public struct CodexProvider: UsageProvider {
         } catch {
             throw UsageError.malformedResponse("codex usage: \(error)")
         }
+        let windows = Self.windows(from: response)
+        guard !windows.isEmpty else {
+            throw UsageError.malformedResponse(
+                "codex usage: response contained no usage windows")
+        }
         return UsageSnapshot(provider: .codex,
                              plan: response.planType,
-                             windows: Self.windows(from: response),
+                             windows: windows,
                              resetCreditsAvailable: response.rateLimitResetCredits?.availableCount,
                              onDemand: Self.onDemand(from: response))
     }
@@ -294,114 +299,44 @@ public struct CodexProvider: UsageProvider {
         return .personal
     }
 
-    // MARK: - Separately authenticated workspace billing
-
-    /// Exact response from the ChatGPT Admin billing page's first-party endpoint,
-    /// captured live 2026-07-21. This contract intentionally stays separate from
-    /// `wham/usage`: the Codex OAuth token can truthfully say credits exist while
-    /// omitting their organization balance.
-    struct BillingBalanceResponse: Decodable {
-        struct ExpiringBalance: Decodable {
-            let amountGranted: Double?
-            let amountRemaining: Double?
-            let expiryDate: String?
-            let grantType: String?
-
-            enum CodingKeys: String, CodingKey {
-                case amountGranted, amountRemaining, expiryDate, grantType
-            }
-
-            init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                amountGranted = Self.flexibleDouble(container, key: .amountGranted)
-                amountRemaining = Self.flexibleDouble(container, key: .amountRemaining)
-                expiryDate = try? container.decodeIfPresent(String.self, forKey: .expiryDate)
-                grantType = try? container.decodeIfPresent(String.self, forKey: .grantType)
-            }
-
-            private static func flexibleDouble(
-                _ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys
-            ) -> Double? {
-                if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
-                    return value
-                }
-                if let value = try? container.decodeIfPresent(String.self, forKey: key) {
-                    return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
-                }
-                return nil
-            }
+    /// Values persisted before source attribution may have come from Ammo's
+    /// removed private ChatGPT billing-page capture. Keep the provider's honest
+    /// availability marker, but discard unverified balance, conversion, and
+    /// expiry fields. A fresh `wham/usage` response carries explicit provenance
+    /// and may supply an exact balance without being altered here.
+    public static func removingUnverifiedBillingData(
+        from snapshot: UsageSnapshot
+    ) -> UsageSnapshot {
+        guard snapshot.provider == .codex else { return snapshot }
+        let sanitized = snapshot.onDemand?.map { usage in
+            guard usage.id == "codex-usage-credits",
+                  usage.dataSource != .providerUsageResponse,
+                  usage.remainingAmount != nil
+                    || usage.expiresAt != nil
+                    || usage.equivalentAmount != nil
+                    || usage.equivalentCurrencyCode != nil
+            else { return usage }
+            return OnDemandUsage(
+                id: usage.id,
+                label: usage.label,
+                kind: usage.kind,
+                scope: usage.scope,
+                isEnabled: usage.isEnabled,
+                isUnlimited: usage.isUnlimited,
+                unit: usage.effectiveUnit,
+                dataSource: nil,
+                currencyCode: usage.currencyCode,
+                isExhaustedReported: usage.isExhaustedReported
+            )
         }
-
-        let balance: Double?
-        let expiringBalanceDetails: [ExpiringBalance]?
-
-        enum CodingKeys: String, CodingKey { case balance, expiringBalanceDetails }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let value = try? container.decodeIfPresent(Double.self, forKey: .balance) {
-                balance = value
-            } else if let value = try? container.decodeIfPresent(String.self, forKey: .balance) {
-                balance = Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
-            } else {
-                balance = nil
-            }
-            expiringBalanceDetails = try? container.decodeIfPresent(
-                [ExpiringBalance].self, forKey: .expiringBalanceDetails)
-        }
-    }
-
-    /// Parses a sanitized `remaining_balance` response captured inside Ammo's
-    /// persistent WKWebView. `pageText` is optional and used only to retain the
-    /// billing page's local-currency equivalent (for example RON 3,622.81).
-    public static func billingOnDemandUsage(
-        from data: Data,
-        pageText: String? = nil
-    ) throws -> OnDemandUsage {
-        let response: BillingBalanceResponse
-        do {
-            response = try decoder.decode(BillingBalanceResponse.self, from: data)
-        } catch {
-            throw UsageError.malformedResponse("codex billing balance: \(error)")
-        }
-        guard let balance = response.balance else {
-            throw UsageError.malformedResponse("codex billing balance: missing balance")
-        }
-        let expiration = response.expiringBalanceDetails?
-            .filter { ($0.amountRemaining ?? 0) > 0 }
-            .compactMap { ISO8601.parse($0.expiryDate) }
-            .min()
-        let equivalent = pageText.flatMap(localCurrencyEquivalent)
-        return OnDemandUsage(
-            id: "codex-usage-credits",
-            label: "Usage credits",
-            kind: .creditBalance,
-            scope: .organization,
-            isEnabled: true,
-            unit: .credits,
-            currencyCode: "",
-            remaining: max(0, balance),
-            expiresAt: expiration,
-            equivalentAmount: equivalent?.amount,
-            equivalentCurrencyCode: equivalent?.currencyCode
+        return UsageSnapshot(
+            provider: snapshot.provider,
+            plan: snapshot.plan,
+            windows: snapshot.windows,
+            resetCreditsAvailable: snapshot.resetCreditsAvailable,
+            onDemand: sanitized,
+            fetchedAt: snapshot.fetchedAt
         )
-    }
-
-    static func localCurrencyEquivalent(_ pageText: String) -> (currencyCode: String, amount: Double)? {
-        let pattern = #"[0-9][0-9\s.,]*\s*/\s*([A-Z]{3})\s*([0-9][0-9\s.,]*)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(
-                in: pageText,
-                range: NSRange(pageText.startIndex..., in: pageText)),
-              let currencyRange = Range(match.range(at: 1), in: pageText),
-              let amountRange = Range(match.range(at: 2), in: pageText)
-        else { return nil }
-        let currency = String(pageText[currencyRange])
-        let rawAmount = String(pageText[amountRange])
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        guard let amount = Double(rawAmount) else { return nil }
-        return (currency, amount)
     }
 
     static func classify(windowSeconds: Double?) -> (WindowKind, String) {

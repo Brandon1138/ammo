@@ -66,11 +66,13 @@ enum SharedStore {
     }
 
     static func load() -> [AccountState] {
+        removeLegacyCodexBillingCache()
         do {
             let data = try Data(contentsOf: fileURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let states = try decoder.decode([AccountState].self, from: data)
+            let states = sanitize(
+                try decoder.decode([AccountState].self, from: data))
             AmmoLog.sharedStore.info("Loaded \(states.count, privacy: .public) account states")
             return states
         } catch CocoaError.fileReadNoSuchFile {
@@ -151,7 +153,7 @@ enum SharedStore {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([AccountState].self, from: data)) ?? []
+        return sanitize((try? decoder.decode([AccountState].self, from: data)) ?? [])
     }
 
     private static func saveUnlocked(_ states: [AccountState]) throws {
@@ -163,6 +165,26 @@ enum SharedStore {
         AmmoLog.sharedStore.info("Saved \(states.count, privacy: .public) account states")
     }
 
+    private static func sanitize(_ states: [AccountState]) -> [AccountState] {
+        states.map { state in
+            var state = state
+            state.snapshot = state.snapshot.map {
+                CodexProvider.removingUnverifiedBillingData(from: $0)
+            }
+            return state
+        }
+    }
+
+    private static func removeLegacyCodexBillingCache() {
+        let url = AppGroup.containerURL.appendingPathComponent("codex-billing-balances.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: url)
+            AmmoLog.sharedStore.notice("Removed legacy Codex web-billing cache")
+        } catch {
+            AmmoLog.sharedStore.error("Unable to remove legacy Codex web-billing cache")
+        }
+    }
 }
 
 struct SnapshotTransition: Sendable {

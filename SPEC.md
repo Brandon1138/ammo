@@ -301,43 +301,22 @@ zero. Decode `credits.overage_limit_reached`. Decode the current
 `rate_limit_reset_credits` are different products and must never share a label or
 normalized field.
 
-**Separately authenticated workspace billing**
+**Workspace billing and credit provenance**
 
-Codex OAuth remains the rate-limit source. To resolve the organization credit amount,
-Ammo offers an explicit, persistent `WKWebView` session at
-`https://chatgpt.com/admin/billing`. The user signs in to the owning workspace inside
-Ammo; Ammo does not import Safari/desktop cookies and does not reuse the Codex OAuth
-token. In the authenticated page's same-origin JavaScript world Ammo calls:
+Codex OAuth and `wham/usage` are the only sources for values Ammo displays. Preserve
+an exact balance when that response supplies one; when it reports `balance: null`,
+render **Balance unavailable** without fabricating or enriching it. Snapshots written
+before source attribution are treated as unverified and any exact Codex balance,
+expiry, or local-currency conversion they contain is removed at load time.
 
-```
-GET https://chatgpt.com/backend-api/accounts/{account_id}/remaining_balance
-Authorization: Bearer <web-session access token>
-ChatGPT-Account-ID: <account_id>
-```
-
-Live response captured 2026-07-21:
-
-```json
-{
-  "balance": "21062.8748975000",
-  "expiring_balance_details": [
-    {
-      "amount_granted": "25000",
-      "amount_remaining": "21062.8748975000",
-      "expiry_date": "2026-07-29T20:59:00Z",
-      "grant_type": "promotional_credit"
-    }
-  ]
-}
-```
-
-The billing UI rendered `21,063 / RON 3,622.81`; Ammo stores the exact credit balance
-and expiration plus this local-currency equivalent when present. Only the sanitized
-parsed balance is cached in the App Group. Web cookies and tokens remain in the
-`WKWebsiteDataStore`. Subsequent OAuth refreshes enrich an unresolved credit marker
-from that account-bound cache so widgets can use it. If OAuth says credits exist but
-billing is not connected, render **Balance unavailable** with a Connect workspace
-billing action.
+`Update workspace balance` never embeds ChatGPT or reads its page, cookies, session,
+account ID, DOM, or private endpoints. It offers a confirmation explaining that the
+user must be a Workspace Owner, sign in to ChatGPT, and choose the correct workspace,
+then opens `https://chatgpt.com/admin/billing` in the system browser. Because Ammo has
+no external-purchase entitlement, this purchase-related call to action is enabled
+only when StoreKit reports the `USA` storefront; non-US and unknown storefronts fail
+closed. `View Codex usage` is a separate system-browser action to
+`https://chatgpt.com/codex/settings/usage`.
 
 **OAuth**
 

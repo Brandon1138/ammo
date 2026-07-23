@@ -71,6 +71,12 @@ public enum OnDemandUnit: String, Codable, Sendable, Equatable {
     case credits
 }
 
+/// Provenance for values that are safe to persist and present. Optional so
+/// snapshots written before provenance tracking decode as unverified.
+public enum OnDemandDataSource: String, Codable, Sendable, Equatable {
+    case providerUsageResponse
+}
+
 /// One provider-reported pool of paid, on-demand capacity.
 /// Monetary values are normalized to major currency units (for example,
 /// dollars rather than cents) before entering this model.
@@ -84,6 +90,9 @@ public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
     /// Optional only so snapshots persisted by builds before unit-aware balances
     /// continue to decode. New values always set this through the initializer.
     public let unit: OnDemandUnit?
+    /// Nil means a persisted value predates source attribution and must not be
+    /// trusted when its origin affects safety or correctness.
+    public let dataSource: OnDemandDataSource?
     public let currencyCode: String
     public let used: Double?
     public let limit: Double?
@@ -111,6 +120,7 @@ public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
         isEnabled: Bool? = nil,
         isUnlimited: Bool = false,
         unit: OnDemandUnit = .currency,
+        dataSource: OnDemandDataSource? = .providerUsageResponse,
         currencyCode: String = "USD",
         used: Double? = nil,
         limit: Double? = nil,
@@ -130,6 +140,7 @@ public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
         self.isEnabled = isEnabled
         self.isUnlimited = isUnlimited
         self.unit = unit
+        self.dataSource = dataSource
         self.currencyCode = currencyCode.uppercased()
         self.used = used
         self.limit = limit
@@ -192,6 +203,19 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
 }
 
 public extension UsageSnapshot {
+    /// First exact monetary balance safe for compact shared surfaces such as
+    /// widgets. Legacy entries without source attribution, provider credits,
+    /// disabled pools, and amount-less values fail closed.
+    var verifiedMonetaryOnDemandBalance: OnDemandUsage? {
+        onDemand?.first {
+            $0.dataSource == .providerUsageResponse
+                && $0.effectiveUnit == .currency
+                && $0.isEnabled != false
+                && $0.remainingAmount != nil
+                && !$0.currencyCode.isEmpty
+        }
+    }
+
     /// Stable, provider-aware plan copy for UI badges. Unknown future values get
     /// a readable word-wise fallback instead of Swift's underscore-preserving
     /// `capitalized` output.

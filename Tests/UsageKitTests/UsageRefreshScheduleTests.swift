@@ -70,9 +70,9 @@ import Testing
             == now.addingTimeInterval(10 * 60 + 30))
     }
 
-    @Test func missingSnapshotsUseQuietDefault() {
+    @Test func missingSnapshotsRetryAtActiveInterval() {
         #expect(UsageRefreshSchedule.nextRefreshDate(snapshots: [], now: now)
-            == now.addingTimeInterval(30 * 60))
+            == now.addingTimeInterval(5 * 60))
     }
 
     @Test func detectsUsageMovementWithoutTreatingFetchTimeAsMovement() {

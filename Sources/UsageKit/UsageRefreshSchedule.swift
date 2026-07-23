@@ -13,6 +13,13 @@ public enum UsageRefreshSchedule {
         consecutiveUnchangedRefreshes: Int = 2,
         now: Date = Date()
     ) -> Date {
+        // Missing first snapshot is active work, not quiet usage. Retrying at
+        // normal active cadence avoids stranding failed initial fetches behind
+        // 30-minute steady-state interval.
+        guard !snapshots.isEmpty else {
+            return now.addingTimeInterval(activeInterval)
+        }
+
         let windows = snapshots.flatMap(\.windows)
         let activityInterval: TimeInterval
         switch consecutiveUnchangedRefreshes {
