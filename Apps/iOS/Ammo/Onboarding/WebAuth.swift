@@ -61,10 +61,18 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
             self.session = session
             session.start()
         }
-        guard result.state == nil || result.state == pkce.state else {
+        guard Self.isCallbackStateValid(received: result.state, expected: pkce.state) else {
             throw UsageError.notAuthenticated("codex: OAuth state mismatch")
         }
         return try await CodexProvider().exchangeCode(result.code, verifier: pkce.verifier)
+    }
+
+    /// The authorization server always echoes `state` (RFC 6749 §4.1.2), so a
+    /// callback that omits it is not one we asked for. The loopback listener
+    /// answers any process that can reach port 1455, so treating a stateless
+    /// redirect as valid would let one inject an attacker-issued code.
+    nonisolated static func isCallbackStateValid(received: String?, expected: String) -> Bool {
+        received == expected
     }
 
     private func finish(code: String, state: String?) {
@@ -99,7 +107,8 @@ final class CursorAuthFlow: NSObject, ASWebAuthenticationPresentationContextProv
         var description: String { "Sign-in was cancelled" }
     }
 
-    struct TimeoutError: Error, CustomStringConvertible {
+    struct TimeoutError: UsageFailureRepresentable, CustomStringConvertible {
+        var usageFailureKind: UsageFailureKind { .timedOut }
         var description: String { "Cursor sign-in timed out — try again" }
     }
 

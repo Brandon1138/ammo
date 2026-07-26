@@ -3,7 +3,9 @@ import UsageKit
 import WidgetKit
 
 /// Widget-configurable account choice. Entities are hydrated from the App
-/// Group snapshot file — the widget process never touches the Keychain.
+/// Group snapshot file, so configuration never reads tokens. Timeline
+/// generation is the one widget path that does, via UsageRefreshCoordinator
+/// and the shared Keychain access group.
 struct AccountEntity: AppEntity {
     let id: UUID
     let label: String

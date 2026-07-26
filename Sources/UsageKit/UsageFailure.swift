@@ -13,8 +13,19 @@ public enum UsageFailureKind: String, Codable, Equatable, Sendable {
     case unknown
 }
 
+/// Adopted by errors raised outside UsageKit — an app-level sign-in timeout,
+/// for example — so they reach the user as their real category instead of the
+/// generic "something interrupted" copy.
+public protocol UsageFailureRepresentable: Error {
+    var usageFailureKind: UsageFailureKind { get }
+}
+
 public enum UsageFailureClassifier {
     public static func classify(_ error: any Error) -> UsageFailureKind {
+        if let represented = error as? any UsageFailureRepresentable {
+            return represented.usageFailureKind
+        }
+
         if let usageError = error as? UsageError {
             switch usageError {
             case .http(let status, _):

@@ -16,6 +16,15 @@ import Testing
         #expect(UsageFailureClassifier.classify(UsageError.malformedResponse("missing field")) == .invalidResponse)
     }
 
+    @Test func honoursCategoriesDeclaredByCallerErrors() {
+        struct SignInTimedOut: UsageFailureRepresentable {
+            var usageFailureKind: UsageFailureKind { .timedOut }
+        }
+        // Without the declared category this would fall through to .unknown
+        // and the user would see the generic "something interrupted" copy.
+        #expect(UsageFailureClassifier.classify(SignInTimedOut()) == .timedOut)
+    }
+
     @Test func sanitizesDescriptionsPersistedByOlderBuilds() {
         let previousBuildTimeout = "Error Domain=NSURLErrorDomain Code=-1001 The request timed out"
         #expect(UsageFailureClassifier.classifyLegacyDescription(previousBuildTimeout) == .timedOut)
