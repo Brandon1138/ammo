@@ -23,7 +23,7 @@ struct SafariView: UIViewControllerRepresentable {
 final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var server: LoopbackServer?
     private var session: ASWebAuthenticationSession?
-    private var continuation: CheckedContinuation<(code: String, state: String?), Error>?
+    private var continuation: CheckedContinuation<String, Error>?
 
     struct CancelledError: Error, CustomStringConvertible {
         var description: String { "Sign-in was cancelled" }
@@ -36,12 +36,14 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
             session = nil
         }
         let pkce = PKCE()
-        let result = try await withCheckedThrowingContinuation {
-            (cont: CheckedContinuation<(code: String, state: String?), Error>) in
+        let code = try await withCheckedThrowingContinuation {
+            (cont: CheckedContinuation<String, Error>) in
             continuation = cont
             do {
-                server = try LoopbackServer { [weak self] code, state in
-                    Task { @MainActor in self?.finish(code: code, state: state) }
+                // The listener drops callbacks that don't echo `pkce.state`, so
+                // only a redirect we asked for reaches this continuation.
+                server = try LoopbackServer(expectedState: pkce.state) { [weak self] code in
+                    Task { @MainActor in self?.finish(code: code) }
                 }
             } catch {
                 continuation = nil
@@ -61,10 +63,7 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
             self.session = session
             session.start()
         }
-        guard Self.isCallbackStateValid(received: result.state, expected: pkce.state) else {
-            throw UsageError.notAuthenticated("codex: OAuth state mismatch")
-        }
-        return try await CodexProvider().exchangeCode(result.code, verifier: pkce.verifier)
+        return try await CodexProvider().exchangeCode(code, verifier: pkce.verifier)
     }
 
     /// The authorization server always echoes `state` (RFC 6749 §4.1.2), so a
@@ -75,9 +74,9 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
         received == expected
     }
 
-    private func finish(code: String, state: String?) {
+    private func finish(code: String) {
         session?.cancel()
-        continuation?.resume(returning: (code, state))
+        continuation?.resume(returning: code)
         continuation = nil
     }
 

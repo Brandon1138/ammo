@@ -11,6 +11,49 @@ private struct StubTransport: HTTPTransport {
     }
 }
 
+/// Replays one scripted response per call and keeps every request, so a test can
+/// assert what credential the *next* call carried.
+private final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [(Data, Int)]
+    private var recorded: [URLRequest] = []
+
+    init(responses: [(Data, Int)]) {
+        self.responses = responses
+    }
+
+    convenience init(json: [Any]) {
+        self.init(responses: json.map {
+            // swiftlint:disable:next force_try
+            (try! JSONSerialization.data(withJSONObject: $0), 200)
+        })
+    }
+
+    var requests: [URLRequest] {
+        lock.withLock { recorded }
+    }
+
+    func body(at index: Int) throws -> [String: Any] {
+        let bodies = requests.compactMap(\.httpBody)
+        guard index < bodies.count,
+              let object = try JSONSerialization.jsonObject(with: bodies[index]) as? [String: Any]
+        else {
+            throw StubError.noBody
+        }
+        return object
+    }
+
+    enum StubError: Error { case exhausted, noBody }
+
+    func request(_ req: URLRequest) async throws -> (Data, Int) {
+        try lock.withLock {
+            recorded.append(req)
+            guard !responses.isEmpty else { throw StubError.exhausted }
+            return responses.removeFirst()
+        }
+    }
+}
+
 @Suite struct PKCETests {
     @Test func challengeMatchesRFC7636Vector() {
         // Appendix B of RFC 7636.
@@ -131,5 +174,186 @@ private struct StubTransport: HTTPTransport {
         #expect(tokens.refreshToken == "refresh-token")
         #expect(tokens.accountID == "user_ABC")
         #expect(tokens.expiresAt == Date(timeIntervalSince1970: 1_800_000_000))
+    }
+}
+
+/// Cursor rotates the refresh credential on every token call, and the value the
+/// next call must present depends on which fields came back. Getting this wrong
+/// logs the account out silently, so pin the whole response matrix.
+@Suite struct CursorRefreshTests {
+    private func fakeJWT(subject: String = "auth0|user_ABC",
+                         expiry: Double = 1_800_000_000) -> String {
+        let header = Data(#"{"alg":"none"}"#.utf8).base64URLEncoded
+        // swiftlint:disable:next force_try
+        let body = try! JSONSerialization.data(withJSONObject: ["sub": subject, "exp": expiry])
+        return "\(header).\(body.base64URLEncoded).sig"
+    }
+
+    @Test("A rotated refresh_token replaces the one we sent")
+    func adoptsRotatedRefreshToken() async throws {
+        let jwt = fakeJWT()
+        let transport = ScriptedTransport(json: [
+            ["accessToken": jwt, "refreshToken": "refresh-2"],
+        ])
+        let refreshed = try await CursorProvider(transport: transport).refresh(
+            tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+
+        #expect(refreshed.accessToken == jwt)
+        #expect(refreshed.refreshToken == "refresh-2")
+        #expect(refreshed.accountID == "user_ABC")
+        #expect(refreshed.expiresAt == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(try transport.body(at: 0)["refresh_token"] as? String == "refresh-1")
+        #expect(try transport.body(at: 0)["grant_type"] as? String == "refresh_token")
+        #expect(try transport.body(at: 0)["client_id"] as? String == CursorProvider.clientID)
+    }
+
+    @Test("Omitting refresh_token promotes the new access token to the refresh credential")
+    func fallsBackToAccessTokenWhenRotationIsOmitted() async throws {
+        let jwt = fakeJWT()
+        let transport = ScriptedTransport(json: [["accessToken": jwt]])
+        let refreshed = try await CursorProvider(transport: transport).refresh(
+            tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+
+        #expect(refreshed.refreshToken == jwt)
+    }
+
+    @Test("Each refresh presents the credential the previous one returned")
+    func rotationChainsAcrossSuccessiveRefreshes() async throws {
+        let first = fakeJWT(expiry: 1_800_000_000)
+        let second = fakeJWT(expiry: 1_900_000_000)
+        let transport = ScriptedTransport(json: [
+            ["accessToken": first, "refreshToken": "refresh-2"],
+            // No rotation this time: the chain has to carry `first` forward.
+            ["accessToken": second],
+        ])
+        let provider = CursorProvider(transport: transport)
+
+        let once = try await provider.refresh(
+            tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+        let twice = try await provider.refresh(tokens: once)
+        let thrice = OAuthTokens(accessToken: twice.accessToken,
+                                 refreshToken: twice.refreshToken,
+                                 expiresAt: twice.expiresAt,
+                                 accountID: twice.accountID)
+
+        #expect(try transport.body(at: 0)["refresh_token"] as? String == "refresh-1")
+        #expect(try transport.body(at: 1)["refresh_token"] as? String == "refresh-2")
+        #expect(twice.refreshToken == second)
+        #expect(twice.expiresAt == Date(timeIntervalSince1970: 1_900_000_000))
+        // What we would persist round-trips through the Keychain encoding
+        // unchanged; a dropped rotation here is what silently logs the user out.
+        let encoded = try JSONEncoder().encode(thrice)
+        let decoded = try JSONDecoder().decode(OAuthTokens.self, from: encoded)
+        #expect(decoded.refreshToken == second)
+        #expect(decoded.accessToken == second)
+        #expect(decoded.expiresAt == twice.expiresAt)
+        #expect(decoded.accountID == "user_ABC")
+    }
+
+    @Test("shouldLogout is surfaced as an authentication failure, not a rotation")
+    func serverRequestedLogoutStopsTheRotation() async {
+        let transport = ScriptedTransport(json: [
+            ["accessToken": "unused", "refreshToken": "refresh-2", "shouldLogout": true],
+        ])
+
+        do {
+            _ = try await CursorProvider(transport: transport).refresh(
+                tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+            Issue.record("Expected the server logout request to fail the refresh")
+        } catch let error as UsageError {
+            guard case .notAuthenticated = error else {
+                Issue.record("Expected notAuthenticated, received \(error)")
+                return
+            }
+            #expect(UsageFailureClassifier.classify(error) == .authentication)
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
+    @Test("shouldLogout: false is an ordinary rotation")
+    func explicitFalseLogoutStillRotates() async throws {
+        let jwt = fakeJWT()
+        let transport = ScriptedTransport(json: [
+            ["accessToken": jwt, "refreshToken": "refresh-2", "shouldLogout": false],
+        ])
+        let refreshed = try await CursorProvider(transport: transport).refresh(
+            tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+
+        #expect(refreshed.refreshToken == "refresh-2")
+    }
+
+    @Test("A refresh without a stored refresh token never reaches the network")
+    func missingRefreshTokenFailsBeforeRequesting() async {
+        let transport = ScriptedTransport(responses: [])
+
+        do {
+            _ = try await CursorProvider(transport: transport).refresh(
+                tokens: OAuthTokens(accessToken: "old-access"))
+            Issue.record("Expected a notAuthenticated failure")
+        } catch let error as UsageError {
+            guard case .notAuthenticated = error else {
+                Issue.record("Expected notAuthenticated, received \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+        #expect(transport.requests.isEmpty)
+    }
+
+    @Test("A malformed token response is reported as malformed, not as new tokens")
+    func malformedRefreshResponseIsRejected() async {
+        let transport = ScriptedTransport(responses: [
+            (Data(#"{"refreshToken":"refresh-2"}"#.utf8), 200),
+        ])
+
+        do {
+            _ = try await CursorProvider(transport: transport).refresh(
+                tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+            Issue.record("Expected an explicit malformed-response failure")
+        } catch let error as UsageError {
+            guard case .malformedResponse = error else {
+                Issue.record("Expected malformedResponse, received \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
+    @Test("An HTTP failure keeps its status instead of decoding the error body")
+    func httpFailureIsNotDecodedAsTokens() async {
+        let transport = ScriptedTransport(responses: [
+            (Data(#"{"error":"invalid_grant"}"#.utf8), 401),
+        ])
+
+        do {
+            _ = try await CursorProvider(transport: transport).refresh(
+                tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+            Issue.record("Expected an HTTP failure")
+        } catch let error as UsageError {
+            guard case .http(let status, _) = error else {
+                Issue.record("Expected http, received \(error)")
+                return
+            }
+            #expect(status == 401)
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
+    @Test("An opaque access token still rotates, just without expiry or account id")
+    func nonJWTAccessTokenRotatesWithoutClaims() async throws {
+        let transport = ScriptedTransport(json: [
+            ["accessToken": "opaque-access", "refreshToken": "refresh-2"],
+        ])
+        let refreshed = try await CursorProvider(transport: transport).refresh(
+            tokens: OAuthTokens(accessToken: "old-access", refreshToken: "refresh-1"))
+
+        #expect(refreshed.accessToken == "opaque-access")
+        #expect(refreshed.refreshToken == "refresh-2")
+        #expect(refreshed.expiresAt == nil)
+        #expect(refreshed.accountID == nil)
     }
 }
