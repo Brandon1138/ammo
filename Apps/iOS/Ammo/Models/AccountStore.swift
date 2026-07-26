@@ -63,6 +63,12 @@ final class AccountStore {
     }
 
     func remove(_ account: StoredAccount) {
+        do {
+            try AccountDeletionStore.markDeleted(account.id)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to mark account deleted: \(String(describing: error), privacy: .private)")
+            return
+        }
         KeychainStore.delete(for: account.id)
         RefreshLedgerStore.remove(accountID: account.id)
         do {

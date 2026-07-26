@@ -130,6 +130,28 @@ struct LoopbackServerTests {
         #expect(codes.value == ["real-code"])
     }
 
+    @Test("A callback split across TCP writes is parsed only after complete headers arrive")
+    func fragmentedCallbackIsAccepted() async throws {
+        let codes = Locked<[String]>([])
+        let server = try LoopbackServer(port: 0, expectedState: expectedState) { code in
+            codes.mutate { $0.append(code) }
+        }
+        defer { server.stop() }
+        let port = try await Self.boundPort(of: server)
+
+        let response = try await Self.get(
+            port: port,
+            fragments: [
+                "GET /auth/call",
+                "back?code=fragmented-code&state=expected-state HTTP/1.1\r\nHo",
+                "st: localhost\r\nConnection: close\r\n",
+                "\r\n",
+            ])
+
+        #expect(response.contains("200 OK"))
+        #expect(codes.value == ["fragmented-code"])
+    }
+
     // MARK: - Helpers
 
     private struct ListenerError: Error, CustomStringConvertible {
@@ -147,6 +169,11 @@ struct LoopbackServerTests {
     /// Raw TCP rather than URLSession: the point of the test is what the socket
     /// answers, without an HTTP client's redirect or caching behaviour.
     private static func get(port: UInt16, target: String) async throws -> String {
+        let request = "GET \(target) HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        return try await get(port: port, fragments: [request])
+    }
+
+    private static func get(port: UInt16, fragments: [String]) async throws -> String {
         let connection = NWConnection(
             host: .ipv4(.loopback),
             port: NWEndpoint.Port(rawValue: port)!,
@@ -154,11 +181,15 @@ struct LoopbackServerTests {
         defer { connection.cancel() }
         connection.start(queue: .global())
 
-        let request = "GET \(target) HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            connection.send(content: Data(request.utf8), completion: .contentProcessed { error in
-                if let error { cont.resume(throwing: error) } else { cont.resume() }
-            })
+        for fragment in fragments {
+            try await withCheckedThrowingContinuation {
+                (cont: CheckedContinuation<Void, Error>) in
+                connection.send(content: Data(fragment.utf8),
+                                completion: .contentProcessed { error in
+                    if let error { cont.resume(throwing: error) } else { cont.resume() }
+                })
+            }
+            try await Task.sleep(for: .milliseconds(20))
         }
         let data: Data? = try await withCheckedThrowingContinuation { cont in
             connection.receiveMessage { data, _, _, error in

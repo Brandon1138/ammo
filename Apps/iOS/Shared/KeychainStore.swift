@@ -15,6 +15,7 @@ enum KeychainStore {
     }
 
     static func save(_ tokens: OAuthTokens, for id: UUID) throws {
+        guard !AccountDeletionStore.isDeleted(id) else { throw CancellationError() }
         let data = try JSONEncoder().encode(tokens)
         let accessGroup = try configuredAccessGroup()
         let query = baseQuery(for: id, accessGroup: accessGroup)
@@ -28,6 +29,10 @@ enum KeychainStore {
             guard addStatus == errSecSuccess else { throw KeychainError(status: addStatus) }
         } else if updateStatus != errSecSuccess {
             throw KeychainError(status: updateStatus)
+        }
+        guard !AccountDeletionStore.isDeleted(id) else {
+            delete(for: id)
+            throw CancellationError()
         }
     }
 

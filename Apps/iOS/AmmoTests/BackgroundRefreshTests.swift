@@ -39,9 +39,108 @@ struct BackgroundRefreshOutcomeTests {
         #expect(BackgroundRefresh.didSucceed(outcomes: outcomes))
     }
 
+    @Test("A throttled account without a snapshot is a failure, not cached success")
+    func noCacheDuringBackoffIsAFailure() {
+        let nextEligibleAt = Date(timeIntervalSince1970: 1_000)
+        let outcome = UsageRefreshCoordinator.throttledOutcome(
+            accountID: first,
+            nextEligibleAt: nextEligibleAt,
+            hasSnapshot: false)
+
+        guard case .failed(let accountID, _, let retryAt) = outcome else {
+            Issue.record("Expected no-cache throttle to fail")
+            return
+        }
+        #expect(accountID == first)
+        #expect(retryAt == nextEligibleAt)
+        #expect(!BackgroundRefresh.didSucceed(outcomes: [outcome]))
+    }
+
+    @Test("First failure creates backoff, and its retry has no cached success")
+    func firstFailureBackoffWithoutSnapshot() {
+        let accountID = UUID()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        defer { RefreshLedgerStore.remove(accountID: accountID) }
+
+        let firstClaim = RefreshLedgerStore.claim(accountID: accountID,
+                                                  reason: .background,
+                                                  now: now)
+        #expect(firstClaim.isGranted)
+        RefreshLedgerStore.finishFailure(accountID: accountID, status: nil, at: now)
+
+        let retryClaim = RefreshLedgerStore.claim(accountID: accountID,
+                                                  reason: .background,
+                                                  now: now.addingTimeInterval(1))
+        #expect(!retryClaim.isGranted)
+        let outcome = UsageRefreshCoordinator.throttledOutcome(
+            accountID: accountID,
+            nextEligibleAt: retryClaim.nextEligibleAt,
+            hasSnapshot: false)
+        guard case .failed(_, _, let nextEligibleAt) = outcome else {
+            Issue.record("Expected first-failure backoff without a snapshot")
+            return
+        }
+        #expect(nextEligibleAt == now.addingTimeInterval(60))
+    }
+
     @Test("No accounts is vacuously a success — there was nothing to fetch")
     func emptyRunIsASuccess() {
         #expect(BackgroundRefresh.didSucceed(outcomes: []))
+    }
+
+    @Test("Structured account work receives parent cancellation")
+    func cancellationPropagatesToProviderWork() async {
+        let probe = StructuredCancellationProbe()
+        let work = Task {
+            await UsageRefreshCoordinator.collectOutcomes(accountIDs: [first, second]) { id in
+                await probe.run(accountID: id)
+            }
+        }
+
+        for _ in 0..<100 {
+            if await probe.hasStarted { break }
+            await Task.yield()
+        }
+        work.cancel()
+        _ = await work.value
+
+        let cancelledCount = await probe.cancelledCount
+        #expect(cancelledCount == 2)
+    }
+
+    @Test("Completion latch can be claimed exactly once under contention")
+    func completionIsExactlyOnce() async {
+        let latch = CompletionLatch()
+        let claims = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for _ in 0..<100 {
+                group.addTask { latch.claim() }
+            }
+            var claims: [Bool] = []
+            for await claim in group {
+                claims.append(claim)
+            }
+            return claims
+        }
+
+        #expect(claims.filter { $0 }.count == 1)
+    }
+}
+
+private actor StructuredCancellationProbe {
+    private(set) var startedCount = 0
+    private(set) var cancelledCount = 0
+
+    var hasStarted: Bool { startedCount > 0 }
+
+    func run(accountID: UUID) async -> RefreshOutcome {
+        startedCount += 1
+        while !Task.isCancelled {
+            await Task.yield()
+        }
+        cancelledCount += 1
+        return .failed(accountID: accountID,
+                       message: "cancelled",
+                       nextEligibleAt: nil)
     }
 }
 

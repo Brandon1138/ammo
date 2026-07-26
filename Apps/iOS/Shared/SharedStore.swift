@@ -73,6 +73,7 @@ enum SharedStore {
             decoder.dateDecodingStrategy = .iso8601
             let states = sanitize(
                 try decoder.decode([AccountState].self, from: data))
+                .filter { !AccountDeletionStore.isDeleted($0.id) }
             AmmoLog.sharedStore.info("Loaded \(states.count, privacy: .public) account states")
             return states
         } catch CocoaError.fileReadNoSuchFile {
@@ -85,7 +86,9 @@ enum SharedStore {
     }
 
     static func insert(_ state: AccountState) throws {
+        guard !AccountDeletionStore.isDeleted(state.id) else { throw CancellationError() }
         try mutate { states in
+            guard !AccountDeletionStore.isDeleted(state.id) else { return }
             states.append(state)
         }
     }
@@ -113,8 +116,10 @@ enum SharedStore {
     /// coupled to accepting the snapshot.
     @discardableResult
     static func commit(snapshot: UsageSnapshot, for id: UUID) throws -> SnapshotTransition? {
+        guard !AccountDeletionStore.isDeleted(id) else { return nil }
         var transition: SnapshotTransition?
         try mutate { states in
+            guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
             let previous = states[index].snapshot
             states[index].snapshot = snapshot
@@ -125,16 +130,20 @@ enum SharedStore {
                                             previousSnapshot: previous,
                                             currentSnapshot: snapshot)
         }
-        do {
-            try UsageHistoryStore.record(snapshot: snapshot, for: id)
-        } catch {
-            AmmoLog.sharedStore.error("Unable to record usage history: \(String(describing: error), privacy: .private)")
+        if transition != nil, !AccountDeletionStore.isDeleted(id) {
+            do {
+                try UsageHistoryStore.record(snapshot: snapshot, for: id)
+            } catch {
+                AmmoLog.sharedStore.error("Unable to record usage history: \(String(describing: error), privacy: .private)")
+            }
         }
         return transition
     }
 
     static func record(failure: UsageFailureKind, for id: UUID) throws {
+        guard !AccountDeletionStore.isDeleted(id) else { return }
         try mutate { states in
+            guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
             states[index].lastError = nil
             states[index].lastFailure = failure

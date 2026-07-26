@@ -11,6 +11,8 @@ import Network
 /// loopback peers: on a shared network anything that can reach the device would
 /// otherwise be able to post an authorization code to port 1455.
 final class LoopbackServer {
+    private static let maximumHeaderBytes = 16 * 1024
+    private static let headerTerminator = Data("\r\n\r\n".utf8)
     private let listener: NWListener
 
     /// Every string this listener can render. The page is HTML served to the
@@ -62,28 +64,100 @@ final class LoopbackServer {
     private static func handle(_ connection: NWConnection,
                                expectedState: String,
                                onCode: @escaping @Sendable (String) -> Void) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { data, _, _, _ in
-            guard let data,
-                  let request = String(data: data, encoding: .utf8),
-                  let target = request.split(separator: " ").dropFirst().first // "GET /path?q HTTP/1.1"
-            else {
+        receiveHeaders(connection,
+                       buffer: Data(),
+                       expectedState: expectedState,
+                       onCode: onCode)
+    }
+
+    private static func receiveHeaders(
+        _ connection: NWConnection,
+        buffer: Data,
+        expectedState: String,
+        onCode: @escaping @Sendable (String) -> Void
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4 * 1024) {
+            data, _, isComplete, error in
+            guard error == nil else {
                 connection.cancel()
                 return
             }
-            let reply = Self.reply(forTarget: String(target), expectedState: expectedState)
-            if let code = reply.code {
-                onCode(code)
+
+            var accumulated = buffer
+            if let data {
+                accumulated.append(data)
             }
-            let html = """
-            <!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
-            <body style="font-family:-apple-system,sans-serif;text-align:center;padding-top:4em">
-            <h2>\(reply.message)</h2></body>
-            """
-            let response = "HTTP/1.1 \(reply.status)\r\nContent-Type: text/html; charset=utf-8\r\n"
-                + "Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
-            connection.send(content: Data(response.utf8),
-                            completion: .contentProcessed { _ in connection.cancel() })
+
+            guard accumulated.count <= maximumHeaderBytes else {
+                send(Reply(status: "431 Request Header Fields Too Large",
+                           message: Page.notFound,
+                           code: nil),
+                     over: connection,
+                     onCode: onCode)
+                return
+            }
+
+            if let terminator = accumulated.range(of: headerTerminator) {
+                let headers = accumulated[..<terminator.upperBound]
+                guard let target = requestTarget(from: Data(headers)) else {
+                    send(Reply(status: "400 Bad Request",
+                               message: Page.notFound,
+                               code: nil),
+                         over: connection,
+                         onCode: onCode)
+                    return
+                }
+                send(reply(forTarget: target, expectedState: expectedState),
+                     over: connection,
+                     onCode: onCode)
+                return
+            }
+
+            guard !isComplete else {
+                send(Reply(status: "400 Bad Request",
+                           message: Page.notFound,
+                           code: nil),
+                     over: connection,
+                     onCode: onCode)
+                return
+            }
+
+            receiveHeaders(connection,
+                           buffer: accumulated,
+                           expectedState: expectedState,
+                           onCode: onCode)
         }
+    }
+
+    private static func requestTarget(from headers: Data) -> String? {
+        guard let request = String(data: headers, encoding: .utf8),
+              let requestLine = request.components(separatedBy: "\r\n").first
+        else { return nil }
+        let fields = requestLine.split(separator: " ")
+        guard fields.count == 3,
+              fields[0] == "GET",
+              fields[2].hasPrefix("HTTP/1.")
+        else { return nil }
+        return String(fields[1])
+    }
+
+    private static func send(
+        _ reply: Reply,
+        over connection: NWConnection,
+        onCode: @escaping @Sendable (String) -> Void
+    ) {
+        if let code = reply.code {
+            onCode(code)
+        }
+        let html = """
+        <!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding-top:4em">
+        <h2>\(reply.message)</h2></body>
+        """
+        let response = "HTTP/1.1 \(reply.status)\r\nContent-Type: text/html; charset=utf-8\r\n"
+            + "Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+        connection.send(content: Data(response.utf8),
+                        completion: .contentProcessed { _ in connection.cancel() })
     }
 
     /// A callback that doesn't echo our exact `state` is answered and dropped —

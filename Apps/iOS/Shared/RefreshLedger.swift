@@ -36,8 +36,14 @@ enum RefreshLedgerStore {
     }
 
     static func claim(accountID: UUID, reason: RefreshReason, now: Date = Date()) -> Claim {
+        guard !AccountDeletionStore.isDeleted(accountID) else {
+            return Claim(isGranted: false, nextEligibleAt: .distantFuture)
+        }
         do {
             return try lock.withLock {
+                guard !AccountDeletionStore.isDeleted(accountID) else {
+                    return Claim(isGranted: false, nextEligibleAt: .distantFuture)
+                }
                 var ledger = load()
                 var record = ledger.accounts[accountID.uuidString] ?? Record()
                 let hardEligibleAt = max(
@@ -171,8 +177,10 @@ enum RefreshLedgerStore {
     }
 
     private static func update(accountID: UUID, mutate: (inout Record) -> Void) {
+        guard !AccountDeletionStore.isDeleted(accountID) else { return }
         do {
             try lock.withLock {
+                guard !AccountDeletionStore.isDeleted(accountID) else { return }
                 var ledger = load()
                 var record = ledger.accounts[accountID.uuidString] ?? Record()
                 mutate(&record)

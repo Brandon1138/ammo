@@ -31,7 +31,9 @@ enum UsageHistoryStore {
     }
 
     static func record(snapshot: UsageSnapshot, for accountID: UUID) throws {
+        guard !AccountDeletionStore.isDeleted(accountID) else { return }
         try lock.withLock {
+            guard !AccountDeletionStore.isDeleted(accountID) else { return }
             var samples = loadUnlocked()
             let cutoff = snapshot.fetchedAt.addingTimeInterval(-retention)
             samples.removeAll { $0.snapshot.fetchedAt < cutoff }
