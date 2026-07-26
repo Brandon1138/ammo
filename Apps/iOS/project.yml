@@ -4,8 +4,9 @@ name: Ammo
 options:
   bundleIdPrefix: com.brandon
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   createIntermediateGroups: true
+  postGenCommand: ./Scripts/fix-local-package-products.sh
 
 packages:
   UsageKit:
@@ -15,11 +16,10 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: 0.1.0
-    CURRENT_PROJECT_VERSION: 1
+    CURRENT_PROJECT_VERSION: 16
     CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: JN24JD42L3
     TARGETED_DEVICE_FAMILY: "1"
-    # Set your team once here (or in Xcode's Signing & Capabilities pane) and
-    # re-run xcodegen: DEVELOPMENT_TEAM: XXXXXXXXXX
 
 targets:
   Ammo:
@@ -36,6 +36,12 @@ targets:
       path: Ammo/Info.plist
       properties:
         CFBundleDisplayName: Ammo
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AmmoKeychainAccessGroup: $(AppIdentifierPrefix)com.brandon.ammo.shared
+        CFBundleURLTypes:
+          - CFBundleURLName: com.brandon.ammo.history
+            CFBundleURLSchemes: [ammo]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         BGTaskSchedulerPermittedIdentifiers: [com.brandon.ammo.refresh]
@@ -45,9 +51,11 @@ targets:
       path: Ammo/Ammo.entitlements
       properties:
         com.apple.security.application-groups: [group.com.brandon.ammo]
+        keychain-access-groups: [$(AppIdentifierPrefix)com.brandon.ammo.shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.brandon.ammo
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
@@ -64,21 +72,43 @@ targets:
       path: AmmoWidgets/Info.plist
       properties:
         CFBundleDisplayName: Ammo
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AmmoKeychainAccessGroup: $(AppIdentifierPrefix)com.brandon.ammo.shared
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
       path: AmmoWidgets/AmmoWidgets.entitlements
       properties:
         com.apple.security.application-groups: [group.com.brandon.ammo]
+        keychain-access-groups: [$(AppIdentifierPrefix)com.brandon.ammo.shared]
     settings:
       base:
+        ENABLE_DEBUG_DYLIB: false
         PRODUCT_BUNDLE_IDENTIFIER: com.brandon.ammo.widgets
+        TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: true
+
+  AmmoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AmmoTests
+    dependencies:
+      - target: Ammo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.brandon.ammo.tests
+        GENERATE_INFOPLIST_FILE: true
 
 schemes:
   Ammo:
     build:
       targets:
         Ammo: all
+        AmmoTests: [test]
+    test:
+      targets:
+        - AmmoTests
     run:
       config: Debug

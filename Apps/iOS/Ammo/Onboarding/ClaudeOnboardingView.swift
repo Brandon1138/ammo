@@ -12,7 +12,7 @@ struct ClaudeOnboardingView: View {
     @State private var label = ""
     @State private var code = ""
     @State private var showingWeb = false
-    @State private var errorText: String?
+    @State private var failure: UsageFailureKind?
     @State private var busy = false
 
     var body: some View {
@@ -41,9 +41,9 @@ struct ClaudeOnboardingView: View {
                     TextField("Claude", text: $label)
                 }
 
-                if let errorText {
+                if let failure {
                     Section {
-                        Text(errorText).foregroundStyle(.red).font(.footnote)
+                        SignInIssueNotice(providerName: "Claude", failure: failure)
                     }
                 }
 
@@ -68,7 +68,7 @@ struct ClaudeOnboardingView: View {
 
     private func submit() {
         busy = true
-        errorText = nil
+        failure = nil
         Task {
             do {
                 let tokens = try await ClaudeProvider()
@@ -76,7 +76,8 @@ struct ClaudeOnboardingView: View {
                 try store.add(provider: .claude, label: label, tokens: tokens, imported: false)
                 dismiss()
             } catch {
-                errorText = String(describing: error)
+                AmmoLog.refresh.error("Claude onboarding failed: \(String(describing: error), privacy: .private)")
+                failure = UsageFailureClassifier.classify(error)
                 busy = false
             }
         }

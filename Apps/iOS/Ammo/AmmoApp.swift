@@ -16,7 +16,7 @@ struct AmmoApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                Task { await AccountStore.shared.refreshAll() }
+                Task { await AccountStore.shared.refreshAll(reason: .foreground) }
             case .background:
                 BackgroundRefresh.schedule()
             default:

@@ -11,7 +11,7 @@ struct CodexOnboardingView: View {
 
     @State private var label = ""
     @State private var pastedJSON = ""
-    @State private var errorText: String?
+    @State private var failure: UsageFailureKind?
     @State private var busy = false
     @State private var authFlow = CodexAuthFlow()
 
@@ -50,9 +50,9 @@ struct CodexOnboardingView: View {
                     Text("Paste the contents of ~/.codex/auth.json (or just its \"tokens\" object). Imported tokens are never refreshed by Ammo — that could log out your desktop CLI — so you'll need to re-import when they expire.")
                 }
 
-                if let errorText {
+                if let failure {
                     Section {
-                        Text(errorText).foregroundStyle(.red).font(.footnote)
+                        SignInIssueNotice(providerName: "Codex", failure: failure)
                     }
                 }
             }
@@ -68,7 +68,7 @@ struct CodexOnboardingView: View {
 
     private func signIn() {
         busy = true
-        errorText = nil
+        failure = nil
         Task {
             do {
                 let tokens = try await authFlow.signIn()
@@ -77,20 +77,22 @@ struct CodexOnboardingView: View {
             } catch is CodexAuthFlow.CancelledError {
                 busy = false
             } catch {
-                errorText = String(describing: error)
+                AmmoLog.refresh.error("Codex onboarding failed: \(String(describing: error), privacy: .private)")
+                failure = UsageFailureClassifier.classify(error)
                 busy = false
             }
         }
     }
 
     private func importJSON() {
-        errorText = nil
+        failure = nil
         do {
             let tokens = try Self.parseAuthJSON(pastedJSON)
             try store.add(provider: .codex, label: label, tokens: tokens, imported: true)
             dismiss()
         } catch {
-            errorText = String(describing: error)
+            AmmoLog.refresh.error("Codex token import failed: \(String(describing: error), privacy: .private)")
+            failure = UsageFailureClassifier.classify(error)
         }
     }
 

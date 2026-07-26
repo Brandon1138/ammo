@@ -39,10 +39,16 @@ public struct CodexProvider: UsageProvider {
         } catch {
             throw UsageError.malformedResponse("codex usage: \(error)")
         }
+        let windows = Self.windows(from: response)
+        guard !windows.isEmpty else {
+            throw UsageError.malformedResponse(
+                "codex usage: response contained no usage windows")
+        }
         return UsageSnapshot(provider: .codex,
                              plan: response.planType,
-                             windows: Self.windows(from: response),
-                             resetCreditsAvailable: response.rateLimitResetCredits?.availableCount)
+                             windows: windows,
+                             resetCreditsAvailable: response.rateLimitResetCredits?.availableCount,
+                             onDemand: Self.onDemand(from: response))
     }
 
     public func refresh(tokens: OAuthTokens) async throws -> OAuthTokens {
@@ -151,10 +157,76 @@ public struct CodexProvider: UsageProvider {
         struct RateLimit: Decodable {
             let primaryWindow: Window?
             let secondaryWindow: Window?
+            let individualLimit: SpendControl?
+        }
+        struct Credits: Decodable {
+            let hasCredits: Bool?
+            let unlimited: Bool?
+            let balance: Double?
+            let overageLimitReached: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case hasCredits, unlimited, balance, overageLimitReached
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                hasCredits = try? container.decodeIfPresent(Bool.self, forKey: .hasCredits)
+                unlimited = try? container.decodeIfPresent(Bool.self, forKey: .unlimited)
+                balance = Self.flexibleDouble(container, key: .balance)
+                overageLimitReached = try? container.decodeIfPresent(
+                    Bool.self, forKey: .overageLimitReached)
+            }
+
+            private static func flexibleDouble(
+                _ container: KeyedDecodingContainer<CodingKeys>,
+                key: CodingKeys
+            ) -> Double? {
+                if let value = try? container.decodeIfPresent(Double.self, forKey: key) { return value }
+                if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+                    return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                return nil
+            }
+        }
+        struct SpendControl: Decodable {
+            let limit: Double?
+            let used: Double?
+            let remainingPercent: Double?
+            let resetsAt: Double?
+
+            enum CodingKeys: String, CodingKey {
+                case limit, used, remainingPercent, resetsAt
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                limit = Self.flexibleDouble(container, key: .limit)
+                used = Self.flexibleDouble(container, key: .used)
+                remainingPercent = Self.flexibleDouble(container, key: .remainingPercent)
+                resetsAt = Self.flexibleDouble(container, key: .resetsAt)
+            }
+
+            private static func flexibleDouble(
+                _ container: KeyedDecodingContainer<CodingKeys>,
+                key: CodingKeys
+            ) -> Double? {
+                if let value = try? container.decodeIfPresent(Double.self, forKey: key) { return value }
+                if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+                    return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                return nil
+            }
+        }
+        struct SpendControlContainer: Decodable {
+            let individualLimit: SpendControl?
         }
         struct ResetCredits: Decodable { let availableCount: Int? }
         let planType: String?
         let rateLimit: RateLimit?
+        let credits: Credits?
+        let individualLimit: SpendControl?
+        let spendControl: SpendControlContainer?
         let rateLimitResetCredits: ResetCredits?
     }
 
@@ -174,6 +246,97 @@ public struct CodexProvider: UsageProvider {
                 return LimitWindow(kind: kind, label: label, usedPercent: used,
                                    resetsAt: window.resetAt.map { Date(timeIntervalSince1970: $0) })
             }
+    }
+
+    static func onDemand(from response: Response) -> [OnDemandUsage]? {
+        var entries: [OnDemandUsage] = []
+
+        if let credits = response.credits {
+            let balance = credits.balance.map { max(0, $0) }
+            entries.append(OnDemandUsage(
+                id: "codex-usage-credits",
+                label: "Usage credits",
+                kind: .creditBalance,
+                scope: creditScope(planType: response.planType),
+                isEnabled: credits.unlimited == true || credits.hasCredits == true,
+                isUnlimited: credits.unlimited == true,
+                unit: .credits,
+                currencyCode: "",
+                remaining: balance,
+                isExhaustedReported: credits.overageLimitReached
+            ))
+        }
+
+        if let control = response.spendControl?.individualLimit
+            ?? response.individualLimit
+            ?? response.rateLimit?.individualLimit {
+            let limit = control.limit.map { max(0, $0) }
+            let used = control.used.map { max(0, $0) }
+            let remaining = limit.map { max(0, $0 - (used ?? 0)) }
+            entries.append(OnDemandUsage(
+                id: "codex-individual-limit",
+                label: "Personal limit",
+                kind: .personalAllocation,
+                scope: .personal,
+                isEnabled: true,
+                currencyCode: "USD",
+                used: used,
+                limit: limit,
+                remaining: remaining,
+                usedPercent: control.remainingPercent.map { 100 - $0 },
+                resetsAt: control.resetsAt.map { Date(timeIntervalSince1970: $0) }
+            ))
+        }
+
+        return entries.isEmpty ? nil : entries
+    }
+
+    static func creditScope(planType: String?) -> OnDemandScope {
+        guard let plan = planType?.lowercased() else { return .personal }
+        if plan.contains("business") || plan.contains("enterprise") || plan.contains("team") {
+            return .organization
+        }
+        return .personal
+    }
+
+    /// Values persisted before source attribution may have come from Ammo's
+    /// removed private ChatGPT billing-page capture. Keep the provider's honest
+    /// availability marker, but discard unverified balance, conversion, and
+    /// expiry fields. A fresh `wham/usage` response carries explicit provenance
+    /// and may supply an exact balance without being altered here.
+    public static func removingUnverifiedBillingData(
+        from snapshot: UsageSnapshot
+    ) -> UsageSnapshot {
+        guard snapshot.provider == .codex else { return snapshot }
+        let sanitized = snapshot.onDemand?.map { usage in
+            guard usage.id == "codex-usage-credits",
+                  usage.dataSource != .providerUsageResponse,
+                  usage.remainingAmount != nil
+                    || usage.expiresAt != nil
+                    || usage.equivalentAmount != nil
+                    || usage.equivalentCurrencyCode != nil
+            else { return usage }
+            return OnDemandUsage(
+                id: usage.id,
+                label: usage.label,
+                kind: usage.kind,
+                scope: usage.scope,
+                isEnabled: usage.isEnabled,
+                isUnlimited: usage.isUnlimited,
+                unit: usage.effectiveUnit,
+                dataSource: nil,
+                currencyCode: usage.currencyCode,
+                isExhaustedReported: usage.isExhaustedReported
+            )
+        }
+        return UsageSnapshot(
+            provider: snapshot.provider,
+            plan: snapshot.plan,
+            windows: snapshot.windows,
+            resetCreditsAvailable: snapshot.resetCreditsAvailable,
+            onDemand: sanitized,
+            fetchedAt: snapshot.fetchedAt
+        )
     }
 
     static func classify(windowSeconds: Double?) -> (WindowKind, String) {
