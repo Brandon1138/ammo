@@ -1,16 +1,40 @@
 import SwiftUI
 import UsageKit
 
-private enum AppTab: Hashable {
+enum AppTab: Hashable {
     case usage
     case onDemand
     case history
 }
 
+/// Navigation restoration policy for the root tab bar.
+///
+/// Ammo intentionally does not persist a user's last-selected tab. Every normal
+/// scene activation starts from Usage, while an explicit HistoryLink is allowed
+/// to select History for the activation that receives it. Keeping this policy in
+/// one place prevents SwiftUI or UIKit state restoration from replaying a stale
+/// History selection after the user returned to Usage.
+enum TabSelectionPolicy {
+    static func tabForSceneActivation(
+        isInitialActivation: Bool,
+        initialTab: AppTab,
+        hasPendingHistoryLink: Bool
+    ) -> AppTab {
+        if hasPendingHistoryLink {
+            return .history
+        }
+        return isInitialActivation ? initialTab : .usage
+    }
+}
+
 struct ContentView: View {
     @Environment(AccountStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab
     @State private var historySelection = HistorySelection()
+    @State private var hasActivated = false
+    @State private var hasPendingHistoryLink = false
+    private let initialTab: AppTab
 
     init() {
 #if targetEnvironment(simulator)
@@ -29,6 +53,7 @@ struct ContentView: View {
 #else
         let initialTab: AppTab = .usage
 #endif
+        self.initialTab = initialTab
         _selectedTab = State(initialValue: initialTab)
     }
 
@@ -50,6 +75,17 @@ struct ContentView: View {
                 HistoryView(selection: $historySelection)
             }
         }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+
+            selectedTab = TabSelectionPolicy.tabForSceneActivation(
+                isInitialActivation: !hasActivated,
+                initialTab: initialTab,
+                hasPendingHistoryLink: hasPendingHistoryLink
+            )
+            hasActivated = true
+            hasPendingHistoryLink = false
+        }
         .onOpenURL { url in
 #if targetEnvironment(simulator)
             if url.scheme == HistoryLink.scheme, url.host == "preview-history" {
@@ -59,7 +95,11 @@ struct ContentView: View {
 #endif
             guard let link = HistoryLink(url: url) else { return }
             historySelection = HistorySelection(accountID: link.accountID, windowID: link.windowID)
-            selectedTab = .history
+            if scenePhase == .active {
+                selectedTab = .history
+            } else {
+                hasPendingHistoryLink = true
+            }
         }
     }
 }
