@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Triage links</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f5f7;
+      --card: #fff;
+      --text: #17202a;
+      --muted: #66717d;
+      --line: #dce1e6;
+      --accent: #2563eb;
+      --accent-soft: #eaf1ff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --card: #191f26;
+        --text: #edf2f7;
+        --muted: #a7b1bb;
+        --line: #303943;
+        --accent-soft: #1b315f;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 16px 56px;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main { max-width: 1100px; margin: 0 auto; }
+    h1 { margin: 0 0 6px; font-size: clamp(26px, 4vw, 38px); }
+    h2 { margin: 28px 0 10px; font-size: 19px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+
+    .loader {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin: 24px 0 16px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+    }
+
+    .loader.dragging { outline: 2px solid var(--accent); }
+    input[type="file"] { max-width: 100%; }
+    input[type="search"], select {
+      min-height: 40px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text);
+      font: inherit;
+    }
+    input[type="search"] { flex: 1 1 260px; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 16px 0;
+    }
+
+    .count { margin-left: auto; color: var(--muted); }
+    .tier {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+    }
+    .tier-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--accent-soft);
+    }
+    .tier-header h2 { margin: 0; }
+    .tier-header span { color: var(--muted); }
+
+    .job {
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.7fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
+    }
+    .job:first-child { border-top: 0; }
+    .company { font-weight: 700; }
+    .role, .location { color: var(--muted); }
+    .location { font-size: 13px; }
+    a {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    a:hover { filter: brightness(1.1); }
+    .empty {
+      padding: 40px 16px;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      text-align: center;
+    }
+
+    @media (max-width: 680px) {
+      body { padding-top: 20px; }
+      .job { grid-template-columns: 1fr auto; }
+      .job-main { grid-column: 1 / -1; }
+      .count { width: 100%; margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Triage links</h1>
+    <p class="muted">Choose <code>data/triage.md</code>, then click any job to open its application page.</p>
+
+    <section class="loader" id="dropZone">
+      <input id="fileInput" type="file" accept=".md,text/markdown,text/plain">
+      <span class="muted" id="fileName">No triage file loaded</span>
+    </section>
+
+    <div class="toolbar" id="toolbar" hidden>
+      <input id="search" type="search" placeholder="Search company, role, or location" aria-label="Search jobs">
+      <select id="tierFilter" aria-label="Filter by tier">
+        <option value="all">All tiers</option>
+      </select>
+      <span class="count" id="count"></span>
+    </div>
+
+    <section id="results">
+      <div class="empty muted">Drop <code>triage.md</code> here or choose it above.</div>
+    </section>
+  </main>
+
+  <script>
+    const fileInput = document.querySelector('#fileInput');
+    const dropZone = document.querySelector('#dropZone');
+    const fileName = document.querySelector('#fileName');
+    const toolbar = document.querySelector('#toolbar');
+    const search = document.querySelector('#search');
+    const tierFilter = document.querySelector('#tierFilter');
+    const count = document.querySelector('#count');
+    const results = document.querySelector('#results');
+    let jobs = [];
+
+    fileInput.addEventListener('change', event => loadFile(event.target.files[0]));
+    ['dragenter', 'dragover'].forEach(type => dropZone.addEventListener(type, event => {
+      event.preventDefault();
+      dropZone.classList.add('dragging');
+    }));
+    ['dragleave', 'drop'].forEach(type => dropZone.addEventListener(type, event => {
+      event.preventDefault();
+      dropZone.classList.remove('dragging');
+    }));
+    dropZone.addEventListener('drop', event => loadFile(event.dataTransfer.files[0]));
+    search.addEventListener('input', render);
+    tierFilter.addEventListener('change', render);
+
+    async function loadFile(file) {
+      if (!file) return;
+      const text = await file.text();
+      jobs = parseTriage(text);
+      fileName.textContent = `${file.name} · ${jobs.length} links`;
+      toolbar.hidden = false;
+      populateTiers();
+      render();
+    }
+
+    function parseTriage(text) {
+      let tier = 'Other';
+      const parsed = [];
+
+      for (const line of text.split(/\r?\n/)) {
+        const heading = line.match(/^##\s+(.+?)(?:\s+\(\d+\))?\s*$/);
+        if (heading) {
+          tier = heading[1].trim();
+          continue;
+        }
+        if (!line.trim().startsWith('|') || line.includes('---')) continue;
+
+        const cells = line.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
+        if (cells[0] === 'id' || cells.length < 6) continue;
+        const link = cells[5].match(/\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/);
+        if (!link) continue;
+
+        const label = cells[1] || cells[2] || cells[0];
+        parsed.push({
+          tier,
+          company: cells[1] || 'Unknown company',
+          role: cells[2] || 'Unknown role',
+          location: cells[3] || '',
+          url: link[1],
+          label
+        });
+      }
+      return parsed;
+    }
+
+    function populateTiers() {
+      const tiers = [...new Set(jobs.map(job => job.tier))];
+      tierFilter.replaceChildren(new Option('All tiers', 'all'));
+      tiers.forEach(tier => tierFilter.add(new Option(tier, tier)));
+    }
+
+    function render() {
+      const query = search.value.trim().toLowerCase();
+      const selectedTier = tierFilter.value;
+      const filtered = jobs.filter(job => {
+        const haystack = `${job.company} ${job.role} ${job.location}`.toLowerCase();
+        return (selectedTier === 'all' || job.tier === selectedTier) && haystack.includes(query);
+      });
+
+      count.textContent = `${filtered.length} of ${jobs.length}`;
+      results.replaceChildren();
+      if (!filtered.length) {
+        results.innerHTML = '<div class="empty muted">No matching jobs.</div>';
+        return;
+      }
+
+      const groups = new Map();
+      filtered.forEach(job => groups.set(job.tier, [...(groups.get(job.tier) || []), job]));
+      groups.forEach((tierJobs, tier) => {
+        const section = document.createElement('section');
+        section.className = 'tier';
+        section.innerHTML = `<div class="tier-header"><h2></h2><span>${tierJobs.length}</span></div>`;
+        section.querySelector('h2').textContent = tier;
+
+        tierJobs.forEach(job => {
+          const row = document.createElement('article');
+          row.className = 'job';
+          row.innerHTML = '<div class="job-main"><div class="company"></div><div class="role"></div></div><div class="location"></div><a target="_blank" rel="noopener noreferrer">Open</a>';
+          row.querySelector('.company').textContent = job.company;
+          row.querySelector('.role').textContent = job.role;
+          row.querySelector('.location').textContent = job.location;
+          const link = row.querySelector('a');
+          link.href = job.url;
+          link.title = job.url;
+          section.append(row);
+        });
+        results.append(section, document.createElement('br'));
+      });
+    }
+  </script>
+</body>
+</html>
