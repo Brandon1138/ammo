@@ -40,15 +40,16 @@ public struct CodexProvider: UsageProvider {
             throw UsageError.malformedResponse("codex usage: \(error)")
         }
         let windows = Self.windows(from: response)
-        guard !windows.isEmpty else {
+        let onDemand = Self.onDemand(from: response)
+        guard !windows.isEmpty || onDemand?.isEmpty == false else {
             throw UsageError.malformedResponse(
-                "codex usage: response contained no usage windows")
+                "codex usage: response contained no included or on-demand usage")
         }
         return UsageSnapshot(provider: .codex,
                              plan: response.planType,
                              windows: windows,
                              resetCreditsAvailable: response.rateLimitResetCredits?.availableCount,
-                             onDemand: Self.onDemand(from: response))
+                             onDemand: onDemand)
     }
 
     public func refresh(tokens: OAuthTokens) async throws -> OAuthTokens {

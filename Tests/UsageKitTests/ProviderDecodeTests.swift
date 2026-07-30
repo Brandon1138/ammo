@@ -191,7 +191,32 @@ private struct FixtureTransport: HTTPTransport {
         #expect(CodexProvider.classify(windowSeconds: nil) == (.unknown, "Usage"))
     }
 
-    @Test func fetchRejectsResponseWithoutUsageWindows() async {
+    @Test func fetchAcceptsBusinessOnDemandWithoutUsageWindows() async throws {
+        let fixture = """
+        {
+          "plan_type": "self_serve_business_usage_based",
+          "rate_limit": null,
+          "credits": {
+            "has_credits": true,
+            "unlimited": false,
+            "balance": "9112.25",
+            "overage_limit_reached": false
+          }
+        }
+        """
+        let provider = CodexProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        let snapshot = try await provider.fetchUsage(
+            tokens: OAuthTokens(accessToken: "test"))
+
+        #expect(snapshot.displayPlan == "Business")
+        #expect(snapshot.windows.isEmpty)
+        #expect(snapshot.onDemand?.count == 1)
+        #expect(snapshot.onDemand?.first?.remainingAmount == 9_112.25)
+    }
+
+    @Test func fetchRejectsResponseWithoutIncludedOrOnDemandUsage() async {
         let provider = CodexProvider(
             transport: FixtureTransport(
                 data: Data(#"{"plan_type":"plus","rate_limit":null}"#.utf8),
