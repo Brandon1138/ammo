@@ -7,6 +7,25 @@ struct HistorySelection: Equatable {
     var windowID: String?
 }
 
+/// What History can honestly render *beneath* the account selector. The selector
+/// itself is unconditional chrome, so an account with no chartable window keeps
+/// account and provider switching instead of collapsing into a dead end.
+enum HistoryWindowContent: Equatable {
+    /// A limit window exists and is selected. Samples may still be too sparse.
+    case window(String)
+    /// A snapshot was accepted but the provider reported no limit windows —
+    /// usage-based plans (Codex Business, for example) look like this.
+    case noLimitWindows
+    /// Nothing has been fetched for this account yet, or the last fetch failed
+    /// before any snapshot was stored.
+    case awaitingSnapshot
+
+    var windowID: String? {
+        guard case .window(let id) = self else { return nil }
+        return id
+    }
+}
+
 struct HistoryView: View {
     @Environment(AccountStore.self) private var store
     @Binding var selection: HistorySelection
@@ -16,16 +35,14 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.states.isEmpty {
+                if let state = selectedState {
+                    historyContent(state: state)
+                } else {
                     ContentUnavailableView {
                         Label("No accounts yet", systemImage: "chart.xyaxis.line")
                     } description: {
                         Text("Add an account from Usage to begin collecting history.")
                     }
-                } else if let state = selectedState, let window = selectedWindow(in: state) {
-                    historyContent(state: state, window: window)
-                } else {
-                    ContentUnavailableView("No usage limits", systemImage: "chart.xyaxis.line")
                 }
             }
             .navigationTitle("History")
@@ -39,46 +56,41 @@ struct HistoryView: View {
         }
     }
 
-    private func historyContent(state: AccountState, window: LimitWindow) -> some View {
+    private func historyContent(state: AccountState) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 AccountHistorySelector(
                     states: store.states,
-                    selectedID: state.id,
+                    selected: state,
                     select: selectAccount
                 )
 
-                if let windows = state.snapshot?.windows, windows.count > 1 {
-                    Picker("Limit", selection: windowBinding(fallback: window.id)) {
-                        ForEach(windows) { candidate in
-                            Text(candidate.label).tag(candidate.id)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                switch Self.windowContent(for: state, selection: selection) {
+                case .window(let windowID):
+                    chartSections(state: state, windowID: windowID)
+                case .noLimitWindows:
+                    unavailableSection(
+                        title: "No limits to chart",
+                        systemImage: "chart.xyaxis.line",
+                        message: "\(state.account.provider.displayName) reports no usage limit window for this account, so Ammo has no allowance to trend over time.")
+                case .awaitingSnapshot:
+                    unavailableSection(
+                        title: "No usage data yet",
+                        systemImage: "arrow.clockwise",
+                        message: "Pull down to refresh \(state.account.label). History begins once Ammo has an update to record.")
                 }
 
-                if hasSamples(for: state.id, windowID: window.id) {
-                    ActivityHistorySection(
-                        days: activityDays(for: state.id, windowID: window.id)
-                    )
-
-                    Divider()
-
-                    RemainingTrendSection(
-                        points: trendPoints(for: state.id, windowID: window.id),
-                        range: $range,
-                        selectedDate: $selectedTrendDate
-                    )
-                } else {
-                    ContentUnavailableView {
-                        Label("History starts here", systemImage: "square.grid.3x3.fill")
-                    } description: {
-                        Text("Ammo will build this view as it observes changes to \(window.label.lowercased()) usage on this device.")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 44)
+                if let failure = state.activeFailure {
+                    RefreshIssueNotice(
+                        providerName: state.account.provider.displayName,
+                        failure: failure,
+                        hasCachedSnapshot: state.snapshot != nil,
+                        retryState: store.retryState(for: state.id, at: .now)) {
+                            Task { await store.refresh(ids: [state.id], reason: .manual) }
+                        }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.bottom, 28)
         }
@@ -87,24 +99,86 @@ struct HistoryView: View {
         }
     }
 
+    @ViewBuilder
+    private func chartSections(state: AccountState, windowID: String) -> some View {
+        let windows = state.snapshot?.windows ?? []
+        if let window = windows.first(where: { $0.id == windowID }) {
+            if windows.count > 1 {
+                Picker("Limit", selection: windowBinding(fallback: window.id)) {
+                    ForEach(windows) { candidate in
+                        Text(candidate.label).tag(candidate.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if hasSamples(for: state.id, windowID: window.id) {
+                ActivityHistorySection(
+                    days: activityDays(for: state.id, windowID: window.id)
+                )
+
+                Divider()
+
+                RemainingTrendSection(
+                    points: trendPoints(for: state.id, windowID: window.id),
+                    range: $range,
+                    selectedDate: $selectedTrendDate
+                )
+            } else {
+                unavailableSection(
+                    title: "History starts here",
+                    systemImage: "square.grid.3x3.fill",
+                    message: "Ammo will build this view as it observes changes to \(window.label.lowercased()) usage on this device.")
+            }
+        }
+    }
+
+    private func unavailableSection(
+        title: String,
+        systemImage: String,
+        message: String
+    ) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            Text(message)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+    }
+
     private var selectedState: AccountState? {
+        Self.resolveState(in: store.states, selection: selection)
+    }
+
+    /// Resolves the selected account, falling back to the first account only when
+    /// the selected id no longer exists. Never returns nil while any account does.
+    static func resolveState(
+        in states: [AccountState],
+        selection: HistorySelection
+    ) -> AccountState? {
         if let accountID = selection.accountID,
-           let state = store.states.first(where: { $0.id == accountID }) {
+           let state = states.first(where: { $0.id == accountID }) {
             return state
         }
-        return store.states.first
+        return states.first
     }
 
-    private func selectedWindow(in state: AccountState) -> LimitWindow? {
-        guard let windows = state.snapshot?.windows else { return nil }
+    static func windowContent(
+        for state: AccountState,
+        selection: HistorySelection
+    ) -> HistoryWindowContent {
+        guard let snapshot = state.snapshot else { return .awaitingSnapshot }
+        let windows = snapshot.windows
         if let windowID = selection.windowID,
-           let window = windows.first(where: { $0.id == windowID }) {
-            return window
+           windows.contains(where: { $0.id == windowID }) {
+            return .window(windowID)
         }
-        return preferredWindow(in: windows)
+        guard let preferred = preferredWindow(in: windows) else { return .noLimitWindows }
+        return .window(preferred.id)
     }
 
-    private func preferredWindow(in windows: [LimitWindow]) -> LimitWindow? {
+    static func preferredWindow(in windows: [LimitWindow]) -> LimitWindow? {
         windows.first(where: { $0.kind == .weekly })
             ?? windows.first(where: { $0.kind == .monthly })
             ?? windows.first
@@ -115,15 +189,16 @@ struct HistoryView: View {
             selection = HistorySelection()
             return
         }
-        let window = selectedWindow(in: state)
-        let normalized = HistorySelection(accountID: state.id, windowID: window?.id)
+        let normalized = HistorySelection(
+            accountID: state.id,
+            windowID: Self.windowContent(for: state, selection: selection).windowID)
         if selection != normalized { selection = normalized }
     }
 
     private func selectAccount(_ id: UUID) {
         guard let state = store.states.first(where: { $0.id == id }) else { return }
         selection.accountID = id
-        selection.windowID = preferredWindow(in: state.snapshot?.windows ?? [])?.id
+        selection.windowID = Self.preferredWindow(in: state.snapshot?.windows ?? [])?.id
         selectedTrendDate = nil
     }
 
@@ -163,9 +238,11 @@ struct HistoryView: View {
     }
 }
 
+/// Takes the resolved account rather than an id so the label can never render
+/// empty — an empty label would leave the History screen with no way out.
 private struct AccountHistorySelector: View {
     let states: [AccountState]
-    let selectedID: UUID
+    let selected: AccountState
     let select: (UUID) -> Void
 
     var body: some View {
@@ -175,23 +252,21 @@ private struct AccountHistorySelector: View {
                     select(state.id)
                 } label: {
                     Label(state.account.label,
-                          systemImage: state.id == selectedID ? "checkmark" : "circle")
+                          systemImage: state.id == selected.id ? "checkmark" : "circle")
                 }
             }
         } label: {
-            if let state = states.first(where: { $0.id == selectedID }) {
-                HStack(spacing: 8) {
-                    ProviderLogo(provider: state.account.provider, size: 22)
-                    Text(state.account.label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .contentShape(Rectangle())
+            HStack(spacing: 8) {
+                ProviderLogo(provider: selected.account.provider, size: 22)
+                Text(selected.account.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
