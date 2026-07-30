@@ -8,6 +8,7 @@ import UsageKit
 /// a failed first refresh, a malformed response) replaced the whole screen with
 /// "No usage limits" and removed every way to switch account or provider.
 /// These tests pin the resolution rules that keep the selector reachable.
+@MainActor
 @Suite("History selection cannot trap the user")
 struct HistorySelectionTests {
     private static func state(
