@@ -186,6 +186,175 @@ struct UsageHistoryTests {
         #expect(points.map(\.resetOccurred) == [false, true])
     }
 
+    @Test func windowGapDoesNotCreateResetMarkerOrActivityAcrossGap() {
+        let samples = gapSamples(usedAfterGap: 5)
+
+        let points = UsageHistoryAnalysis.trendPoints(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            since: date("2026-07-20T00:00:00Z")
+        )
+        let days = UsageHistoryAnalysis.activityDays(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            endingAt: date("2026-07-23T12:00:00Z"),
+            weekCount: 1,
+            calendar: calendar
+        )
+
+        #expect(points.map(\.remainingPercent) == [40, 95])
+        #expect(points.map(\.resetOccurred) == [false, false])
+        #expect(activity(on: "2026-07-23T00:00:00Z", in: days) == 0)
+        #expect(days.allSatisfy { !$0.isActive })
+    }
+
+    @Test func windowGapDoesNotInflateActivityWhenUsageRoseUnobserved() {
+        let samples = gapSamples(usedAfterGap: 80)
+
+        let points = UsageHistoryAnalysis.trendPoints(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            since: date("2026-07-20T00:00:00Z")
+        )
+        let days = UsageHistoryAnalysis.activityDays(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            endingAt: date("2026-07-23T12:00:00Z"),
+            weekCount: 1,
+            calendar: calendar
+        )
+
+        #expect(points.map(\.remainingPercent) == [40, 20])
+        #expect(points.map(\.resetOccurred) == [false, false])
+        #expect(activity(on: "2026-07-23T00:00:00Z", in: days) == 0)
+        #expect(days.allSatisfy { !$0.isActive })
+    }
+
+    @Test func firstContinuousObservationAfterGapResumesDeltaTracking() {
+        let samples = gapSamples(usedAfterGap: 5) + [
+            sample(at: "2026-07-23T14:00:00Z",
+                   windows: [sessionWindow(used: 9, resetsAt: date("2026-07-23T15:00:00Z")),
+                             weeklyWindow(used: 17, resetsAt: date("2026-07-27T00:00:00Z"))]),
+        ]
+
+        let points = UsageHistoryAnalysis.trendPoints(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            since: date("2026-07-20T00:00:00Z")
+        )
+        let days = UsageHistoryAnalysis.activityDays(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            endingAt: date("2026-07-23T12:00:00Z"),
+            weekCount: 1,
+            calendar: calendar
+        )
+
+        #expect(points.map(\.resetOccurred) == [false, false, false])
+        #expect(activity(on: "2026-07-23T00:00:00Z", in: days) == 4)
+        #expect(days.reduce(0) { $0 + $1.observedUsedPercent } == 4)
+    }
+
+    @Test func firstContinuousObservationAfterGapResumesResetDetection() {
+        let samples = gapSamples(usedAfterGap: 70) + [
+            sample(at: "2026-07-23T16:00:00Z",
+                   windows: [sessionWindow(used: 4, resetsAt: date("2026-07-23T21:00:00Z")),
+                             weeklyWindow(used: 17, resetsAt: date("2026-07-27T00:00:00Z"))]),
+        ]
+
+        let points = UsageHistoryAnalysis.trendPoints(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            since: date("2026-07-20T00:00:00Z")
+        )
+        let days = UsageHistoryAnalysis.activityDays(
+            samples: samples,
+            accountID: accountID,
+            windowID: sessionWindowID,
+            endingAt: date("2026-07-23T12:00:00Z"),
+            weekCount: 1,
+            calendar: calendar
+        )
+
+        #expect(points.map(\.resetOccurred) == [false, false, true])
+        #expect(activity(on: "2026-07-23T00:00:00Z", in: days) == 4)
+        #expect(days.reduce(0) { $0 + $1.observedUsedPercent } == 4)
+    }
+
+    @Test func otherWindowsKeepContinuityAcrossAnotherWindowsGap() {
+        let samples = gapSamples(usedAfterGap: 5)
+
+        let points = UsageHistoryAnalysis.trendPoints(
+            samples: samples,
+            accountID: accountID,
+            windowID: "weekly:Weekly",
+            since: date("2026-07-20T00:00:00Z")
+        )
+        let days = UsageHistoryAnalysis.activityDays(
+            samples: samples,
+            accountID: accountID,
+            windowID: "weekly:Weekly",
+            endingAt: date("2026-07-23T12:00:00Z"),
+            weekCount: 1,
+            calendar: calendar
+        )
+
+        #expect(points.map(\.remainingPercent) == [90, 88, 86, 84])
+        #expect(points.allSatisfy { !$0.resetOccurred })
+        #expect(activity(on: "2026-07-21T00:00:00Z", in: days) == 2)
+        #expect(activity(on: "2026-07-22T00:00:00Z", in: days) == 2)
+        #expect(activity(on: "2026-07-23T00:00:00Z", in: days) == 2)
+        #expect(days.reduce(0) { $0 + $1.observedUsedPercent } == 6)
+    }
+
+    private let sessionWindowID = "session:Session"
+
+    /// Session observed once, hidden by two weekly-only snapshots, then observed
+    /// again — the shape OpenAI produced when the five-hour window disappeared.
+    private func gapSamples(usedAfterGap: Double) -> [UsageHistorySample] {
+        let weeklyReset = date("2026-07-27T00:00:00Z")
+        return [
+            sample(at: "2026-07-20T10:00:00Z",
+                   windows: [sessionWindow(used: 60, resetsAt: date("2026-07-20T15:00:00Z")),
+                             weeklyWindow(used: 10, resetsAt: weeklyReset)]),
+            sample(at: "2026-07-21T10:00:00Z",
+                   windows: [weeklyWindow(used: 12, resetsAt: weeklyReset)]),
+            sample(at: "2026-07-22T10:00:00Z",
+                   windows: [weeklyWindow(used: 14, resetsAt: weeklyReset)]),
+            sample(at: "2026-07-23T10:00:00Z",
+                   windows: [sessionWindow(used: usedAfterGap,
+                                           resetsAt: date("2026-07-23T15:00:00Z")),
+                             weeklyWindow(used: 16, resetsAt: weeklyReset)]),
+        ]
+    }
+
+    private func sessionWindow(used: Double, resetsAt: Date?) -> LimitWindow {
+        LimitWindow(kind: .session, label: "Session", usedPercent: used, resetsAt: resetsAt)
+    }
+
+    private func weeklyWindow(used: Double, resetsAt: Date?) -> LimitWindow {
+        LimitWindow(kind: .weekly, label: "Weekly", usedPercent: used, resetsAt: resetsAt)
+    }
+
+    private func sample(at fetchedAt: String, windows: [LimitWindow]) -> UsageHistorySample {
+        UsageHistorySample(
+            accountID: accountID,
+            snapshot: UsageSnapshot(
+                provider: .codex,
+                plan: nil,
+                windows: windows,
+                fetchedAt: date(fetchedAt)
+            )
+        )
+    }
+
     private func sample(at fetchedAt: String, used: Double, resetsAt: Date?) -> UsageHistorySample {
         UsageHistorySample(
             accountID: accountID,
