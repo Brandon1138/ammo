@@ -3,8 +3,47 @@ import Testing
 import UsageKit
 @testable import Ammo
 
+private struct CodexBusinessFixtureTransport: HTTPTransport {
+    func request(_ request: URLRequest) async throws -> (Data, Int) {
+        (Data("""
+        {
+          "plan_type": "self_serve_business_usage_based",
+          "rate_limit": null,
+          "credits": {
+            "has_credits": true,
+            "unlimited": false,
+            "balance": "9112.25",
+            "overage_limit_reached": false
+          }
+        }
+        """.utf8), 200)
+    }
+}
+
 @Suite("MIK-26 Codex workspace billing")
 struct MIK26Tests {
+    @Test("Business on-demand snapshot renders without a refresh issue")
+    func businessOnDemandWithoutUsageWindows() async throws {
+        let snapshot = try await CodexProvider(
+            transport: CodexBusinessFixtureTransport()
+        ).fetchUsage(tokens: OAuthTokens(accessToken: "test"))
+        let state = AccountState(
+            account: StoredAccount(provider: .codex, label: "Codex Business"),
+            snapshot: snapshot,
+            lastError: nil,
+            lastFailure: nil,
+            updatedAt: snapshot.fetchedAt)
+        let usage = try #require(snapshot.onDemand?.first)
+        let presentation = OnDemandUsagePresentation(
+            usage: usage,
+            referenceDate: snapshot.fetchedAt)
+
+        #expect(snapshot.windows.isEmpty)
+        #expect(snapshot.onDemand?.isEmpty == false)
+        #expect(state.activeFailure == nil)
+        #expect(!presentation.primaryText.localizedCaseInsensitiveContains("unavailable"))
+    }
+
     @Test("Workspace billing uses the exact ChatGPT admin destination")
     func workspaceBillingDestination() {
         #expect(
