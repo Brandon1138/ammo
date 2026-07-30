@@ -7,34 +7,65 @@ enum AppTab: Hashable {
     case history
 }
 
-/// Navigation restoration policy for the root tab bar.
+/// Synchronous navigation state for the root tab bar.
 ///
 /// Ammo intentionally does not persist a user's last-selected tab. Every normal
-/// scene activation starts from Usage, while an explicit HistoryLink is allowed
-/// to select History for the activation that receives it. Keeping this policy in
-/// one place prevents SwiftUI or UIKit state restoration from replaying a stale
-/// History selection after the user returned to Usage.
-enum TabSelectionPolicy {
-    static func tabForSceneActivation(
-        isInitialActivation: Bool,
-        initialTab: AppTab,
-        hasPendingHistoryLink: Bool
-    ) -> AppTab {
+/// foreground is prepared as Usage while the scene is hidden, so SwiftUI never
+/// needs to correct a stale History selection after drawing the active scene.
+/// Explicit History links update the selection before activation and take
+/// priority over that normal reset.
+struct TabSelectionState {
+    private(set) var selectedTab: AppTab
+    private var hasActivated = false
+    private var hasPendingHistoryLink = false
+
+    init(initialTab: AppTab) {
+        selectedTab = initialTab
+    }
+
+    mutating func select(_ tab: AppTab) {
+        selectedTab = tab
+    }
+
+    mutating func sceneDidBecomeActive() {
+        hasActivated = true
         if hasPendingHistoryLink {
-            return .history
+            selectedTab = .history
+            hasPendingHistoryLink = false
         }
-        return isInitialActivation ? initialTab : .usage
+    }
+
+    mutating func sceneDidEnterBackground() {
+        guard hasActivated, !hasPendingHistoryLink else { return }
+        selectedTab = .usage
+    }
+
+    mutating func scenePhaseChanged(to phase: ScenePhase) {
+        switch phase {
+        case .active:
+            sceneDidBecomeActive()
+        case .background:
+            sceneDidEnterBackground()
+        case .inactive:
+            // Short interruptions such as Control Center can leave the app
+            // visible. Preserve the selected tab until the scene is hidden.
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    mutating func openHistory(isSceneActive: Bool) {
+        selectedTab = .history
+        hasPendingHistoryLink = !isSceneActive
     }
 }
 
 struct ContentView: View {
     @Environment(AccountStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedTab: AppTab
+    @State private var tabSelection: TabSelectionState
     @State private var historySelection = HistorySelection()
-    @State private var hasActivated = false
-    @State private var hasPendingHistoryLink = false
-    private let initialTab: AppTab
 
     init() {
 #if targetEnvironment(simulator)
@@ -53,18 +84,20 @@ struct ContentView: View {
 #else
         let initialTab: AppTab = .usage
 #endif
-        self.initialTab = initialTab
-        _selectedTab = State(initialValue: initialTab)
+        _tabSelection = State(initialValue: TabSelectionState(initialTab: initialTab))
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(
+            get: { tabSelection.selectedTab },
+            set: { tabSelection.select($0) }
+        )) {
             Tab("Usage", systemImage: "gauge.with.dots.needle.50percent", value: .usage) {
                 UsageView(
-                    openOnDemand: { selectedTab = .onDemand },
+                    openOnDemand: { tabSelection.select(.onDemand) },
                     openHistory: { accountID, windowID in
                         historySelection = HistorySelection(accountID: accountID, windowID: windowID)
-                        selectedTab = .history
+                        tabSelection.select(.history)
                     }
                 )
             }
@@ -76,15 +109,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            guard phase == .active else { return }
-
-            selectedTab = TabSelectionPolicy.tabForSceneActivation(
-                isInitialActivation: !hasActivated,
-                initialTab: initialTab,
-                hasPendingHistoryLink: hasPendingHistoryLink
-            )
-            hasActivated = true
-            hasPendingHistoryLink = false
+            tabSelection.scenePhaseChanged(to: phase)
         }
         .onOpenURL { url in
 #if targetEnvironment(simulator)
@@ -95,11 +120,7 @@ struct ContentView: View {
 #endif
             guard let link = HistoryLink(url: url) else { return }
             historySelection = HistorySelection(accountID: link.accountID, windowID: link.windowID)
-            if scenePhase == .active {
-                selectedTab = .history
-            } else {
-                hasPendingHistoryLink = true
-            }
+            tabSelection.openHistory(isSceneActive: scenePhase == .active)
         }
     }
 }
