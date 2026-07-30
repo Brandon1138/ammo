@@ -158,6 +158,7 @@ public enum UsageHistoryAnalysis {
         switch (previous.resetsAt, current.resetsAt) {
         case let (old?, new?):
             return new.timeIntervalSince(old) > 60
+                && current.usedPercent + 0.05 < previous.usedPercent
         case (nil, nil):
             return current.usedPercent + 0.05 < previous.usedPercent
         case (nil, _?):
