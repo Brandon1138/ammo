@@ -120,7 +120,15 @@ private struct UsageView: View {
                 }
             }
             .navigationTitle("Ammo")
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Image("AmmoLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 116, height: 25)
+                        .accessibilityLabel("Ammo")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
