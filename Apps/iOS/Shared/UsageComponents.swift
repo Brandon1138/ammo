@@ -139,6 +139,7 @@ struct InlineStatusNotice: View {
     var actionTitle: String?
     var action: (() -> Void)?
     var showsActionProgress = false
+    var countdownUntil: Date?
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -173,6 +174,19 @@ struct InlineStatusNotice: View {
                         .tint(.primary)
                         .disabled(showsActionProgress)
                         .padding(.top, 3)
+                } else if let countdownUntil {
+                    let countdownStart = min(Date.now, countdownUntil)
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                        Text("Try again in")
+                        Text(timerInterval: countdownStart...countdownUntil,
+                             countsDown: true,
+                             showsHours: false)
+                            .monospacedDigit()
+                    }
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 3)
                 } else if let actionTitle {
                     HStack(spacing: 6) {
                         if showsActionProgress {
@@ -203,32 +217,75 @@ struct RefreshIssueNotice: View {
     let hasCachedSnapshot: Bool
     let retryState: AccountRetryState
     var retry: (() -> Void)?
+    @State private var completedCooldown: Date?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let currentState = retryState.resolved(at: context.date)
-            InlineStatusNotice(
-                title: failure.refreshTitle,
-                message: failure.refreshMessage(providerName: providerName,
-                                                hasCachedSnapshot: hasCachedSnapshot),
-                systemImage: failure.systemImage,
-                actionTitle: actionTitle(for: currentState, at: context.date),
-                action: action(for: currentState),
-                showsActionProgress: currentState == .refreshing)
+        let currentState = resolvedRetryState
+        InlineStatusNotice(
+            title: failure.refreshTitle,
+            message: failure.refreshMessage(providerName: providerName,
+                                            hasCachedSnapshot: hasCachedSnapshot),
+            systemImage: failure.systemImage,
+            actionTitle: actionTitle(for: currentState),
+            action: action(for: currentState),
+            showsActionProgress: currentState == .refreshing,
+            countdownUntil: countdownUntil(for: currentState))
+        // A TimelineView here used to rebuild every visible failure card once
+        // per second. Inside a List that caused synchronous layout work and the
+        // user-visible scrolling hitch. The system timer Text owns the visual
+        // countdown now; this task wakes the surrounding view only once, when
+        // the retry actually becomes actionable.
+        .task(id: cooldownDeadline) {
+            guard let deadline = cooldownDeadline else {
+                completedCooldown = nil
+                return
+            }
+            completedCooldown = nil
+            let delay = deadline.timeIntervalSinceNow
+            guard delay > 0 else {
+                completedCooldown = deadline
+                return
+            }
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            completedCooldown = deadline
         }
     }
 
-    private func actionTitle(for state: AccountRetryState, at date: Date) -> String? {
+    private var cooldownDeadline: Date? {
+        guard case .coolingDown(let eligibleAt) = retryState else { return nil }
+        return eligibleAt
+    }
+
+    private var resolvedRetryState: AccountRetryState {
+        guard case .coolingDown(let eligibleAt) = retryState else { return retryState }
+        if completedCooldown == eligibleAt || eligibleAt <= .now {
+            return .ready
+        }
+        return retryState
+    }
+
+    private func actionTitle(for state: AccountRetryState) -> String? {
         guard failure.canRetryImmediately else { return nil }
         switch state {
         case .ready:
             return "Try Again"
-        case .coolingDown(let eligibleAt):
-            let seconds = max(1, Int(ceil(eligibleAt.timeIntervalSince(date))))
-            return "Try again in \(seconds)s"
+        case .coolingDown:
+            return nil
         case .refreshing:
             return "Trying again…"
         }
+    }
+
+    private func countdownUntil(for state: AccountRetryState) -> Date? {
+        guard failure.canRetryImmediately,
+              case .coolingDown(let eligibleAt) = state
+        else { return nil }
+        return eligibleAt
     }
 
     private func action(for state: AccountRetryState) -> (() -> Void)? {

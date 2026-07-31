@@ -1,53 +1,96 @@
 {
-  "fill" : {
-    "automatic-gradient" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-  },
+  "fill-specializations" : [
+    {
+      "value" : "system-light"
+    },
+    {
+      "appearance" : "dark",
+      "value" : "system-dark"
+    }
+  ],
   "groups" : [
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "tinted",
-              "value" : "automatic"
-            }
-          ],
-          "glass" : true,
           "hidden" : false,
-          "image-name" : "ammo-bars.svg",
-          "name" : "ammo-bars",
+          "image-name" : "Vector 3.png",
+          "name" : "Bullet",
           "position" : {
-            "scale" : 1.05,
+            "scale" : 0.875,
             "translation-in-points" : [
-              0.5249999999999773,
-              174.82500000000005
+              -137.8864560831255,
+              -5.684341886080802e-14
             ]
           }
         },
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "tinted",
-              "value" : "automatic"
-            }
-          ],
           "glass" : true,
-          "hidden" : false,
-          "image-name" : "ammo-tracks.svg",
-          "name" : "ammo-tracks",
-          "position" : {
-            "scale" : 1.05,
-            "translation-in-points" : [
-              0.5249999999999773,
-              174.82500000000005
-            ]
-          }
-        },
-        {
-          "glass" : false,
           "hidden" : true,
-          "image-name" : "ammo-background.svg",
-          "name" : "ammo-background"
+          "image-name" : "Vector-1 2.png",
+          "name" : "Corner",
+          "position" : {
+            "scale" : 0.875,
+            "translation-in-points" : [
+              -353.3864560831255,
+              135.49999999999994
+            ]
+          }
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.00962,0.00986,0.01006,1.00000",
+                  "srgb:0.22805,0.22805,0.22805,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.33049679101775375,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 1.0422310119495637,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.97604,1.00000,0.97459,1.00000",
+                  "srgb:0.81030,0.83018,0.80909,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.33587179905417613,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 1.041706806022041,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "srgb:0.98163,1.00000,0.96640,1.00000"
+              }
+            }
+          ],
+          "image-name" : "Vector.png",
+          "name" : "Base",
+          "position" : {
+            "scale" : 0.875,
+            "translation-in-points" : [
+              -5,
+              0
+            ]
+          }
         }
       ],
       "shadow" : {
