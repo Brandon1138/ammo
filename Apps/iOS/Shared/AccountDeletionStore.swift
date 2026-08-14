@@ -6,6 +6,20 @@ import Foundation
 /// crossed a provider boundary therefore still sees the tombstone before its
 /// next write, and every persistence store also checks it independently.
 enum AccountDeletionStore {
+    enum Status: Equatable {
+        case active
+        case deleted
+        case unknown
+
+        /// Only a successfully read tombstone can authorize credential deletion.
+        var authorizesCredentialDeletion: Bool { self == .deleted }
+
+        /// File/cache writers still fail closed when deletion state is unknown.
+        var permitsPersistence: Bool { self == .active }
+    }
+
+    struct StatusUnavailableError: Error {}
+
     private struct Tombstones: Codable {
         var accountIDs: Set<UUID> = []
     }
@@ -20,28 +34,59 @@ enum AccountDeletionStore {
 
     static func markDeleted(_ accountID: UUID) throws {
         try lock.withLock {
-            var tombstones = loadUnlocked()
+            var tombstones = try loadUnlocked()
             tombstones.accountIDs.insert(accountID)
             try saveUnlocked(tombstones)
         }
     }
 
-    /// Fails closed: inability to prove an account is active must never let a
-    /// stale refresh recreate credentials or cache files after removal.
-    static func isDeleted(_ accountID: UUID) -> Bool {
-        do {
-            return try lock.withLock {
-                loadUnlocked().accountIDs.contains(accountID)
+    static func status(for accountID: UUID, timeout: TimeInterval = 1) -> Status {
+        status {
+            try lock.withLock(timeout: timeout) {
+                try loadUnlocked().accountIDs.contains(accountID)
             }
-        } catch {
-            AmmoLog.sharedStore.error("Unable to read account tombstones: \(String(describing: error), privacy: .private)")
-            return true
         }
     }
 
-    private static func loadUnlocked() -> Tombstones {
-        guard let data = try? Data(contentsOf: fileURL) else { return Tombstones() }
-        return (try? JSONDecoder().decode(Tombstones.self, from: data)) ?? Tombstones()
+    /// File/cache persistence fails closed. Credential deletion must instead
+    /// inspect `status(for:)` and require a positive `.deleted` result.
+    static func isDeleted(_ accountID: UUID) -> Bool {
+        !status(for: accountID).permitsPersistence
+    }
+
+    static func requireActive(_ accountID: UUID, timeout: TimeInterval = 1) throws {
+        switch status(for: accountID, timeout: timeout) {
+        case .active:
+            return
+        case .deleted:
+            throw CancellationError()
+        case .unknown:
+            throw StatusUnavailableError()
+        }
+    }
+
+    /// Separated for deterministic tests of lock/read failures.
+    static func status(readTombstone: () throws -> Bool) -> Status {
+        do {
+            return try readTombstone() ? .deleted : .active
+        } catch {
+            if let lockError = error as? SharedFileLock.LockError,
+               lockError.isDataProtectionFailure {
+                AmmoLog.sharedStore.notice("Account tombstones unavailable while protected data is locked")
+            } else {
+                AmmoLog.sharedStore.error("Unable to read account tombstones: \(String(describing: error), privacy: .private)")
+            }
+            return .unknown
+        }
+    }
+
+    private static func loadUnlocked() throws -> Tombstones {
+        do {
+            let data = try Data(contentsOf: fileURL)
+            return try JSONDecoder().decode(Tombstones.self, from: data)
+        } catch CocoaError.fileReadNoSuchFile {
+            return Tombstones()
+        }
     }
 
     private static func saveUnlocked(_ tombstones: Tombstones) throws {
