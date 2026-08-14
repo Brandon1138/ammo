@@ -55,4 +55,18 @@ struct NotificationPreferencesStorageTests {
         defaults.set(Data("not json".utf8), forKey: NotificationPreferences.storageKey)
         #expect(storage.load() == .default)
     }
+
+    @Test("Engine state created before pending events remains readable")
+    func legacyEngineStateDecoding() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "lastSnapshots": [:],
+            "claudeSessionObservations": [:],
+            "lastFiredMarkers": ["marker": "value"],
+        ])
+
+        let state = try JSONDecoder().decode(NotificationEngineState.self, from: data)
+
+        #expect(state.lastFiredMarkers == ["marker": "value"])
+        #expect(state.pendingEvents.isEmpty)
+    }
 }

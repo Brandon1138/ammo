@@ -8,12 +8,14 @@ actor UsageNotificationService {
     static let shared = UsageNotificationService()
 
     private let processor: UsageNotificationProcessor
+    private let currentStates: @Sendable () -> [AccountState]
 
     init(
         storage: NotificationPreferencesStorage = NotificationPreferencesStorage(
             suiteName: AppGroup.id
         ),
-        center: any LocalNotificationCenter = SystemLocalNotificationCenter()
+        center: any LocalNotificationCenter = SystemLocalNotificationCenter(),
+        currentStates: @escaping @Sendable () -> [AccountState] = { SharedStore.load() }
     ) {
         processor = UsageNotificationProcessor(
             storage: storage,
@@ -22,6 +24,7 @@ actor UsageNotificationService {
                 AmmoLog.refresh.error("\(message, privacy: .private)")
             }
         )
+        self.currentStates = currentStates
     }
 
     func process(
@@ -46,7 +49,19 @@ actor UsageNotificationService {
     }
 
     func preferencesDidChange(now: Date = Date()) async {
-        await processor.preferencesDidChange(now: now)
+        let states = currentStates()
+        await processor.preferencesDidChange(
+            polls: states.compactMap { state in
+                state.snapshot.map {
+                    NotificationPollSnapshot(
+                        accountID: state.id.uuidString.lowercased(),
+                        snapshot: $0
+                    )
+                }
+            },
+            knownAccountIDs: Set(states.map { $0.id.uuidString.lowercased() }),
+            now: now
+        )
     }
 }
 

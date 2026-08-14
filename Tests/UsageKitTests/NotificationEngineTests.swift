@@ -458,7 +458,7 @@ import Testing
         }
     }
 
-    @Test func persistedStateDedupesSameEventAcrossRelaunch() throws {
+    @Test func pendingEventsRetryAcrossRelaunchUntilAccepted() throws {
         var state = NotificationEngineState()
         state.lastSnapshots[accountID] = snapshot(
             .codex,
@@ -489,8 +489,10 @@ import Testing
             state: restored
         )
 
-        #expect(afterRelaunch.request(type: .codexSpontaneousReset) == nil)
-        #expect(afterRelaunch.request(type: .codexBankedReset) == nil)
+        #expect(afterRelaunch.request(type: .codexSpontaneousReset)?.identifier
+            == first.request(type: .codexSpontaneousReset)?.identifier)
+        #expect(afterRelaunch.request(type: .codexBankedReset)?.identifier
+            == first.request(type: .codexBankedReset)?.identifier)
     }
 
     private func evaluate(

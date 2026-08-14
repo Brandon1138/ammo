@@ -6,6 +6,7 @@ public actor UsageNotificationProcessor {
     private let storage: NotificationPreferencesStorage
     private let center: any LocalNotificationCenter
     private let deliveryErrorHandler: @Sendable (String) -> Void
+    private var inFlightRequestIdentifiers: Set<String> = []
 
     public init(
         storage: NotificationPreferencesStorage,
@@ -22,25 +23,40 @@ public actor UsageNotificationProcessor {
         knownAccountIDs: Set<String>,
         now: Date = Date()
     ) async {
-        await run(polls: polls, knownAccountIDs: knownAccountIDs, now: now)
+        await run(
+            polls: polls,
+            knownAccountIDs: knownAccountIDs,
+            state: storage.loadEngineState(),
+            now: now
+        )
     }
 
-    /// Settings changes need an immediate cancel-only pass without treating
-    /// absent polls as account removals.
-    public func preferencesDidChange(now: Date = Date()) async {
-        await run(polls: [], knownAccountIDs: nil, now: now)
+    /// Re-evaluate the caller's latest persisted snapshots so re-enabled
+    /// deterministic notifications are restored without another provider poll.
+    public func preferencesDidChange(
+        polls: [NotificationPollSnapshot],
+        knownAccountIDs: Set<String>,
+        now: Date = Date()
+    ) async {
+        await run(
+            polls: polls,
+            knownAccountIDs: knownAccountIDs,
+            state: storage.loadEngineState(),
+            now: now
+        )
     }
 
     private func run(
         polls: [NotificationPollSnapshot],
         knownAccountIDs: Set<String>?,
+        state: NotificationEngineState,
         now: Date
     ) async {
         let result = UsageNotificationEngine.evaluate(
             polls: polls,
             knownAccountIDs: knownAccountIDs,
             preferences: storage.load(),
-            state: storage.loadEngineState(),
+            state: state,
             now: now
         )
 
@@ -54,11 +70,7 @@ public actor UsageNotificationProcessor {
         for command in result.commands {
             switch command {
             case .deliver(let request) where isAuthorized:
-                do {
-                    try await center.deliver(request)
-                } catch {
-                    deliveryErrorHandler("Unable to schedule usage notification: \(error)")
-                }
+                await deliver(request)
             case .deliver:
                 continue
             case .cancelIdentifier(let identifier):
@@ -68,6 +80,29 @@ public actor UsageNotificationProcessor {
             case .cancelAccount(let accountID):
                 await center.cancelPending(accountID: accountID)
             }
+        }
+    }
+
+    private func deliver(_ request: UsageNotificationRequest) async {
+        guard inFlightRequestIdentifiers.insert(request.identifier).inserted else { return }
+        defer { inFlightRequestIdentifiers.remove(request.identifier) }
+
+        do {
+            try await center.deliver(request)
+            markPendingEventDelivered(identifier: request.identifier)
+        } catch {
+            deliveryErrorHandler("Unable to schedule usage notification: \(error)")
+        }
+    }
+
+    private func markPendingEventDelivered(identifier: String) {
+        var latestState = storage.loadEngineState()
+        guard let event = latestState.pendingEvents.removeValue(forKey: identifier) else { return }
+        latestState.lastFiredMarkers[event.markerKey] = event.marker
+        do {
+            try storage.saveEngineState(latestState)
+        } catch {
+            deliveryErrorHandler("Unable to persist delivered notification marker: \(error)")
         }
     }
 }

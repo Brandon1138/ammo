@@ -14,7 +14,7 @@ public enum UsageNotificationType: String, CaseIterable, Codable, Sendable {
     }
 }
 
-public struct UsageNotificationRequest: Equatable, Sendable {
+public struct UsageNotificationRequest: Codable, Equatable, Sendable {
     public let identifier: String
     public let type: UsageNotificationType
     public let title: String
@@ -67,6 +67,7 @@ public struct NotificationEngineState: Codable, Equatable, Sendable {
     public var lastSnapshots: [String: UsageSnapshot]
     public var claudeSessionObservations: [String: ClaudeSessionObservation]
     public var lastFiredMarkers: [String: String]
+    var pendingEvents: [String: PendingUsageNotificationEvent]
 
     public init(
         lastSnapshots: [String: UsageSnapshot] = [:],
@@ -76,7 +77,50 @@ public struct NotificationEngineState: Codable, Equatable, Sendable {
         self.lastSnapshots = lastSnapshots
         self.claudeSessionObservations = claudeSessionObservations
         self.lastFiredMarkers = lastFiredMarkers
+        pendingEvents = [:]
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case lastSnapshots
+        case claudeSessionObservations
+        case lastFiredMarkers
+        case pendingEvents
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        lastSnapshots = try container.decodeIfPresent(
+            [String: UsageSnapshot].self,
+            forKey: .lastSnapshots
+        ) ?? [:]
+        claudeSessionObservations = try container.decodeIfPresent(
+            [String: ClaudeSessionObservation].self,
+            forKey: .claudeSessionObservations
+        ) ?? [:]
+        lastFiredMarkers = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .lastFiredMarkers
+        ) ?? [:]
+        pendingEvents = try container.decodeIfPresent(
+            [String: PendingUsageNotificationEvent].self,
+            forKey: .pendingEvents
+        ) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(lastSnapshots, forKey: .lastSnapshots)
+        try container.encode(claudeSessionObservations, forKey: .claudeSessionObservations)
+        try container.encode(lastFiredMarkers, forKey: .lastFiredMarkers)
+        try container.encode(pendingEvents, forKey: .pendingEvents)
+    }
+}
+
+struct PendingUsageNotificationEvent: Codable, Equatable, Sendable {
+    let accountID: String
+    let request: UsageNotificationRequest
+    let markerKey: String
+    let marker: String
 }
 
 public struct NotificationEngineResult: Equatable, Sendable {
@@ -89,8 +133,8 @@ public struct NotificationEngineResult: Equatable, Sendable {
     }
 }
 
-/// Pure notification decision engine. Callers persist returned state before
-/// executing commands so relaunches cannot fire one logical event twice.
+/// Pure notification decision engine. Immediate events remain pending until
+/// delivery accepts them; deterministic requests use stable identifiers.
 public enum UsageNotificationEngine {
     public static let defaultSpontaneousResetSlack: TimeInterval = 5 * 60
 
@@ -112,6 +156,12 @@ public enum UsageNotificationEngine {
                 prune(accountID: accountID, from: &state)
             }
         }
+
+        appendPendingEventCommands(
+            preferences: preferences,
+            state: &state,
+            commands: &commands
+        )
 
         for poll in polls {
             let previous = state.lastSnapshots[poll.accountID]
@@ -178,6 +228,22 @@ public enum UsageNotificationEngine {
         }
     }
 
+    private static func appendPendingEventCommands(
+        preferences: NotificationPreferences,
+        state: inout NotificationEngineState,
+        commands: inout [UsageNotificationCommand]
+    ) {
+        for identifier in state.pendingEvents.keys.sorted() {
+            guard let event = state.pendingEvents[identifier] else { continue }
+            guard preferences.masterEnabled,
+                  preferences.isEnabled(event.request.type) else {
+                state.pendingEvents.removeValue(forKey: identifier)
+                continue
+            }
+            commands.append(.deliver(event.request))
+        }
+    }
+
     private static func stateAccountIDs(_ state: NotificationEngineState) -> Set<String> {
         var accountIDs = Set(state.lastSnapshots.keys)
         accountIDs.formUnion(state.claudeSessionObservations.keys)
@@ -187,6 +253,7 @@ public enum UsageNotificationEngine {
                 key.hasPrefix(prefix) ? String(key.dropFirst(prefix.count)) : nil
             })
         }
+        accountIDs.formUnion(state.pendingEvents.values.map(\.accountID))
         return accountIDs
     }
 
@@ -202,6 +269,7 @@ public enum UsageNotificationEngine {
                 accountID: accountID
             ))
         }
+        state.pendingEvents = state.pendingEvents.filter { $0.value.accountID != accountID }
     }
 
     private static func planDeterministicNotifications(
@@ -343,15 +411,20 @@ public enum UsageNotificationEngine {
         let marker = "reset:\(milliseconds(current.fetchedAt))"
         let markerKey = firedMarkerKey(type: type, accountID: accountID)
         guard state.lastFiredMarkers[markerKey] != marker else { return }
-        state.lastFiredMarkers[markerKey] = marker
-
-        commands.append(.deliver(UsageNotificationRequest(
+        let request = UsageNotificationRequest(
             identifier: "\(type.identifierPrefix)\(accountID).\(marker)",
             type: type,
             title: "\(providerName) usage reset early",
             body: "Your \(providerName) usage limits reset before the expected time.",
             deliverAt: nil
-        )))
+        )
+        state.pendingEvents[request.identifier] = PendingUsageNotificationEvent(
+            accountID: accountID,
+            request: request,
+            markerKey: markerKey,
+            marker: marker
+        )
+        commands.append(.deliver(request))
     }
 
     private static func planBankedReset(
@@ -374,16 +447,21 @@ public enum UsageNotificationEngine {
         let marker = "count:\(newCount):\(milliseconds(current.fetchedAt))"
         let markerKey = firedMarkerKey(type: .codexBankedReset, accountID: accountID)
         guard state.lastFiredMarkers[markerKey] != marker else { return }
-        state.lastFiredMarkers[markerKey] = marker
-
         let noun = newCount == 1 ? "reset" : "resets"
-        commands.append(.deliver(UsageNotificationRequest(
+        let request = UsageNotificationRequest(
             identifier: "\(UsageNotificationType.codexBankedReset.identifierPrefix)\(accountID).\(marker)",
             type: .codexBankedReset,
             title: "Codex banked reset granted",
             body: "You now have \(newCount) banked \(noun) available.",
             deliverAt: nil
-        )))
+        )
+        state.pendingEvents[request.identifier] = PendingUsageNotificationEvent(
+            accountID: accountID,
+            request: request,
+            markerKey: markerKey,
+            marker: marker
+        )
+        commands.append(.deliver(request))
     }
 
     private static func quotaWindows(in snapshot: UsageSnapshot) -> [LimitWindow] {
