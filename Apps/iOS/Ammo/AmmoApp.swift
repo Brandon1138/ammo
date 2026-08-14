@@ -5,6 +5,7 @@ struct AmmoApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        ForegroundNotificationDelegate.shared.install()
         BackgroundRefresh.register() // must happen before launch completes
     }
 
