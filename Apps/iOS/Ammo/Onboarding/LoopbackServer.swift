@@ -10,10 +10,34 @@ import Network
 /// The listener is constrained to the loopback interface and only accepts
 /// loopback peers: on a shared network anything that can reach the device would
 /// otherwise be able to post an authorization code to port 1455.
-final class LoopbackServer {
+final class LoopbackServer: @unchecked Sendable {
     private static let maximumHeaderBytes = 16 * 1024
     private static let headerTerminator = Data("\r\n\r\n".utf8)
     private let listener: NWListener
+    private let readiness = ReadinessLatch()
+
+    enum ReadinessError: Error, CustomStringConvertible {
+        case invalidPort(UInt16)
+        case failed(String)
+        case cancelled
+        case timedOut
+        case unexpectedPort(expected: UInt16, actual: UInt16)
+
+        var description: String {
+            switch self {
+            case .invalidPort(let port):
+                "Invalid loopback port \(port)"
+            case .failed(let detail):
+                "Loopback listener failed: \(detail)"
+            case .cancelled:
+                "Loopback listener was cancelled"
+            case .timedOut:
+                "Loopback listener did not become ready in time"
+            case .unexpectedPort(let expected, let actual):
+                "Loopback listener bound port \(actual), expected \(expected)"
+            }
+        }
+    }
 
     /// Every string this listener can render. The page is HTML served to the
     /// user's browser, so nothing from the callback — `error_description` above
@@ -38,9 +62,15 @@ final class LoopbackServer {
          expectedState: String,
          onCode: @escaping @Sendable (_ code: String) -> Void) throws {
         let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
+        // Exclusive binding makes port contention fail visibly. PKCE prevents
+        // token theft, but shared delivery would still cause sign-in denial.
+        parameters.allowLocalEndpointReuse = false
         parameters.requiredInterfaceType = .loopback
-        listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+        guard let requestedPort = NWEndpoint.Port(rawValue: port) else {
+            throw ReadinessError.invalidPort(port)
+        }
+        let listener = try NWListener(using: parameters, on: requestedPort)
+        self.listener = listener
         listener.newConnectionHandler = { connection in
             guard Self.isLoopback(connection.endpoint) else {
                 connection.cancel()
@@ -49,12 +79,41 @@ final class LoopbackServer {
             connection.start(queue: .global())
             Self.handle(connection, expectedState: expectedState, onCode: onCode)
         }
+        listener.stateUpdateHandler = { [weak listener, readiness] state in
+            switch state {
+            case .ready:
+                guard let port = listener?.port?.rawValue else {
+                    readiness.resolve(.failure(ReadinessError.failed("ready without a bound port")))
+                    return
+                }
+                readiness.resolve(.success(port))
+            case .failed(let error):
+                readiness.resolve(.failure(ReadinessError.failed(String(describing: error))))
+            case .cancelled:
+                readiness.resolve(.failure(ReadinessError.cancelled))
+            default:
+                break
+            }
+        }
         listener.start(queue: .global())
     }
 
     /// The port the listener actually bound, once it is ready. `nil` before then.
     var boundPort: UInt16? {
         listener.port?.rawValue
+    }
+
+    /// Browser launch must wait for an exclusive, exact-port bind. Otherwise
+    /// provider redirect can race listener startup or reach another process.
+    func waitUntilReady(
+        expectedPort: UInt16? = nil,
+        timeout: TimeInterval = 3
+    ) async throws -> UInt16 {
+        let port = try await readiness.wait(timeout: timeout)
+        if let expectedPort, port != expectedPort {
+            throw ReadinessError.unexpectedPort(expected: expectedPort, actual: port)
+        }
+        return port
     }
 
     func stop() {
@@ -193,5 +252,41 @@ final class LoopbackServer {
         case .name: return false
         @unknown default: return false
         }
+    }
+}
+
+private final class ReadinessLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<UInt16, Error>?
+    private var continuation: CheckedContinuation<UInt16, Error>?
+
+    func wait(timeout: TimeInterval) async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(with: result)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
+                self?.resolve(.failure(LoopbackServer.ReadinessError.timedOut))
+            }
+        }
+    }
+
+    func resolve(_ result: Result<UInt16, Error>) {
+        lock.lock()
+        guard self.result == nil else {
+            lock.unlock()
+            return
+        }
+        self.result = result
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
     }
 }
