@@ -5,6 +5,33 @@ import UsageKit
 
 @Suite("Account deletion persistence", .serialized)
 struct AccountDeletionTests {
+    @Test("Account transaction recovery never leaves one durable half active")
+    func accountTransactionRecoveryActions() {
+        #expect(AccountMutationStore.recoveryAction(for: .adding,
+                                                    hasState: true,
+                                                    hasCredentials: true) == .finishCommittedAdd)
+        #expect(AccountMutationStore.recoveryAction(for: .adding,
+                                                    hasState: true,
+                                                    hasCredentials: false) == .rollBackAdd)
+        #expect(AccountMutationStore.recoveryAction(for: .adding,
+                                                    hasState: false,
+                                                    hasCredentials: true) == .rollBackAdd)
+        #expect(AccountMutationStore.recoveryAction(for: .removing,
+                                                    hasState: true,
+                                                    hasCredentials: true) == .finishRemoval)
+    }
+
+    @Test("A tombstone read failure never authorizes credential deletion")
+    func tombstoneReadFailureIsUnknown() {
+        struct TestError: Error {}
+
+        let status = AccountDeletionStore.status { throw TestError() }
+
+        #expect(status == .unknown)
+        #expect(!status.authorizesCredentialDeletion)
+        #expect(!status.permitsPersistence)
+    }
+
     @Test("A stale refresh cannot recreate artifacts after account removal")
     func staleRefreshCannotResurrectDeletedAccount() async throws {
         let account = StoredAccount(provider: .claude, label: "Race")
