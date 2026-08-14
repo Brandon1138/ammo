@@ -35,6 +35,7 @@ struct ClaudeOnboardingView: View {
                         .font(.footnote.monospaced())
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                        .privacySensitive()
                 }
 
                 Section("Label") {
@@ -63,6 +64,7 @@ struct ClaudeOnboardingView: View {
                 SafariView(url: ClaudeProvider.authorizationRequestURL(pkce: pkce))
                     .ignoresSafeArea()
             }
+            .onDisappear { code = "" }
         }
     }
 
@@ -70,6 +72,7 @@ struct ClaudeOnboardingView: View {
         busy = true
         failure = nil
         Task {
+            defer { code = "" }
             do {
                 let tokens = try await ClaudeProvider()
                     .exchangeCode(code, verifier: pkce.verifier, state: pkce.state)
