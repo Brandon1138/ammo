@@ -7,7 +7,7 @@ Codex, and Cursor today; Antigravity later.
 This document is the deliverable. It exists so that **you can rebuild Ammo yourself**
 by handing this spec to a coding agent (Claude Code or similar), instead of granting a
 stranger's app OAuth access to your accounts. Everything an implementation needs is
-here: the reverse-engineered API contracts, the auth flows, the architecture, and
+here: the provider contracts observed from authenticated clients, the auth flows, the architecture, and
 instructions for re-deriving any contract that has drifted since this spec was written.
 
 ## Trust model (why DIY)
@@ -15,8 +15,8 @@ instructions for re-deriving any contract that has drifted since this spec was w
 - **No server.** The app talks directly from your device to Anthropic/OpenAI. Nothing
   is proxied, logged, or aggregated anywhere.
 - **Tokens never leave the device.** Credentials live in the iOS Keychain
-  (`kSecAttrAccessibleAfterFirstUnlock`, non-synchronizable so they don't ride iCloud
-  Keychain to other devices unless you choose otherwise).
+  (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, non-synchronizable, excluded
+  from backup migration, and never transferred to another device).
 - **No scoping-down is possible, so don't pretend.** The OAuth tokens these providers
   issue can do inference, not just read usage. There is no "rate limits only"
   permission. The DIY answer is not a narrower token — it's that the token is only
@@ -39,8 +39,8 @@ Three layers, strictly separated:
 ```
 ┌────────────────────────────────────────────────────┐
 │  AmmoWidgets (WidgetKit extension)                 │
-│  reads cached UsageSnapshots via App Group; never  │
-│  touches the network or tokens directly            │
+│  reads cached UsageSnapshots via App Group and may │
+│  refresh through shared Keychain credentials       │
 ├────────────────────────────────────────────────────┤
 │  Ammo (iOS app)                                    │
 │  account onboarding (OAuth), Keychain storage,     │
@@ -340,7 +340,7 @@ closed. `View Codex usage` is a separate system-browser action to
 
 Cursor has no public individual-plan usage API. Ammo uses Cursor's first-party
 PKCE browser login and its private dashboard summary directly from the device.
-The full reverse-engineered contract and drift notes live in
+The full observed contract and drift notes live in
 [`CURSOR_RESEARCH.md`](CURSOR_RESEARCH.md).
 
 ```
@@ -432,7 +432,10 @@ Generated project: `cd Apps/iOS && xcodegen` → `Ammo.xcodeproj` (gitignored;
 
 Both targets carry the App Group `group.com.brandon.ammo`. `Shared/` is compiled
 into each target (not a framework): `SharedStore` (accounts + latest snapshots as
-JSON in the App Group; app writes, widget reads) and the usage color/glyph styling.
+JSON in the App Group; both processes read and may update it under shared locks)
+and the usage color/glyph styling. Widget timelines can contact providers through
+`UsageRefreshCoordinator`; credentials remain in shared Keychain items and never
+enter App Group files.
 
 The app shell uses three tabs: **Usage** for included allowance, **On-demand** for
 prepaid balances and personal/team/organization spend controls, and **History** for
@@ -442,9 +445,10 @@ On-demand when that provider reports monetary capacity.
 ### Storage & trust boundaries
 
 - **Keychain** (`KeychainStore`, service `com.brandon.ammo.tokens`): one generic
-  password item per account UUID, `kSecAttrAccessibleAfterFirstUnlock` (so
-  background work can read while locked), non-synchronizable, and shared with the
-  widget extension through a dedicated Keychain Sharing access group.
+  password item per account UUID, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+  (so background work can read after first unlock), non-synchronizable, excluded
+  from backup migration, and shared with the widget extension through a dedicated
+  Keychain Sharing access group.
 - **`StoredAccount.tokensImported`**: set when tokens were pasted from a desktop
   CLI. The fetch pipeline **never calls refresh for imported accounts** (rotation
   could log the CLI out); on 401 it surfaces "re-import" instead.
