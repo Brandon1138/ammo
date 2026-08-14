@@ -8,6 +8,11 @@ struct SharedFileLock {
     enum LockError: Error {
         case openFailed(Int32)
         case timedOut
+
+        var isDataProtectionFailure: Bool {
+            guard case .openFailed(let code) = self else { return false }
+            return code == EPERM || code == EACCES
+        }
     }
 
     let url: URL

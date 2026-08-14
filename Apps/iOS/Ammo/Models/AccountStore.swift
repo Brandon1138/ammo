@@ -18,6 +18,8 @@ final class AccountStore {
         retryStates.values.contains(.refreshing)
     }
 
+    var isDemoMode: Bool { DemoModeStore.isEnabled }
+
     private init() {
 #if targetEnvironment(simulator)
         if Self.usesHistoryPreview {
@@ -32,6 +34,7 @@ final class AccountStore {
             return
         }
 #endif
+        AccountMutationStore.recoverPending()
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
         retryStates = Dictionary(uniqueKeysWithValues: states.map { state in
@@ -55,8 +58,25 @@ final class AccountStore {
         let account = StoredAccount(provider: provider,
                                     label: trimmed.isEmpty ? provider.displayName : trimmed,
                                     tokensImported: imported)
-        try KeychainStore.save(tokens, for: account.id)
-        try SharedStore.insert(AccountState(account: account))
+        try AccountMutationStore.begin(.adding, account: account)
+        do {
+            try KeychainStore.save(tokens, for: account.id)
+            try SharedStore.insert(AccountState(account: account))
+        } catch {
+            do {
+                try AccountMutationStore.rollBackAdd(account)
+            } catch {
+                AmmoLog.sharedStore.error("Account add rollback remains pending: \(String(describing: error), privacy: .private)")
+            }
+            throw error
+        }
+        do {
+            try AccountMutationStore.finish(accountID: account.id)
+        } catch {
+            // Both durable stores committed. Journal recovery will recognize
+            // this complete add and remove only the stale transaction record.
+            AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
+        }
         states = SharedStore.load()
         WidgetCenter.shared.reloadAllTimelines()
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
@@ -64,21 +84,41 @@ final class AccountStore {
 
     func remove(_ account: StoredAccount) {
         do {
-            try AccountDeletionStore.markDeleted(account.id)
+            try AccountMutationStore.begin(.removing, account: account)
+            try AccountMutationStore.finishRemoval(account)
         } catch {
-            AmmoLog.sharedStore.error("Unable to mark account deleted: \(String(describing: error), privacy: .private)")
-            return
+            // Durable journal or tombstone preserves intent. Recovery retries
+            // any unfinished cleanup; reload now so tombstoned state vanishes.
+            AmmoLog.sharedStore.error("Account removal cleanup remains pending: \(String(describing: error), privacy: .private)")
         }
-        KeychainStore.delete(for: account.id)
-        RefreshLedgerStore.remove(accountID: account.id)
+        states = SharedStore.load()
+        historySamples = UsageHistoryStore.load()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    func enableDemoMode() {
         do {
-            try SharedStore.remove(id: account.id)
-            states = SharedStore.load()
-            historySamples = UsageHistoryStore.load()
+            try DemoModeStore.setEnabled(true)
+            states = DemoData.states()
+            historySamples = DemoData.historySamples()
+            retryStates = [:]
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            AmmoLog.sharedStore.error("Unable to remove account: \(String(describing: error), privacy: .private)")
+            AmmoLog.sharedStore.error("Unable to enable demo mode: \(String(describing: error), privacy: .private)")
         }
+    }
+
+    func disableDemoMode() {
+        do {
+            try DemoModeStore.setEnabled(false)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to disable demo mode: \(String(describing: error), privacy: .private)")
+            return
+        }
+        states = SharedStore.load()
+        historySamples = UsageHistoryStore.load()
+        retryStates = [:]
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Fetch pipeline
@@ -93,6 +133,7 @@ final class AccountStore {
 #if targetEnvironment(simulator)
         if Self.usesErrorPreview || Self.usesHistoryPreview { return [] }
 #endif
+        if isDemoMode { return [] }
         guard !ids.isEmpty else { return [] }
         let uniqueIDs = Array(Set(ids))
         var generations: [UUID: UInt] = [:]

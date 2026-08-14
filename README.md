@@ -1,14 +1,17 @@
 # AMMO
 
 How much ammo do you have left? An iOS app and widgets for included limits and
-on-demand capacity across Claude Code, Codex, and Cursor; Antigravity planned.
+on-demand capacity across Claude Code, Codex, and Cursor.
 
-**No server. No stranger's OAuth app. Your tokens stay in your Keychain, on your
-device, in an app you built.**
+**No Ammo backend. Provider tokens stay in this device's Keychain and requests
+go directly to each provider.**
 
-This repo doubles as a DIY kit: [SPEC.md](SPEC.md) contains everything needed to
-rebuild Ammo from scratch with a coding agent — verified API contracts, auth flows,
-architecture — so you never have to trust anyone else's binary with your accounts.
+Source and architecture are published for inspection. [SPEC.md](SPEC.md) documents
+provider contracts, auth flows, storage boundaries, and build steps.
+
+Credentials use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: they do not
+sync through iCloud Keychain or transfer to a replacement device. Re-add accounts
+after restoring onto a new device.
 
 ## Status
 

@@ -130,36 +130,40 @@ private struct UsageView: View {
                         .accessibilityLabel("Ammo")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            addingProvider = .claude
-                        } label: {
-                            Label {
-                                Text("Claude")
-                            } icon: {
-                                ProviderLogo(provider: .claude, size: 16, role: .menu)
+                    if store.isDemoMode {
+                        Button("Exit Demo") { store.disableDemoMode() }
+                    } else {
+                        Menu {
+                            Button {
+                                addingProvider = .claude
+                            } label: {
+                                Label {
+                                    Text("Claude")
+                                } icon: {
+                                    ProviderLogo(provider: .claude, size: 16, role: .menu)
+                                }
                             }
-                        }
-                        Button {
-                            addingProvider = .codex
-                        } label: {
-                            Label {
-                                Text("Codex")
-                            } icon: {
-                                ProviderLogo(provider: .codex, size: 16, role: .menu)
+                            Button {
+                                addingProvider = .codex
+                            } label: {
+                                Label {
+                                    Text("Codex")
+                                } icon: {
+                                    ProviderLogo(provider: .codex, size: 16, role: .menu)
+                                }
                             }
-                        }
-                        Button {
-                            addingProvider = .cursor
-                        } label: {
-                            Label {
-                                Text("Cursor")
-                            } icon: {
-                                ProviderLogo(provider: .cursor, size: 16, role: .menu)
+                            Button {
+                                addingProvider = .cursor
+                            } label: {
+                                Label {
+                                    Text("Cursor")
+                                } icon: {
+                                    ProviderLogo(provider: .cursor, size: 16, role: .menu)
+                                }
                             }
+                        } label: {
+                            Label("Add Account", systemImage: "plus")
                         }
-                    } label: {
-                        Label("Add Account", systemImage: "plus")
                     }
                 }
             }
@@ -183,6 +187,7 @@ private struct UsageView: View {
             Button("Add Claude") { addingProvider = .claude }
             Button("Add Codex") { addingProvider = .codex }
             Button("Add Cursor") { addingProvider = .cursor }
+            Button("See a demo") { store.enableDemoMode() }
         }
     }
 
@@ -257,6 +262,14 @@ private struct AccountSection: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .textCase(nil)
+                    if store.isDemoMode {
+                        Text("Sample data")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .textCase(nil)
+                    }
                     if let plan = state.snapshot?.displayPlan {
                         Text(plan)
                             .font(.caption)
@@ -266,12 +279,14 @@ private struct AccountSection: View {
                             .textCase(nil)
                     }
                     Spacer()
-                    Menu {
-                        Button("Remove Account", systemImage: "trash", role: .destructive) {
-                            store.remove(state.account)
+                    if !store.isDemoMode {
+                        Menu {
+                            Button("Remove Account", systemImage: "trash", role: .destructive) {
+                                store.remove(state.account)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
                 .padding(.bottom, 2)

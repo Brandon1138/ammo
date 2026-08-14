@@ -166,13 +166,17 @@ enum RefreshLedgerStore {
 
     static func remove(accountID: UUID) {
         do {
-            try lock.withLock {
-                var ledger = load()
-                ledger.accounts.removeValue(forKey: accountID.uuidString)
-                try save(ledger)
-            }
+            try removeOrThrow(accountID: accountID)
         } catch {
             AmmoLog.refresh.error("Unable to remove refresh ledger entry: \(String(describing: error), privacy: .private)")
+        }
+    }
+
+    static func removeOrThrow(accountID: UUID) throws {
+        try lock.withLock {
+            var ledger = load()
+            ledger.accounts.removeValue(forKey: accountID.uuidString)
+            try save(ledger)
         }
     }
 

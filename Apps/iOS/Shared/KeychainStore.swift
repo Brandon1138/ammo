@@ -15,7 +15,7 @@ enum KeychainStore {
     }
 
     static func save(_ tokens: OAuthTokens, for id: UUID) throws {
-        guard !AccountDeletionStore.isDeleted(id) else { throw CancellationError() }
+        try AccountDeletionStore.requireActive(id, timeout: 5)
         let data = try JSONEncoder().encode(tokens)
         let accessGroup = try configuredAccessGroup()
         let query = baseQuery(for: id, accessGroup: accessGroup)
@@ -30,9 +30,17 @@ enum KeychainStore {
         } else if updateStatus != errSecSuccess {
             throw KeychainError(status: updateStatus)
         }
-        guard !AccountDeletionStore.isDeleted(id) else {
+        switch AccountDeletionStore.status(for: id, timeout: 5) {
+        case .active:
+            return
+        case .deleted:
             delete(for: id)
             throw CancellationError()
+        case .unknown:
+            // Rotation may already have invalidated the prior refresh token.
+            // Keep the newly written valid pair; retry tombstone validation
+            // later instead of turning a transient file-lock failure into loss.
+            throw AccountDeletionStore.StatusUnavailableError()
         }
     }
 
@@ -68,6 +76,12 @@ enum KeychainStore {
         // Keychain group. Keep both deletes so account removal works before and
         // after migration without touching unrelated Keychain items.
         SecItemDelete(baseQuery(for: id, accessGroup: nil) as CFDictionary)
+    }
+
+    static func deleteOrThrow(for id: UUID) throws {
+        let accessGroup = try configuredAccessGroup()
+        try deleteItem(for: id, accessGroup: accessGroup)
+        try deleteItem(for: id, accessGroup: nil)
     }
 
     private struct ConfigurationError: Error {}
@@ -113,5 +127,12 @@ enum KeychainStore {
             query[kSecAttrAccessGroup as String] = accessGroup
         }
         return query
+    }
+
+    private static func deleteItem(for id: UUID, accessGroup: String?) throws {
+        let status = SecItemDelete(baseQuery(for: id, accessGroup: accessGroup) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError(status: status)
+        }
     }
 }

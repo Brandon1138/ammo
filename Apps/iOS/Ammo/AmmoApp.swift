@@ -10,8 +10,14 @@ struct AmmoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(AccountStore.shared)
+            ZStack {
+                ContentView()
+                    .environment(AccountStore.shared)
+
+                if scenePhase != .active {
+                    SnapshotPrivacyShield()
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -23,5 +29,14 @@ struct AmmoApp: App {
                 break
             }
         }
+    }
+}
+
+/// Covers rendered credentials before iOS captures app-switcher snapshots.
+private struct SnapshotPrivacyShield: View {
+    var body: some View {
+        Color(uiColor: .systemBackground)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
     }
 }

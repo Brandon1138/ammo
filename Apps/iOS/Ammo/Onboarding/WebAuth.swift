@@ -24,13 +24,35 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
     private var server: LoopbackServer?
     private var session: ASWebAuthenticationSession?
     private var continuation: CheckedContinuation<String, Error>?
+    private var startupTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
 
     struct CancelledError: Error, CustomStringConvertible {
         var description: String { "Sign-in was cancelled" }
     }
 
+    struct TimeoutError: UsageFailureRepresentable, CustomStringConvertible {
+        var usageFailureKind: UsageFailureKind { .timedOut }
+        var description: String { "Codex sign-in timed out — try again" }
+    }
+
+    struct ListenerUnavailableError: UsageFailureRepresentable, CustomStringConvertible {
+        let detail: String
+        var usageFailureKind: UsageFailureKind { .serviceUnavailable }
+        var description: String { "Codex callback listener unavailable: \(detail)" }
+    }
+
+    struct BackgroundedError: UsageFailureRepresentable, CustomStringConvertible {
+        var usageFailureKind: UsageFailureKind { .unknown }
+        var description: String { "Codex sign-in stopped when Ammo entered the background" }
+    }
+
     func signIn() async throws -> OAuthTokens {
         defer {
+            startupTask?.cancel()
+            startupTask = nil
+            timeoutTask?.cancel()
+            timeoutTask = nil
             server?.stop()
             server = nil
             session = nil
@@ -50,20 +72,30 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
                 cont.resume(throwing: error)
                 return
             }
-            let session = ASWebAuthenticationSession(
-                url: CodexProvider.authorizationRequestURL(pkce: pkce),
-                callbackURLScheme: nil
-            ) { [weak self] _, _ in
-                // Only reached when the user dismisses the sheet (or we cancel
-                // after finish(), by which point the continuation is nil).
-                Task { @MainActor in self?.abort() }
+            startupTask = Task { [weak self] in
+                guard let self, let server else { return }
+                do {
+                    _ = try await server.waitUntilReady(expectedPort: 1455, timeout: 3)
+                    try Task.checkCancellation()
+                    startBrowserSession(pkce: pkce)
+                } catch is CancellationError {
+                    return
+                } catch LoopbackServer.ReadinessError.timedOut {
+                    fail(TimeoutError())
+                } catch {
+                    fail(ListenerUnavailableError(detail: String(describing: error)))
+                }
             }
-            session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
-            self.session = session
-            session.start()
         }
         return try await CodexProvider().exchangeCode(code, verifier: pkce.verifier)
+    }
+
+    func cancel() {
+        fail(CancelledError())
+    }
+
+    func cancelForBackground() {
+        fail(BackgroundedError())
     }
 
     /// The authorization server always echoes `state` (RFC 6749 §4.1.2), so a
@@ -75,14 +107,52 @@ final class CodexAuthFlow: NSObject, ASWebAuthenticationPresentationContextProvi
     }
 
     private func finish(code: String) {
+        guard let continuation else { return }
+        self.continuation = nil
+        timeoutTask?.cancel()
         session?.cancel()
-        continuation?.resume(returning: code)
-        continuation = nil
+        continuation.resume(returning: code)
     }
 
     private func abort() {
-        continuation?.resume(throwing: CancelledError())
-        continuation = nil
+        fail(CancelledError())
+    }
+
+    private func fail(_ error: Error) {
+        guard let continuation else { return }
+        self.continuation = nil
+        startupTask?.cancel()
+        timeoutTask?.cancel()
+        server?.stop()
+        session?.cancel()
+        continuation.resume(throwing: error)
+    }
+
+    private func startBrowserSession(pkce: PKCE) {
+        guard continuation != nil else { return }
+        let session = ASWebAuthenticationSession(
+            url: CodexProvider.authorizationRequestURL(pkce: pkce),
+            callbackURLScheme: nil
+        ) { [weak self] _, _ in
+            // Only reached when the user dismisses the sheet (or we cancel
+            // after finish(), by which point the continuation is nil).
+            Task { @MainActor in self?.abort() }
+        }
+        session.presentationContextProvider = self
+        session.prefersEphemeralWebBrowserSession = false
+        self.session = session
+        guard session.start() else {
+            fail(ListenerUnavailableError(detail: "unable to start browser sign-in"))
+            return
+        }
+        timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(5 * 60))
+                self?.fail(TimeoutError())
+            } catch {
+                // Successful sign-in and explicit cancellation stop timeout.
+            }
+        }
     }
 
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
