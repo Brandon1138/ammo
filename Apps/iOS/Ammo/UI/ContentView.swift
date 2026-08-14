@@ -106,7 +106,7 @@ struct ContentView: View {
 
 private struct UsageView: View {
     @Environment(AccountStore.self) private var store
-    @State private var addingProvider: ProviderID?
+    @State private var presentedSheet: UsageSheet?
     let openOnDemand: () -> Void
     let openHistory: (UUID, String) -> Void
 
@@ -129,13 +129,20 @@ private struct UsageView: View {
                         .frame(width: 116, height: 25)
                         .accessibilityLabel("Ammo")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        presentedSheet = .settings
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if store.isDemoMode {
                         Button("Exit Demo") { store.disableDemoMode() }
                     } else {
                         Menu {
                             Button {
-                                addingProvider = .claude
+                                presentedSheet = .addProvider(.claude)
                             } label: {
                                 Label {
                                     Text("Claude")
@@ -144,7 +151,7 @@ private struct UsageView: View {
                                 }
                             }
                             Button {
-                                addingProvider = .codex
+                                presentedSheet = .addProvider(.codex)
                             } label: {
                                 Label {
                                     Text("Codex")
@@ -153,7 +160,7 @@ private struct UsageView: View {
                                 }
                             }
                             Button {
-                                addingProvider = .cursor
+                                presentedSheet = .addProvider(.cursor)
                             } label: {
                                 Label {
                                     Text("Cursor")
@@ -167,12 +174,17 @@ private struct UsageView: View {
                     }
                 }
             }
-            .sheet(item: $addingProvider) { provider in
-                switch provider {
-                case .claude: ClaudeOnboardingView()
-                case .codex: CodexOnboardingView()
-                case .cursor: CursorOnboardingView()
-                case .antigravity: EmptyView() // deferred, see SPEC.md
+            .sheet(item: $presentedSheet) { sheet in
+                switch sheet {
+                case .settings:
+                    SettingsView()
+                case .addProvider(let provider):
+                    switch provider {
+                    case .claude: ClaudeOnboardingView()
+                    case .codex: CodexOnboardingView()
+                    case .cursor: CursorOnboardingView()
+                    case .antigravity: EmptyView() // deferred, see SPEC.md
+                    }
                 }
             }
         }
@@ -184,9 +196,9 @@ private struct UsageView: View {
         } description: {
             Text("Add a Claude, Codex, or Cursor account to see how much ammo you have left.")
         } actions: {
-            Button("Add Claude") { addingProvider = .claude }
-            Button("Add Codex") { addingProvider = .codex }
-            Button("Add Cursor") { addingProvider = .cursor }
+            Button("Add Claude") { presentedSheet = .addProvider(.claude) }
+            Button("Add Codex") { presentedSheet = .addProvider(.codex) }
+            Button("Add Cursor") { presentedSheet = .addProvider(.cursor) }
             Button("See a demo") { store.enableDemoMode() }
         }
     }
@@ -205,6 +217,20 @@ private struct UsageView: View {
                 await store.refreshAll(reason: .manual)
             }
             .listSectionSpacing(.custom(10))
+        }
+    }
+}
+
+private enum UsageSheet: Identifiable {
+    case settings
+    case addProvider(ProviderID)
+
+    var id: String {
+        switch self {
+        case .settings:
+            "settings"
+        case .addProvider(let provider):
+            "add-\(provider.rawValue)"
         }
     }
 }
