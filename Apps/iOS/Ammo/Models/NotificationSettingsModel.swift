@@ -8,6 +8,7 @@ import UsageKit
 final class NotificationSettingsModel {
     private let center: UNUserNotificationCenter
     private let storage: NotificationPreferencesStorage
+    private let notificationService: UsageNotificationService
 
     private(set) var preferences: NotificationPreferences
     private(set) var authorizationStatus: UNAuthorizationStatus?
@@ -16,10 +17,14 @@ final class NotificationSettingsModel {
 
     init(
         center: UNUserNotificationCenter = .current(),
-        userDefaults: UserDefaults = UserDefaults(suiteName: AppGroup.id) ?? .standard
+        storage: NotificationPreferencesStorage = NotificationPreferencesStorage(
+            suiteName: AppGroup.id
+        ),
+        notificationService: UsageNotificationService = .shared
     ) {
         self.center = center
-        storage = NotificationPreferencesStorage(userDefaults: userDefaults)
+        self.storage = storage
+        self.notificationService = notificationService
         preferences = storage.load()
     }
 
@@ -82,6 +87,7 @@ final class NotificationSettingsModel {
     private func persist() {
         do {
             try storage.save(preferences)
+            Task { await notificationService.preferencesDidChange() }
         } catch {
             assertionFailure("Unable to persist notification preferences: \(error)")
         }

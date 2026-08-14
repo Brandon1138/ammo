@@ -23,6 +23,26 @@ struct NotificationPreferencesStorageTests {
         #expect(storage.load() == expected)
     }
 
+    @Test("Settings writer and service reader share suite and engine state")
+    func separateCallPathsRoundTripThroughOneSuite() throws {
+        let suiteName = "NotificationPreferencesStorageTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settingsStorage = NotificationPreferencesStorage(suiteName: suiteName)
+        let serviceStorage = NotificationPreferencesStorage(suiteName: suiteName)
+        var preferences = NotificationPreferences.default
+        preferences.masterEnabled = true
+        preferences.claudeSessionReset = false
+        let state = NotificationEngineState(lastFiredMarkers: ["marker": "value"])
+
+        try settingsStorage.save(preferences)
+        try serviceStorage.saveEngineState(state)
+
+        #expect(serviceStorage.load() == preferences)
+        #expect(settingsStorage.loadEngineState() == state)
+    }
+
     @Test("Missing and invalid data use defaults")
     func fallback() throws {
         let suiteName = "NotificationPreferencesStorageTests.\(UUID().uuidString)"

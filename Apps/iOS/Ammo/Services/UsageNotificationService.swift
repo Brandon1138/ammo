@@ -7,28 +7,29 @@ import UserNotifications
 actor UsageNotificationService {
     static let shared = UsageNotificationService()
 
-    static let stateStorageKey = "ammo.notificationEngineState"
-
-    private let defaults: UserDefaults
-    private let center: any LocalNotificationCenter
+    private let processor: UsageNotificationProcessor
 
     init(
-        defaults: UserDefaults = .standard,
+        storage: NotificationPreferencesStorage = NotificationPreferencesStorage(
+            suiteName: AppGroup.id
+        ),
         center: any LocalNotificationCenter = SystemLocalNotificationCenter()
     ) {
-        self.defaults = defaults
-        self.center = center
+        processor = UsageNotificationProcessor(
+            storage: storage,
+            center: center,
+            deliveryErrorHandler: { message in
+                AmmoLog.refresh.error("\(message, privacy: .private)")
+            }
+        )
     }
 
     func process(
         snapshots: [UUID: UsageSnapshot],
         refreshedAccountIDs: Set<UUID>,
+        knownAccountIDs: Set<UUID>,
         now: Date = Date()
     ) async {
-        guard await center.isAuthorized() else { return }
-
-        // Re-read every pass because Settings writes this value independently.
-        let preferences = loadPreferences()
         let polls = snapshots.compactMap { accountID, snapshot -> NotificationPollSnapshot? in
             guard refreshedAccountIDs.contains(accountID) else { return nil }
             return NotificationPollSnapshot(
@@ -37,61 +38,15 @@ actor UsageNotificationService {
             )
         }
 
-        let result = UsageNotificationEngine.evaluate(
+        await processor.process(
             polls: polls,
-            preferences: preferences,
-            state: loadState(),
+            knownAccountIDs: Set(knownAccountIDs.map { $0.uuidString.lowercased() }),
             now: now
         )
-
-        // Persist dedupe markers before delivery. Crash/relaunch can lose one
-        // immediate alert, but cannot deliver the same logical event twice.
-        saveState(result.state)
-        await execute(result.commands)
     }
 
-    private func loadPreferences() -> NotificationPreferences {
-        guard let data = defaults.data(forKey: NotificationPreferences.storageKey),
-              let preferences = try? JSONDecoder().decode(
-                NotificationPreferences.self,
-                from: data
-              ) else {
-            return .default
-        }
-        return preferences
-    }
-
-    private func loadState() -> NotificationEngineState {
-        guard let data = defaults.data(forKey: Self.stateStorageKey),
-              let state = try? JSONDecoder().decode(
-                NotificationEngineState.self,
-                from: data
-              ) else {
-            return NotificationEngineState()
-        }
-        return state
-    }
-
-    private func saveState(_ state: NotificationEngineState) {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        defaults.set(data, forKey: Self.stateStorageKey)
-    }
-
-    private func execute(_ commands: [UsageNotificationCommand]) async {
-        for command in commands {
-            switch command {
-            case .deliver(let request):
-                do {
-                    try await center.deliver(request)
-                } catch {
-                    AmmoLog.refresh.error("Unable to schedule usage notification: \(String(describing: error), privacy: .private)")
-                }
-            case .cancelIdentifier(let identifier):
-                await center.cancelPending(identifier: identifier)
-            case .cancelType(let type):
-                await center.cancelPending(identifierPrefix: type.identifierPrefix)
-            }
-        }
+    func preferencesDidChange(now: Date = Date()) async {
+        await processor.preferencesDidChange(now: now)
     }
 }
 
@@ -146,6 +101,20 @@ final class SystemLocalNotificationCenter: LocalNotificationCenter, @unchecked S
         let identifiers = await center.pendingNotificationRequests()
             .map(\.identifier)
             .filter { $0.hasPrefix(identifierPrefix) }
+        guard !identifiers.isEmpty else { return }
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    func cancelPending(accountID: String) async {
+        let identifiers = await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { identifier in
+                UsageNotificationType.allCases.contains { type in
+                    let stableIdentifier = "\(type.identifierPrefix)\(accountID)"
+                    return identifier == stableIdentifier
+                        || identifier.hasPrefix("\(stableIdentifier).")
+                }
+            }
         guard !identifiers.isEmpty else { return }
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }

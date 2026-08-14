@@ -94,6 +94,7 @@ final class AccountStore {
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
         WidgetCenter.shared.reloadAllTimelines()
+        Task { await self.refresh(ids: []) }
     }
 
     func enableDemoMode() {
@@ -139,7 +140,8 @@ final class AccountStore {
                 snapshots: Dictionary(uniqueKeysWithValues: states.compactMap { state in
                     state.snapshot.map { (state.id, $0) }
                 }),
-                refreshedAccountIDs: []
+                refreshedAccountIDs: [],
+                knownAccountIDs: Set(states.map(\.id))
             )
             return []
         }
@@ -173,7 +175,8 @@ final class AccountStore {
             snapshots: Dictionary(uniqueKeysWithValues: states.compactMap { state in
                 state.snapshot.map { (state.id, $0) }
             }),
-            refreshedAccountIDs: refreshedAccountIDs
+            refreshedAccountIDs: refreshedAccountIDs,
+            knownAccountIDs: Set(states.map(\.id))
         )
         return outcomes
     }

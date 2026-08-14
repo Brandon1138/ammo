@@ -80,6 +80,22 @@ import Testing
         #expect(result.request(type: .codexWeeklyReset) == nil)
     }
 
+    @Test func cancelOnlyPassCancelsEachNewlyDisabledType() {
+        for disabledType in UsageNotificationType.allCases {
+            var preferences = enabledPreferences()
+            preferences.set(disabledType, enabled: false)
+
+            let result = UsageNotificationEngine.evaluate(
+                polls: [],
+                preferences: preferences,
+                state: NotificationEngineState(),
+                now: now
+            )
+
+            #expect(result.commands == [.cancelType(disabledType)])
+        }
+    }
+
     @Test func masterDisabledCancelsAllTypesAndAdvancesBaseline() {
         let previous = snapshot(
             .codex,
@@ -137,6 +153,66 @@ import Testing
 
         #expect(result.state == state)
         #expect(result.commands.isEmpty)
+    }
+
+    @Test func removedAccountIsCancelledAndPrunedWithoutPolls() {
+        let keptAccountID = "22222222-2222-2222-2222-222222222222"
+        let removedSnapshot = snapshot(
+            .claude,
+            weeklyUsed: 30,
+            weeklyReset: now.addingTimeInterval(86_400)
+        )
+        let keptSnapshot = snapshot(
+            .codex,
+            weeklyUsed: 40,
+            weeklyReset: now.addingTimeInterval(86_400)
+        )
+        let state = NotificationEngineState(
+            lastSnapshots: [accountID: removedSnapshot, keptAccountID: keptSnapshot],
+            claudeSessionObservations: [
+                accountID: ClaudeSessionObservation(
+                    resetAt: now.addingTimeInterval(3_600),
+                    observedUsage: true
+                )
+            ],
+            lastFiredMarkers: [
+                "claudeSpontaneousReset:\(accountID)": "removed-marker",
+                "codexBankedReset:\(keptAccountID)": "kept-marker"
+            ]
+        )
+
+        let result = UsageNotificationEngine.evaluate(
+            polls: [],
+            knownAccountIDs: [keptAccountID],
+            preferences: enabledPreferences(),
+            state: state,
+            now: now
+        )
+
+        #expect(result.commands == [.cancelAccount(accountID)])
+        #expect(result.state.lastSnapshots[accountID] == nil)
+        #expect(result.state.claudeSessionObservations[accountID] == nil)
+        #expect(result.state.lastFiredMarkers["claudeSpontaneousReset:\(accountID)"] == nil)
+        #expect(result.state.lastSnapshots[keptAccountID] == keptSnapshot)
+        #expect(result.state.lastFiredMarkers["codexBankedReset:\(keptAccountID)"] == "kept-marker")
+    }
+
+    @Test func emptyKnownAccountSetCancelsAndPrunesLastAccount() {
+        let current = snapshot(
+            .codex,
+            weeklyUsed: 40,
+            weeklyReset: now.addingTimeInterval(86_400)
+        )
+        let result = UsageNotificationEngine.evaluate(
+            polls: [],
+            knownAccountIDs: [],
+            preferences: enabledPreferences(),
+            state: NotificationEngineState(lastSnapshots: [accountID: current]),
+            now: now
+        )
+
+        #expect(result.commands == [.cancelAccount(accountID)])
+        #expect(result.state == NotificationEngineState())
     }
 
     @Test func claudeSessionStopsAfter2300ResetWhileIdleThenRearmsOnUsage() throws {
@@ -469,6 +545,20 @@ import Testing
             resetCreditsAvailable: banked,
             fetchedAt: fetchedAt ?? now
         )
+    }
+}
+
+private extension NotificationPreferences {
+    mutating func set(_ type: UsageNotificationType, enabled: Bool) {
+        switch type {
+        case .codexWeeklyReset: codexWeeklyReset = enabled
+        case .codexSpontaneousReset: codexSpontaneousReset = enabled
+        case .codexBankedReset: codexBankedReset = enabled
+        case .claudeSessionReset: claudeSessionReset = enabled
+        case .claudeWeeklyReset: claudeWeeklyReset = enabled
+        case .claudeSpontaneousReset: claudeSpontaneousReset = enabled
+        case .cursorMonthlyReset: cursorMonthlyReset = enabled
+        }
     }
 }
 

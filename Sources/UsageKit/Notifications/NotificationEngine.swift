@@ -40,6 +40,7 @@ public enum UsageNotificationCommand: Equatable, Sendable {
     case deliver(UsageNotificationRequest)
     case cancelIdentifier(String)
     case cancelType(UsageNotificationType)
+    case cancelAccount(String)
 }
 
 public struct NotificationPollSnapshot: Equatable, Sendable {
@@ -95,6 +96,7 @@ public enum UsageNotificationEngine {
 
     public static func evaluate(
         polls: [NotificationPollSnapshot],
+        knownAccountIDs: Set<String>? = nil,
         preferences: NotificationPreferences,
         state initialState: NotificationEngineState,
         now: Date,
@@ -102,6 +104,14 @@ public enum UsageNotificationEngine {
     ) -> NotificationEngineResult {
         var state = initialState
         var commands = cancellationCommands(preferences: preferences)
+
+        if let knownAccountIDs {
+            let removedAccountIDs = stateAccountIDs(state).subtracting(knownAccountIDs)
+            for accountID in removedAccountIDs.sorted() {
+                commands.append(.cancelAccount(accountID))
+                prune(accountID: accountID, from: &state)
+            }
+        }
 
         for poll in polls {
             let previous = state.lastSnapshots[poll.accountID]
@@ -165,6 +175,32 @@ public enum UsageNotificationEngine {
     ) -> [UsageNotificationCommand] {
         UsageNotificationType.allCases.compactMap { type in
             preferences.masterEnabled && preferences.isEnabled(type) ? nil : .cancelType(type)
+        }
+    }
+
+    private static func stateAccountIDs(_ state: NotificationEngineState) -> Set<String> {
+        var accountIDs = Set(state.lastSnapshots.keys)
+        accountIDs.formUnion(state.claudeSessionObservations.keys)
+        for type in UsageNotificationType.allCases {
+            let prefix = "\(type.rawValue):"
+            accountIDs.formUnion(state.lastFiredMarkers.keys.compactMap { key in
+                key.hasPrefix(prefix) ? String(key.dropFirst(prefix.count)) : nil
+            })
+        }
+        return accountIDs
+    }
+
+    private static func prune(
+        accountID: String,
+        from state: inout NotificationEngineState
+    ) {
+        state.lastSnapshots.removeValue(forKey: accountID)
+        state.claudeSessionObservations.removeValue(forKey: accountID)
+        for type in UsageNotificationType.allCases {
+            state.lastFiredMarkers.removeValue(forKey: firedMarkerKey(
+                type: type,
+                accountID: accountID
+            ))
         }
     }
 

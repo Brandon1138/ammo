@@ -7,4 +7,5 @@ public protocol LocalNotificationCenter: Sendable {
     func deliver(_ request: UsageNotificationRequest) async throws
     func cancelPending(identifier: String) async
     func cancelPending(identifierPrefix: String) async
+    func cancelPending(accountID: String) async
 }
