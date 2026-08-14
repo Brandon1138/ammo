@@ -20,6 +20,14 @@ struct SignInFlowTests {
     func cursorTimeoutKeepsItsCategory() {
         #expect(UsageFailureClassifier.classify(CursorAuthFlow.TimeoutError()) == .timedOut)
     }
+
+    @Test("Codex listener failures and timeouts reach stable user-visible categories")
+    func codexListenerFailuresKeepTheirCategories() {
+        #expect(UsageFailureClassifier.classify(CodexAuthFlow.TimeoutError()) == .timedOut)
+        #expect(UsageFailureClassifier.classify(
+            CodexAuthFlow.ListenerUnavailableError(detail: "port busy")) == .serviceUnavailable)
+        #expect(UsageFailureClassifier.classify(CodexAuthFlow.BackgroundedError()) == .unknown)
+    }
 }
 
 @Suite("Codex loopback listener")
@@ -110,7 +118,7 @@ struct LoopbackServerTests {
             codes.mutate { $0.append(code) }
         }
         defer { server.stop() }
-        let port = try await Self.boundPort(of: server)
+        let port = try await server.waitUntilReady(timeout: 5)
 
         let injected = try await Self.get(port: port,
                                           target: "/auth/callback?code=injected&state=wrong")
@@ -137,7 +145,7 @@ struct LoopbackServerTests {
             codes.mutate { $0.append(code) }
         }
         defer { server.stop() }
-        let port = try await Self.boundPort(of: server)
+        let port = try await server.waitUntilReady(timeout: 5)
 
         let response = try await Self.get(
             port: port,
@@ -152,18 +160,27 @@ struct LoopbackServerTests {
         #expect(codes.value == ["fragmented-code"])
     }
 
+    @Test("A second listener cannot share an occupied loopback port")
+    func occupiedPortFailsReadiness() async throws {
+        let first = try LoopbackServer(port: 0, expectedState: expectedState) { _ in }
+        defer { first.stop() }
+        let port = try await first.waitUntilReady(timeout: 5)
+
+        let second = try LoopbackServer(port: port, expectedState: expectedState) { _ in }
+        defer { second.stop() }
+        var failed = false
+        do {
+            _ = try await second.waitUntilReady(expectedPort: port, timeout: 2)
+        } catch {
+            failed = true
+        }
+        #expect(failed)
+    }
+
     // MARK: - Helpers
 
     private struct ListenerError: Error, CustomStringConvertible {
         let description: String
-    }
-
-    private static func boundPort(of server: LoopbackServer) async throws -> UInt16 {
-        for _ in 0..<100 {
-            if let port = server.boundPort, port != 0 { return port }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        throw ListenerError(description: "The loopback listener never bound a port")
     }
 
     /// Raw TCP rather than URLSession: the point of the test is what the socket
