@@ -8,6 +8,7 @@ import UsageKit
 struct CodexOnboardingView: View {
     @Environment(AccountStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var label = ""
     @State private var pastedJSON = ""
@@ -42,6 +43,7 @@ struct CodexOnboardingView: View {
                         .frame(minHeight: 120)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                        .privacySensitive()
                     Button("Import pasted tokens") { importJSON() }
                         .disabled(busy || pastedJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } header: {
@@ -61,6 +63,15 @@ struct CodexOnboardingView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+            }
+            .onDisappear {
+                pastedJSON = ""
+                authFlow.cancel()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background {
+                    authFlow.cancelForBackground()
                 }
             }
         }
@@ -85,6 +96,7 @@ struct CodexOnboardingView: View {
     }
 
     private func importJSON() {
+        defer { pastedJSON = "" }
         failure = nil
         do {
             let tokens = try Self.parseAuthJSON(pastedJSON)
