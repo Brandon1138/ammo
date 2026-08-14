@@ -134,7 +134,15 @@ final class AccountStore {
         if Self.usesErrorPreview || Self.usesHistoryPreview { return [] }
 #endif
         if isDemoMode { return [] }
-        guard !ids.isEmpty else { return [] }
+        guard !ids.isEmpty else {
+            await UsageNotificationService.shared.process(
+                snapshots: Dictionary(uniqueKeysWithValues: states.compactMap { state in
+                    state.snapshot.map { (state.id, $0) }
+                }),
+                refreshedAccountIDs: []
+            )
+            return []
+        }
         let uniqueIDs = Array(Set(ids))
         var generations: [UUID: UInt] = [:]
         for id in uniqueIDs {
@@ -157,6 +165,16 @@ final class AccountStore {
         if outcomes.contains(where: \.requiresTimelineReload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        let refreshedAccountIDs = Set(outcomes.compactMap { outcome -> UUID? in
+            guard case .refreshed(let accountID) = outcome else { return nil }
+            return accountID
+        })
+        await UsageNotificationService.shared.process(
+            snapshots: Dictionary(uniqueKeysWithValues: states.compactMap { state in
+                state.snapshot.map { (state.id, $0) }
+            }),
+            refreshedAccountIDs: refreshedAccountIDs
+        )
         return outcomes
     }
 
