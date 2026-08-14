@@ -17,6 +17,7 @@ enum UsageHistoryStore {
     }
 
     static func load() -> [UsageHistorySample] {
+        if DemoModeStore.isEnabled { return DemoData.historySamples() }
         do {
             let data = try Data(contentsOf: fileURL)
             let decoder = JSONDecoder()
