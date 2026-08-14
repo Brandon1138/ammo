@@ -66,6 +66,7 @@ enum SharedStore {
     }
 
     static func load() -> [AccountState] {
+        if DemoModeStore.isEnabled { return DemoData.states() }
         removeLegacyCodexBillingCache()
         do {
             let data = try Data(contentsOf: fileURL)
