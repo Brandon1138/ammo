@@ -47,7 +47,12 @@ actor UsageRefreshCoordinator {
     static let shared = UsageRefreshCoordinator()
 
     func refresh(accountIDs: [UUID], reason: RefreshReason) async -> [RefreshOutcome] {
-        await Self.collectOutcomes(accountIDs: accountIDs) { accountID in
+        if DemoModeStore.isEnabled {
+            return accountIDs.map {
+                .cached(accountID: $0, nextEligibleAt: .distantFuture)
+            }
+        }
+        return await Self.collectOutcomes(accountIDs: accountIDs) { accountID in
             await self.refresh(accountID: accountID, reason: reason)
         }
     }
@@ -75,7 +80,10 @@ actor UsageRefreshCoordinator {
     }
 
     func refresh(accountID: UUID, reason: RefreshReason) async -> RefreshOutcome {
-        await Self.execute(accountID: accountID, reason: reason)
+        if DemoModeStore.isEnabled {
+            return .cached(accountID: accountID, nextEligibleAt: .distantFuture)
+        }
+        return await Self.execute(accountID: accountID, reason: reason)
     }
 
     private nonisolated static func execute(
