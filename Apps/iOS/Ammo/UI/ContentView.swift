@@ -128,6 +128,8 @@ struct ContentView: View {
 private struct UsageView: View {
     @Environment(AccountStore.self) private var store
     @State private var presentedSheet: UsageSheet?
+    @State private var settingsModel: NotificationSettingsModel?
+    @State private var presentSettingsWhenPrepared = false
     let openOnDemand: () -> Void
     let openHistory: (UUID, String) -> Void
 
@@ -152,10 +154,11 @@ private struct UsageView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        presentedSheet = .settings
+                        presentSettings()
                     } label: {
                         Label("Settings", systemImage: "gearshape")
                     }
+                    .disabled(presentSettingsWhenPrepared)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if store.isDemoMode {
@@ -198,7 +201,9 @@ private struct UsageView: View {
             .sheet(item: $presentedSheet) { sheet in
                 switch sheet {
                 case .settings:
-                    SettingsView()
+                    if let settingsModel {
+                        SettingsView(model: settingsModel)
+                    }
                 case .addProvider(let provider):
                     switch provider {
                     case .claude: ClaudeOnboardingView()
@@ -208,6 +213,31 @@ private struct UsageView: View {
                     }
                 }
             }
+            .task {
+                await prepareSettings()
+            }
+        }
+    }
+
+    private func presentSettings() {
+        guard settingsModel != nil else {
+            presentSettingsWhenPrepared = true
+            return
+        }
+
+        presentedSheet = .settings
+    }
+
+    @MainActor
+    private func prepareSettings() async {
+        guard settingsModel == nil else { return }
+
+        let preparation = await NotificationSettingsModel.prepareForPresentation()
+        settingsModel = NotificationSettingsModel(preparation: preparation)
+
+        if presentSettingsWhenPrepared {
+            presentSettingsWhenPrepared = false
+            presentedSheet = .settings
         }
     }
 
