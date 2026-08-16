@@ -11,8 +11,10 @@ struct DemoModeTests {
         let states = DemoData.states(now: now)
         let history = DemoData.historySamples(now: now)
 
-        #expect(Set(states.map(\.account.provider)) == Set([.claude, .codex, .cursor]))
-        #expect(states.allSatisfy { $0.snapshot?.windows.isEmpty == false })
+        #expect(Set(states.map(\.account.provider)) == Set(ProviderID.supported))
+        #expect(states.filter { $0.account.provider != .openRouter }
+            .allSatisfy { $0.snapshot?.windows.isEmpty == false })
+        #expect(states.first { $0.account.provider == .openRouter }?.snapshot?.windows == [])
         #expect(states.allSatisfy { $0.snapshot?.onDemand?.isEmpty == false })
         #expect(history.count == states.count * 84)
         #expect(Set(history.map(\.accountID)) == Set(states.map(\.id)))

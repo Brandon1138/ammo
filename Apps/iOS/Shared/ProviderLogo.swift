@@ -2,8 +2,8 @@ import SwiftUI
 import UsageKit
 import WidgetKit
 
-/// Official provider artwork. Claude, Codex, and Cursor deliberately have no
-/// drawn fallback: if a first-party asset is missing, that is a build defect.
+/// Official provider artwork. Shipping providers deliberately have no drawn
+/// fallback: if a first-party asset is missing, that is a build defect.
 struct ProviderLogo: View {
     enum Role {
         case standard
@@ -58,7 +58,7 @@ struct ProviderLogo: View {
             switch provider {
             case .codex: return "logo-codex-menu"
             case .cursor: return "logo-cursor-menu"
-            case .claude, .antigravity: break
+            case .claude, .openRouter, .antigravity: break
             }
         }
         if provider == .codex, renderingMode != .fullColor {
@@ -77,6 +77,7 @@ private extension ProviderID {
         case .claude: "logo-claude"
         case .codex: "logo-codex"
         case .cursor: "logo-cursor"
+        case .openRouter: "logo-openrouter"
         case .antigravity: nil
         }
     }
@@ -84,7 +85,7 @@ private extension ProviderID {
     var fallbackSymbolName: String? {
         switch self {
         case .antigravity: "circle.dotted.and.circle"
-        case .claude, .codex, .cursor: nil
+        case .claude, .codex, .cursor, .openRouter: nil
         }
     }
 }

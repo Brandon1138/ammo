@@ -265,6 +265,7 @@ actor UsageRefreshCoordinator {
         case .claude: ClaudeProvider()
         case .codex: CodexProvider()
         case .cursor: CursorProvider()
+        case .openRouter: OpenRouterProvider()
         case .antigravity: nil
         }
     }

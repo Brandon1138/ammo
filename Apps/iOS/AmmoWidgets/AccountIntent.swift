@@ -80,40 +80,6 @@ struct SelectAccountsIntent: WidgetConfigurationIntent {
     }
 }
 
-enum WidgetAccountOrder {
-    static func defaultOrder(_ states: [AccountState]) -> [AccountState] {
-        states.sorted { lhs, rhs in
-            let leftRank = availabilityRank(lhs)
-            let rightRank = availabilityRank(rhs)
-            if leftRank != rightRank { return leftRank < rightRank }
-
-            let leftProvider = providerRank(lhs.account.provider)
-            let rightProvider = providerRank(rhs.account.provider)
-            if leftProvider != rightProvider { return leftProvider < rightProvider }
-
-            return lhs.account.label.localizedCaseInsensitiveCompare(rhs.account.label) == .orderedAscending
-        }
-    }
-
-    private static func availabilityRank(_ state: AccountState) -> Int {
-        guard let snapshot = state.snapshot else {
-            return state.activeFailure == nil ? 3 : 4
-        }
-        if !snapshot.windows.isEmpty { return 0 }
-        if snapshot.onDemand?.isEmpty == false { return 1 }
-        return 2
-    }
-
-    private static func providerRank(_ provider: ProviderID) -> Int {
-        switch provider {
-        case .codex: 0
-        case .claude: 1
-        case .cursor: 2
-        case .antigravity: 3
-        }
-    }
-}
-
 /// A single account plus allowance, kept as one picker entity so widget
 /// configuration never permits an account/window mismatch.
 struct LimitEntity: AppEntity {

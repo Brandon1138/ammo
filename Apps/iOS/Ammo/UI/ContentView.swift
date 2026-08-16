@@ -165,31 +165,15 @@ private struct UsageView: View {
                         Button("Exit Demo") { store.disableDemoMode() }
                     } else {
                         Menu {
-                            Button {
-                                presentedSheet = .addProvider(.claude)
-                            } label: {
-                                Label {
-                                    Text("Claude")
-                                } icon: {
-                                    ProviderLogo(provider: .claude, size: 16, role: .menu)
-                                }
-                            }
-                            Button {
-                                presentedSheet = .addProvider(.codex)
-                            } label: {
-                                Label {
-                                    Text("Codex")
-                                } icon: {
-                                    ProviderLogo(provider: .codex, size: 16, role: .menu)
-                                }
-                            }
-                            Button {
-                                presentedSheet = .addProvider(.cursor)
-                            } label: {
-                                Label {
-                                    Text("Cursor")
-                                } icon: {
-                                    ProviderLogo(provider: .cursor, size: 16, role: .menu)
+                            ForEach(ProviderID.supported) { provider in
+                                Button {
+                                    presentedSheet = .addProvider(provider)
+                                } label: {
+                                    Label {
+                                        Text(provider.displayName)
+                                    } icon: {
+                                        ProviderLogo(provider: provider, size: 16, role: .menu)
+                                    }
                                 }
                             }
                         } label: {
@@ -209,6 +193,7 @@ private struct UsageView: View {
                     case .claude: ClaudeOnboardingView()
                     case .codex: CodexOnboardingView()
                     case .cursor: CursorOnboardingView()
+                    case .openRouter: OpenRouterOnboardingView()
                     case .antigravity: EmptyView() // deferred, see SPEC.md
                     }
                 }
@@ -245,11 +230,13 @@ private struct UsageView: View {
         ContentUnavailableView {
             Label("No accounts yet", systemImage: "battery.0percent")
         } description: {
-            Text("Add a Claude, Codex, or Cursor account to see how much ammo you have left.")
+            Text("Add a Claude, Codex, Cursor, or OpenRouter account to see how much ammo you have left.")
         } actions: {
-            Button("Add Claude") { presentedSheet = .addProvider(.claude) }
-            Button("Add Codex") { presentedSheet = .addProvider(.codex) }
-            Button("Add Cursor") { presentedSheet = .addProvider(.cursor) }
+            ForEach(ProviderID.supported) { provider in
+                Button("Add \(provider.displayName)") {
+                    presentedSheet = .addProvider(provider)
+                }
+            }
             Button("See a demo") { store.enableDemoMode() }
         }
     }
