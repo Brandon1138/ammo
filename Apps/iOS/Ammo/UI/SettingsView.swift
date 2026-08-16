@@ -6,7 +6,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model = NotificationSettingsModel()
+    let model: NotificationSettingsModel
 
     var body: some View {
         NavigationStack {
@@ -65,7 +65,9 @@ struct SettingsView: View {
                 }
             }
             .task {
-                await model.refreshAuthorizationStatus()
+                if model.authorizationStatus == nil {
+                    await model.refreshAuthorizationStatus()
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
