@@ -90,6 +90,10 @@ public enum UsageHistoryAnalysis {
             .filter({ $0.accountID == accountID && $0.snapshot.fetchedAt < gridEnd })
             .sorted(by: { $0.snapshot.fetchedAt < $1.snapshot.fetchedAt }) {
             guard let window = sample.snapshot.windows.first(where: { $0.id == windowID }) else {
+                // The window was absent from this snapshot, so consumption and
+                // rollovers after it are unobservable. Drop the baseline rather
+                // than attribute a cross-gap difference to a single day.
+                previousWindow = nil
                 continue
             }
 
@@ -137,6 +141,9 @@ public enum UsageHistoryAnalysis {
             .filter({ $0.accountID == accountID })
             .sorted(by: { $0.snapshot.fetchedAt < $1.snapshot.fetchedAt }) {
             guard let window = sample.snapshot.windows.first(where: { $0.id == windowID }) else {
+                // Same continuity break as the activity grid: the first
+                // observation after a gap is a new baseline, never a reset.
+                previousWindow = nil
                 continue
             }
 
