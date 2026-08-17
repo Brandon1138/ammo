@@ -52,11 +52,14 @@ and resolve every validation warning before review submission.
 ## Live provider contracts
 
 On current release build and real device, add one operator-owned test account per
-provider. Refresh Claude, Codex, and Cursor. Record successful timestamps and verify
-included windows, reset times, plan, and on-demand values against provider UI.
+provider. Refresh Claude, Codex, Cursor, and OpenRouter. Record successful timestamps
+and verify included windows, reset times, plan, and on-demand values against provider
+UI or, for OpenRouter, the ordinary key's documented `GET /api/v1/key` response.
 Exercise one token refresh for on-device OAuth accounts without importing or
-invalidating desktop credentials. If Cursor cannot be verified, remove Cursor from
-shipping UI and metadata; do not call fixture decode proof live-contract proof.
+invalidating desktop credentials. OpenRouter's imported key is intentionally
+non-refreshable; verify finite and no-limit key presentation without a synthetic
+percentage window. If a provider cannot be verified, remove it from shipping UI and
+metadata; do not call fixture decode proof live-contract proof.
 
 ## Privacy and lifecycle device checks
 

@@ -2,7 +2,7 @@
 
 **Ammo** is an iOS app + home-screen widgets that show how much included and
 on-demand usage you have left across your AI coding subscriptions — Claude Code,
-Codex, and Cursor today; Antigravity later.
+Codex, Cursor, and OpenRouter today; Antigravity later.
 
 This document is the deliverable. It exists so that **you can rebuild Ammo yourself**
 by handing this spec to a coding agent (Claude Code or similar), instead of granting a
@@ -17,10 +17,11 @@ instructions for re-deriving any contract that has drifted since this spec was w
 - **Tokens never leave the device.** Credentials live in the iOS Keychain
   (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, non-synchronizable, excluded
   from backup migration, and never transferred to another device).
-- **No scoping-down is possible, so don't pretend.** The OAuth tokens these providers
-  issue can do inference, not just read usage. There is no "rate limits only"
-  permission. The DIY answer is not a narrower token — it's that the token is only
-  ever held by code you built and can read.
+- **Do not overstate credential scope.** Claude, Codex, and Cursor OAuth tokens can
+  do more than read usage. OpenRouter uses an ordinary inference key because its
+  current-key endpoint accepts that key; Ammo never asks for the more powerful
+  Management key. The DIY boundary is that credentials stay in inspectable code
+  on the device, not that every provider offers a usage-only permission.
 - **You sign it.** Build with your own Apple Developer account. With a paid account
   the app is permanent; with a free account it must be re-signed every 7 days.
 
@@ -57,7 +58,7 @@ Three layers, strictly separated:
 ### UsageKit core types
 
 ```swift
-enum ProviderID { case claude, codex, cursor, antigravity }
+enum ProviderID { case claude, codex, cursor, openRouter, antigravity }
 enum WindowKind { case session, weekly, monthly, modelScoped, unknown }
 enum OnDemandKind { case creditBalance, spendingLimit, personalAllocation,
                     teamBudget, pooledBudget }
@@ -377,6 +378,39 @@ pair. Refresh uses the current first-party `POST https://api2.cursor.sh/oauth/to
 refresh-token grant. The access-token JWT supplies both its expiry and the user id
 needed to derive the web-session cookie.
 
+### OpenRouter — DOCUMENTED CONTRACT VERIFIED 2026-08-17; LIVE DEVICE PROOF PENDING
+
+Ammo stores an ordinary OpenRouter inference key in its existing Keychain item and
+uses exactly one authenticated endpoint:
+
+```
+GET https://openrouter.ai/api/v1/key
+Authorization: Bearer <ordinary inference API key>
+Accept: application/json
+```
+
+`limit` and `limit_remaining` are USD key-budget values. The matching
+`usage_daily`, `usage_weekly`, or `usage_monthly` value supplies active-period spend
+when `limit_reset` names that cadence; otherwise total `usage` is used. BYOK spend is
+included only when `include_byok_in_limit` is true. Daily boundaries are midnight
+UTC, weekly boundaries are Monday 00:00 UTC, and monthly boundaries are the first
+day 00:00 UTC. The aggregate fields are money, never synthetic `LimitWindow`s.
+
+A missing `limit` is a valid no-limit key: Ammo persists the reported spend but no
+remaining balance, credit substitute, percentage, or reset timestamp. Imported keys
+are non-refreshable. Management/provisioning keys are rejected when the API reports
+them: `is_management_key` and `is_provisioning_key` are read as optional, so a key
+whose class the API omits is accepted rather than failing the account. Only the
+read-only current-key endpoint is ever called, so an unreported class cannot widen
+what Ammo does with the key.
+
+OpenRouter documents S256 PKCE at `https://openrouter.ai/auth` and code exchange at
+`POST https://openrouter.ai/api/v1/auth/keys`, including localhost callbacks on any
+port. Ammo intentionally ships API-key import until that callback, generated-key
+limit behavior, exchange response, and `/api/v1/key` access are exercised end to end
+on a physical iPhone. `/api/v1/credits`, `/api/v1/activity`, and key administration
+require a Management key and are out of scope.
+
 ### Desktop credential locations (dev harness / macOS app)
 
 - Claude Code: macOS Keychain, generic password item **`Claude Code-credentials`** —
@@ -394,6 +428,10 @@ needed to derive the web-session cookie.
   and refresh decoding have offline coverage, but the complete flow still needs to
   be exercised on-device against a real Cursor account. Its individual usage API is
   private and may drift.
+- **OpenRouter live proof** — API-key import and the documented `/api/v1/key`
+  contract have deterministic coverage. A real ordinary key response and the
+  documented PKCE localhost/code-exchange flow still require physical-iPhone
+  validation before replacing import onboarding or claiming live support.
 - **Antigravity** (Google; Gemini remains the model brand) — implementation deferred.
   The available local and remote quota surfaces, authentication constraints,
   policy risk, architecture options, and required live proof are documented in

@@ -4,9 +4,14 @@ import Foundation
 public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
     case claude
     case codex
-    // Known issue: planned, not yet implemented. See SPEC.md "Deferred providers".
     case cursor
+    case openRouter = "openrouter"
+    // Known issue: planned, not yet implemented. See SPEC.md "Deferred providers".
     case antigravity
+
+    /// Providers that have complete onboarding and refresh paths in this build.
+    /// `allCases` also contains persisted/deferred identities for decode safety.
+    public static let supported: [ProviderID] = [.claude, .codex, .cursor, .openRouter]
 
     public var id: String { rawValue }
 
@@ -15,6 +20,7 @@ public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
         case .claude: "Claude"
         case .codex: "Codex"
         case .cursor: "Cursor"
+        case .openRouter: "OpenRouter"
         case .antigravity: "Antigravity"
         }
     }

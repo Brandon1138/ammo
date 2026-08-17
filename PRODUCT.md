@@ -10,7 +10,7 @@ Developers who use AI coding tools and want to see their remaining included allo
 
 ## Product Purpose
 
-Ammo turns Claude, Codex, and Cursor usage into a native, glanceable iOS utility. Success means the current included allowance, reset timing, on-demand balance or spending control, and account identity are immediately legible, current, and trustworthy while credentials remain on-device.
+Ammo turns Claude, Codex, Cursor, and OpenRouter usage into a native, glanceable iOS utility. Success means the current included allowance, reset timing, on-demand balance or spending control, and account identity are immediately legible, current, and trustworthy while credentials remain on-device.
 
 ## Brand Personality
 

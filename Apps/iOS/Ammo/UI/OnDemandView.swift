@@ -283,8 +283,14 @@ struct OnDemandUsagePresentation: Equatable {
     init(usage: OnDemandUsage, referenceDate: Date) {
         if usage.isEnabled == false {
             primaryText = "On-demand is off"
+        } else if usage.isUnlimited, let used = usage.used {
+            primaryText = "\(Self.amount(used, usage: usage)) used"
+        } else if usage.isUnlimited, let remaining = usage.remainingAmount {
+            // Unlimited entries with a known balance (Codex usage credits) keep
+            // showing that balance instead of reading like a fetch failure.
+            primaryText = "\(Self.amount(remaining, usage: usage)) balance"
         } else if usage.isUnlimited {
-            primaryText = "Unlimited"
+            primaryText = "Amount unavailable"
         } else if let remaining = usage.remainingAmount {
             primaryText = "\(Self.amount(remaining, usage: usage)) remaining"
         } else if let used = usage.used {
@@ -304,14 +310,14 @@ struct OnDemandUsagePresentation: Equatable {
         } else if let equivalentAmount = usage.equivalentAmount,
                   let code = usage.equivalentCurrencyCode {
             detailText = "\(Self.money(equivalentAmount, currencyCode: code)) equivalent"
-        } else if usage.isUnlimited, let used = usage.used {
-            detailText = "\(Self.amount(used, usage: usage)) used"
         } else if let used = usage.used, let limit = usage.limit {
             detailText = "\(Self.amount(used, usage: usage)) of \(Self.amount(limit, usage: usage)) used"
         } else if usage.kind == .creditBalance {
             detailText = usage.remainingAmount == nil
                 ? "Balance not reported to Ammo"
                 : "Prepaid usage balance"
+        } else if usage.isUnlimited {
+            detailText = "No spending limit reported"
         } else if let limit = usage.limit {
             detailText = "\(Self.amount(limit, usage: usage)) limit"
         } else {
@@ -321,7 +327,7 @@ struct OnDemandUsagePresentation: Equatable {
         if usage.isEnabled == false {
             statusText = "Off"
         } else if usage.isUnlimited {
-            statusText = "Unlimited"
+            statusText = "No limit"
         } else if usage.isExhausted {
             statusText = "Exhausted"
         } else if usage.remainingAmount == nil && usage.effectiveUnit == .credits {
@@ -405,7 +411,19 @@ struct OnDemandSummaryButton: View {
             ?? entries.first(where: { $0.isEnabled != false })
             ?? entries.first
         else { return "On-demand" }
-        if entry.isUnlimited { return "On-demand unlimited" }
+        if entry.isUnlimited, let used = entry.used {
+            let formatted: String
+            if entry.effectiveUnit == .credits {
+                formatted = used.formatted(
+                    .number.grouping(.automatic).precision(.fractionLength(0))) + " credits"
+            } else {
+                formatted = used.formatted(
+                    .currency(code: entry.currencyCode)
+                    .precision(.fractionLength(2)))
+            }
+            return "On-demand · \(formatted) used · no limit"
+        }
+        if entry.isUnlimited { return "On-demand · no limit" }
         if let remaining = entry.remainingAmount {
             let formatted: String
             if entry.effectiveUnit == .credits {

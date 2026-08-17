@@ -173,6 +173,15 @@ struct CircularGaugeView: View {
                     .gaugeStyle(.accessoryCircular)
                     .statusOverlay(symbol: statusSymbol(for: presentation))
             }
+        } else if state.hasWidgetMeteredUsage {
+            VStack(spacing: 1) {
+                ProviderLogo(provider: state.account.provider, size: 17)
+                Image(systemName: "dollarsign")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(meteredAccessibilityLabel)
         } else {
             Gauge(value: 0, in: 0...100) {
                 ProviderLogo(provider: state.account.provider, size: 12)
@@ -212,6 +221,18 @@ struct CircularGaugeView: View {
             return "clock.badge.exclamationmark"
         }
         return nil
+    }
+
+    private var meteredAccessibilityLabel: String {
+        var values = [
+            "\(state.account.provider.displayName) reports spending without a percentage limit"
+        ]
+        if state.activeFailure != nil {
+            values.append("Update failed; showing cached data")
+        } else if state.widgetStatusSymbol(at: referenceDate) != nil {
+            values.append("Update is stale")
+        }
+        return values.joined(separator: ", ")
     }
 
     private func accessibilityLabel(
@@ -465,7 +486,7 @@ struct ProviderListView: View {
                             .minimumScaleFactor(0.85)
                             .layoutPriority(1)
                         Spacer(minLength: 4)
-                        if let worst = state.snapshot?.worstWindow {
+                        if let worst = state.widgetPercentageWindow {
                             Text(worst.remainingPercentText)
                                 .font(.headline.monospacedDigit())
                                 .foregroundStyle(worst.isRunningLow ? worst.barColor : .primary)
@@ -477,12 +498,10 @@ struct ProviderListView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    if let worst = state.snapshot?.worstWindow {
+                    if let worst = state.widgetPercentageWindow {
                         CapsuleBar(fraction: worst.remainingPercent / 100,
                                    color: worst.barColor,
                                    height: 6)
-                    } else {
-                        CapsuleBar(fraction: 0, color: .secondary, height: 6)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -507,7 +526,7 @@ struct MediumAccountsView: View {
                         .font(.body)
                         .lineLimit(1)
                         .frame(width: 76, alignment: .leading)
-                    if let worst = state.snapshot?.worstWindow {
+                    if let worst = state.widgetPercentageWindow {
                         CapsuleBar(fraction: worst.remainingPercent / 100,
                                    color: worst.barColor, height: 7)
                         Text(worst.remainingPercentText)
@@ -600,17 +619,5 @@ private struct LargeProviderSection: View {
             remaining -= visibleGroup.count
         }
         return groups
-    }
-}
-
-private extension AccountState {
-    var widgetAvailabilityText: String {
-        if snapshot?.onDemand?.isEmpty == false { return "Metered usage only" }
-        return activeFailure == nil ? "No usage limits yet" : "Update paused — open Ammo"
-    }
-
-    var widgetCompactAvailabilityText: String {
-        if snapshot?.onDemand?.isEmpty == false { return "Metered" }
-        return activeFailure == nil ? "No limits" : "Paused"
     }
 }

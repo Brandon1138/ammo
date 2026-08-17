@@ -1,7 +1,7 @@
 # AMMO
 
 How much ammo do you have left? An iOS app and widgets for included limits and
-on-demand capacity across Claude Code, Codex, and Cursor.
+on-demand capacity across Claude Code, Codex, Cursor, and OpenRouter.
 
 **No Ammo backend. Provider tokens stay in this device's Keychain and requests
 go directly to each provider.**
@@ -15,7 +15,7 @@ after restoring onto a new device.
 
 ## Status
 
-- [x] `UsageKit` — provider adapters for Claude, Codex, and Cursor
+- [x] `UsageKit` — provider adapters for Claude, Codex, Cursor, and OpenRouter
 - [x] `ammo-harness` — macOS CLI proving the data layer end-to-end
 - [x] iOS app (Usage, On-demand, History, onboarding, and adaptive refresh)
 - [x] WidgetKit widgets (current limits, daily activity, and lock-screen gauges)

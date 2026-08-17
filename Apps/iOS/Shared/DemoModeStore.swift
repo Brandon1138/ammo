@@ -26,6 +26,7 @@ enum DemoData {
         (.codex, UUID(uuidString: "D0000000-0000-0000-0000-000000000001")!, "Codex sample"),
         (.claude, UUID(uuidString: "D0000000-0000-0000-0000-000000000002")!, "Claude sample"),
         (.cursor, UUID(uuidString: "D0000000-0000-0000-0000-000000000003")!, "Cursor sample"),
+        (.openRouter, UUID(uuidString: "D0000000-0000-0000-0000-000000000004")!, "OpenRouter sample"),
     ]
 
     static func states(now: Date = Date()) -> [AccountState] {
@@ -54,20 +55,33 @@ enum DemoData {
                     LimitWindow(kind: .monthly, label: "API", usedPercent: 18,
                                 resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
                 ]
-            case .antigravity:
+            case .openRouter, .antigravity:
                 windows = []
             }
-            let onDemand = [
-                OnDemandUsage(id: "demo-\(provider.rawValue)-personal",
-                              label: "Personal limit",
-                              kind: .personalAllocation,
-                              scope: .personal,
-                              isEnabled: true,
-                              used: Double(18 + index * 9),
-                              limit: 100,
-                              remaining: Double(82 - index * 9),
-                              resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
-            ]
+            let onDemand: [OnDemandUsage]
+            if provider == .openRouter {
+                onDemand = [
+                    OnDemandUsage(id: "demo-openrouter-key-spending",
+                                  label: "API key spending",
+                                  kind: .spendingLimit,
+                                  scope: .personal,
+                                  isEnabled: true,
+                                  isUnlimited: true,
+                                  used: 23.75),
+                ]
+            } else {
+                onDemand = [
+                    OnDemandUsage(id: "demo-\(provider.rawValue)-personal",
+                                  label: "Personal limit",
+                                  kind: .personalAllocation,
+                                  scope: .personal,
+                                  isEnabled: true,
+                                  used: Double(18 + index * 9),
+                                  limit: 100,
+                                  remaining: Double(82 - index * 9),
+                                  resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
+                ]
+            }
             let snapshot = UsageSnapshot(provider: provider,
                                          plan: provider == .cursor ? "pro" : nil,
                                          windows: windows,
