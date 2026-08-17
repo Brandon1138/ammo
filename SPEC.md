@@ -539,13 +539,18 @@ state, then request widget reloads after app-owned changes.
   shows full details for the first two. Each instance exposes ordered First–Fourth
   account slots. With no explicit configuration, accounts with quota windows sort
   first, metered-only accounts follow, and unavailable accounts are last.
-- **Accounts widget, systemExtraLarge** (iPad-only in WidgetKit's gallery): a fixed
-  2×2 board with one panel per shipping provider — Codex, Claude, Cursor,
-  OpenRouter, always in that order. This family ignores the instance's account
+- **Accounts widget, systemExtraLargePortrait** (iPhone, iOS 27+): a fixed board
+  of four stacked full-width panels, one per shipping provider — Codex, Claude,
+  Cursor, OpenRouter, always in that order. The family is one grid column wide and
+  six rows tall (about one and a half `systemLarge` heights), so the panels split
+  the height four ways and each stays as wide as a `systemMedium` widget; a 2×2
+  grid at this aspect would halve the width the meters read at without buying back
+  enough height. This family ignores the instance's account
   order and slot selection: the ordered First–Fourth slots configure the small,
   medium, and large families only, and the board's panel order is not
-  configurable. Codex, Claude, and Cursor panels show up to three of their own
-  windows with the shared reset footer; OpenRouter shows its USD key meter
+  configurable. Codex, Claude, and Cursor panels show up to
+  `WidgetProviderPanels.boardWindowLimit` (two) of their own windows with the
+  shared reset footer; OpenRouter shows its USD key meter
   (remaining against the budget with the period the spend belongs to, or
   `Pay-as-you-go` with spend to date and today's spend) plus its free-model request
   cap badge when `/api/v1/key` reported `is_free_tier`. A cached OpenRouter meter
@@ -554,9 +559,14 @@ state, then request widget reloads after app-owned changes.
   configured or selected account keeps its panel and says `Not configured`; a
   configured account with no meter states why (waiting, paused after a failure, or
   metered-only) and carries the same failure/staleness marker as the other
-  families. Known gate: the app still ships `TARGETED_DEVICE_FAMILY = 1`
-  (iPhone), so this declared family only becomes reachable once iPad support is
-  enabled.
+  families. Device family: Ammo is iPhone-only and stays that way —
+  `TARGETED_DEVICE_FAMILY = 1` for the app, the widget extension, and the project
+  base. The landscape `systemExtraLarge` family is therefore never declared: it is
+  iPad and Mac only, so on an iPhone-only build it produced a family nothing could
+  install. `WidgetProviderPanels.accountsFamilies` appends
+  `systemExtraLargePortrait` behind `#available(iOS 27.0, *)` (the deployment
+  target is iOS 18.0), and `WidgetProviderPanels.isProviderBoard(_:)` is the one
+  place that gate is spelled for both the timeline provider and the view.
 - **Lock-screen** (`AmmoAccount`, accessoryCircular): gauge of "% left" for the
   account's most-consumed window.
 - **Activity widget** (`AmmoActivity`, systemSmall/systemMedium): a configurable

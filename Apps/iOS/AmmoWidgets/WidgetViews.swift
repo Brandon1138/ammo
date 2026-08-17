@@ -455,10 +455,10 @@ struct AllAccountsWidgetView: View {
     }
 
     var body: some View {
-        if family == .systemExtraLarge {
-            // The extra-large grid keeps a panel per provider, so an empty
-            // configuration still explains itself provider by provider.
-            ExtraLargeAccountsView(states: entry.states, referenceDate: entry.date)
+        if WidgetProviderPanels.isProviderBoard(family) {
+            // The board keeps a panel per provider, so an empty configuration
+            // still explains itself provider by provider.
+            ProviderBoardView(states: entry.states, referenceDate: entry.date)
         } else if entry.states.isEmpty {
             SetupHintView()
         } else {
@@ -618,45 +618,42 @@ private struct LargeProviderSection: View {
     }
 }
 
-// MARK: - All accounts (systemExtraLarge)
+// MARK: - All accounts (systemExtraLargePortrait)
 
-/// systemExtraLarge: a 2×2 grid with one panel per shipping provider. Unlike the
-/// smaller families, which show only what is configured, this layout is a fixed
-/// board — a provider without an account keeps its panel and says why it is
-/// empty, so the grid never reads as a failed render.
-struct ExtraLargeAccountsView: View {
+/// systemExtraLargePortrait: one panel per shipping provider, stacked. The
+/// family is one grid column wide and six rows tall, so the panels are full
+/// width and share the height four ways — a stack keeps each panel as wide as a
+/// systemMedium widget, where a 2×2 grid would halve the width the meters read
+/// at without buying enough height back. Unlike the smaller families, which show
+/// only what is configured, this layout is a fixed board: a provider without an
+/// account keeps its panel and says why it is empty, so the board never reads as
+/// a failed render.
+struct ProviderBoardView: View {
     let states: [AccountState]
     let referenceDate: Date
 
     var body: some View {
-        let panels = WidgetProviderPanels.slots(states: states)
-        VStack(spacing: 10) {
-            ForEach(Array(stride(from: 0, to: panels.count, by: 2)), id: \.self) { index in
-                HStack(spacing: 10) {
-                    ExtraLargeProviderPanel(slot: panels[index],
-                                            referenceDate: referenceDate)
-                    if index + 1 < panels.count {
-                        ExtraLargeProviderPanel(slot: panels[index + 1],
-                                                referenceDate: referenceDate)
-                    }
-                }
+        VStack(spacing: 8) {
+            ForEach(WidgetProviderPanels.slots(states: states)) { slot in
+                ProviderBoardPanel(slot: slot, referenceDate: referenceDate)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-private struct ExtraLargeProviderPanel: View {
+private struct ProviderBoardPanel: View {
     let slot: WidgetProviderSlot
     let referenceDate: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             header
             content
             Spacer(minLength: 0)
         }
-        .padding(13)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.quaternary,
                     in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -673,9 +670,9 @@ private struct ExtraLargeProviderPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ProviderLogo(provider: slot.provider, size: 22)
+            ProviderLogo(provider: slot.provider, size: 20)
             Text(slot.state?.account.label ?? slot.provider.displayName)
-                .font(.headline.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .layoutPriority(1)
             if let plan = slot.state?.snapshot?.displayPlan {
@@ -683,6 +680,7 @@ private struct ExtraLargeProviderPanel: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
@@ -717,22 +715,24 @@ private struct ExtraLargeProviderPanel: View {
     }
 
     private func windows(state: AccountState, snapshot: UsageSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             // Grouped by position: a group is identified by where it sits in the
             // truncated list, so no window id has to be unwrapped or unique.
-            let groups = Array(snapshot.windowGroups(limitedTo: 3).enumerated())
+            let groups = Array(
+                snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
+                    .enumerated())
             ForEach(groups, id: \.offset) { _, group in
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(group) { window in
                         UsageWindowRow(window: window,
                                        font: .subheadline,
-                                       barHeight: 8,
+                                       barHeight: 7,
                                        spacing: 3)
                     }
                     ResetStatusLine(snapshot: snapshot,
                                     group: group,
                                     referenceDate: referenceDate,
-                                    font: .footnote)
+                                    font: .caption)
                 }
             }
             if let balance = snapshot.verifiedMonetaryOnDemandBalance,
@@ -793,52 +793,67 @@ private struct OpenRouterCreditsPanel: View {
     var statusNotice: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(presentation.headline)
-                .font(.system(.title2, design: .rounded).weight(.semibold).monospacedDigit())
-                .foregroundStyle(presentation.isExhausted ? .red : .primary)
-                .widgetAccentable()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+        // A board panel is about a grid row and a half tall, so the money, the
+        // entitlement badge, and the reset all share lines with something else
+        // rather than each claiming one.
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(presentation.headline)
+                    .font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
+                    .foregroundStyle(presentation.isExhausted ? .red : .primary)
+                    .widgetAccentable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+                if let badge = presentation.tierBadge {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
+            // Kept directly under the money it qualifies: a panel that runs out
+            // of height clips from the bottom, and a cached balance must not be
+            // the line that goes missing.
             if let statusNotice {
                 Label(statusNotice, systemImage: "exclamationmark.circle")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.orange)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             if let fraction = presentation.remainingFraction {
-                CapsuleBar(fraction: fraction, color: meterColor(fraction), height: 8)
+                CapsuleBar(fraction: fraction, color: meterColor(fraction), height: 7)
             }
-            Text(presentation.detail)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            HStack(spacing: 8) {
+                Text(presentation.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let resetsAt = presentation.resetsAt {
+                    if resetsAt > referenceDate {
+                        ResetLine(date: resetsAt, referenceDate: referenceDate, font: .footnote)
+                    } else {
+                        Label("Reset due", systemImage: "arrow.clockwise")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
             if let daily = presentation.dailyDetail {
                 Text(daily)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-            }
-            if let resetsAt = presentation.resetsAt {
-                if resetsAt > referenceDate {
-                    ResetLine(date: resetsAt, referenceDate: referenceDate, font: .footnote)
-                } else {
-                    Label("Reset due", systemImage: "arrow.clockwise")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            if let badge = presentation.tierBadge {
-                Text(badge)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(.quaternary, in: Capsule())
             }
         }
     }

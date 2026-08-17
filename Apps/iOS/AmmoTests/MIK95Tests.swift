@@ -1,13 +1,56 @@
 import Foundation
 import Testing
 import UsageKit
+import WidgetKit
 
 @testable import Ammo
 
 @MainActor
-@Suite("MIK-95 extra-large all-providers widget")
+@Suite("MIK-95 all-providers board widget")
 struct MIK95Tests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test("The board is offered in the tall iPhone family, never the iPad one")
+    func boardFamilyIsPortraitExtraLarge() {
+        let families = WidgetProviderPanels.accountsFamilies
+
+        #expect(Array(families.prefix(3)) == [.systemSmall, .systemMedium, .systemLarge])
+        // Ammo ships TARGETED_DEVICE_FAMILY = 1, so the landscape extra-large
+        // family — iPad and Mac only — must never be declared.
+        #expect(!families.contains(.systemExtraLarge))
+        #expect(!WidgetProviderPanels.isProviderBoard(.systemLarge))
+        #expect(!WidgetProviderPanels.isProviderBoard(.systemExtraLarge))
+
+        if #available(iOS 27.0, *) {
+            #expect(families == [.systemSmall, .systemMedium, .systemLarge,
+                                 .systemExtraLargePortrait])
+            #expect(WidgetProviderPanels.isProviderBoard(.systemExtraLargePortrait))
+        } else {
+            // Before the family existed there is nothing taller than large to
+            // offer, and the board simply is not reachable.
+            #expect(families.count == 3)
+        }
+    }
+
+    @Test("A stacked panel shows two windows so the board's height divides four ways")
+    func stackedPanelWindowBudget() {
+        let resetsAt = now.addingTimeInterval(2 * 86_400)
+        let snapshot = UsageSnapshot(
+            provider: .claude,
+            plan: nil,
+            windows: [
+                LimitWindow(kind: .session, label: "Session", usedPercent: 20,
+                            resetsAt: now.addingTimeInterval(3_600)),
+                LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 40, resetsAt: resetsAt),
+                LimitWindow(kind: .modelScoped, label: "Opus", usedPercent: 60, resetsAt: resetsAt),
+            ],
+            fetchedAt: now)
+
+        #expect(WidgetProviderPanels.boardWindowLimit == 2)
+        let groups = snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
+        #expect(groups.flatMap { $0 }.map(\.label) == ["Session", "Weekly"])
+        #expect(groups.map(\.count) == [1, 1])
+    }
 
     @Test("The board keeps a fixed panel per shipping provider")
     func fixedPanelOrder() {

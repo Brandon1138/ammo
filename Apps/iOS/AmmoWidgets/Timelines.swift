@@ -65,9 +65,9 @@ struct AllAccountsEntry: TimelineEntry {
 struct AllAccountsProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> AllAccountsEntry {
         AmmoLog.widgetTimeline.debug("All Accounts placeholder requested")
-        // The extra-large board has a panel per provider, so its sample covers
-        // every provider instead of the two the smaller families show.
-        let states = context.family == .systemExtraLarge
+        // The board has a panel per provider, so its sample covers every
+        // provider instead of the two the smaller families show.
+        let states = WidgetProviderPanels.isProviderBoard(context.family)
             ? AccountState.providerBoardPlaceholders
             : AccountState.galleryPlaceholders
         return AllAccountsEntry(
@@ -78,9 +78,10 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
     func snapshot(for configuration: SelectAccountsIntent, in context: Context) async -> AllAccountsEntry {
         let entry = entry(for: configuration)
         // A gallery preview with nothing configured would otherwise show the
-        // extra-large board as four empty panels, which reads as the layout
-        // rather than as the person's own empty state.
-        if context.isPreview, entry.states.isEmpty, context.family == .systemExtraLarge {
+        // board as four empty panels, which reads as the layout rather than as
+        // the person's own empty state.
+        if context.isPreview, entry.states.isEmpty,
+           WidgetProviderPanels.isProviderBoard(context.family) {
             return AllAccountsEntry(
                 date: entry.date,
                 states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))

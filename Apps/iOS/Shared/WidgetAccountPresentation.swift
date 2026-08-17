@@ -1,5 +1,6 @@
 import Foundation
 import UsageKit
+import WidgetKit
 
 /// Provider-neutral ordering shared by widget configuration and tests. Accounts
 /// with honest amount-only data remain selectable even without percentage windows.
@@ -38,9 +39,9 @@ enum WidgetAccountOrder {
     }
 }
 
-/// One panel of the extra-large widget: a shipping provider and the account
-/// backing it, if the widget was given one. The provider is always present so a
-/// missing account renders an explicit slot instead of a gap.
+/// One panel of the provider board: a shipping provider and the account backing
+/// it, if the widget was given one. The provider is always present so a missing
+/// account renders an explicit slot instead of a gap.
 struct WidgetProviderSlot: Identifiable {
     let provider: ProviderID
     let state: AccountState?
@@ -50,8 +51,37 @@ struct WidgetProviderSlot: Identifiable {
 
 enum WidgetProviderPanels {
     /// Fixed panel order, matching the provider ranking used by the default
-    /// account ordering so the grid does not move between refreshes.
+    /// account ordering so the board does not move between refreshes.
     static let providers: [ProviderID] = [.codex, .claude, .cursor, .openRouter]
+
+    /// Families the Accounts widget offers. The board is drawn in
+    /// `systemExtraLargePortrait`, the tall portrait family iOS 27 added to the
+    /// iPhone Home Screen (`@available(iOS 27.0, macOS 27.0, visionOS 26.0, *)`
+    /// in the iPhoneOS 27.0 SDK's `WidgetKit.swiftinterface`) — one grid width by
+    /// six rows, so roughly one and a half `systemLarge` heights. The landscape
+    /// `systemExtraLarge` family is deliberately absent: it is iPad and Mac only
+    /// and Ammo ships `TARGETED_DEVICE_FAMILY = 1`, so declaring it only produced
+    /// a family nothing could ever install.
+    static var accountsFamilies: [WidgetFamily] {
+        var families: [WidgetFamily] = [.systemSmall, .systemMedium, .systemLarge]
+        if #available(iOS 27.0, *) {
+            families.append(.systemExtraLargePortrait)
+        }
+        return families
+    }
+
+    /// Whether `family` is the tall board. Kept here rather than compared inline
+    /// so the availability gate exists once for both the timeline provider and
+    /// the view.
+    static func isProviderBoard(_ family: WidgetFamily) -> Bool {
+        guard #available(iOS 27.0, *) else { return false }
+        return family == .systemExtraLargePortrait
+    }
+
+    /// Windows one stacked panel shows. The board splits its height four ways, so
+    /// a panel is about a grid row and a half tall — two windows plus the shared
+    /// reset footer is what fits without the rows compressing into each other.
+    static let boardWindowLimit = 2
 
     /// One slot per shipping provider. Where several accounts share a provider,
     /// the default ordering picks the one with the most complete usage data.
