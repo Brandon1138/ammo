@@ -350,6 +350,7 @@ struct OpenRouterProviderTests {
                 byokUsageWeekly: nil,
                 byokUsageMonthly: nil,
                 includeByokInLimit: nil,
+                isFreeTier: nil,
                 isManagementKey: nil,
                 isProvisioningKey: nil))
 
@@ -385,6 +386,79 @@ struct OpenRouterProviderTests {
         #expect(tokens.accessToken == "sk-or-v1-test")
         #expect(tokens.refreshToken == nil)
         #expect(tokens.expiresAt == nil)
+    }
+
+    @Test("A reported free-tier key is carried into the snapshot")
+    func freeTierReportedTrue() throws {
+        let fixture = openRouterDocumentedFixture.replacingOccurrences(
+            of: "\"is_free_tier\": false",
+            with: "\"is_free_tier\": true")
+        let snapshot = try mappedSnapshot(fixture)
+
+        #expect(snapshot.isFreeTier == true)
+    }
+
+    @Test("A reported paid-tier key is carried into the snapshot")
+    func freeTierReportedFalse() throws {
+        let snapshot = try mappedSnapshot(openRouterDocumentedFixture)
+
+        #expect(snapshot.isFreeTier == false)
+    }
+
+    @Test("An omitted is_free_tier stays unreported instead of defaulting")
+    func freeTierAbsent() throws {
+        let fixture = openRouterDocumentedFixture.replacingOccurrences(
+            of: "    \"is_free_tier\": false,\n",
+            with: "")
+        let snapshot = try mappedSnapshot(fixture)
+
+        #expect(!fixture.contains("is_free_tier"))
+        #expect(snapshot.isFreeTier == nil)
+        // The tier flag is not contract: dropping it must not affect the meter.
+        #expect(snapshot.onDemand?.first?.used == 25.5)
+        #expect(snapshot.onDemand?.first?.remaining == 74.5)
+    }
+
+    @Test("A budgeted key records the period it is spending inside")
+    func budgetPeriodStart() throws {
+        let monthly = try mappedSnapshot(openRouterFixture)
+        let weekly = try mappedSnapshot(
+            openRouterFixture.replacingOccurrences(
+                of: "\"limit_reset\": \"monthly\"",
+                with: "\"limit_reset\": \"weekly\""))
+        let daily = try mappedSnapshot(
+            openRouterFixture.replacingOccurrences(
+                of: "\"limit_reset\": \"monthly\"",
+                with: "\"limit_reset\": \"daily\""))
+
+        #expect(monthly.onDemand?.first?.periodStart == utcDate("2026-08-01T00:00:00Z"))
+        #expect(weekly.onDemand?.first?.periodStart == utcDate("2026-08-17T00:00:00Z"))
+        #expect(daily.onDemand?.first?.periodStart == utcDate("2026-08-19T00:00:00Z"))
+    }
+
+    @Test("A pay-as-you-go key keeps today's spend beside its lifetime total")
+    func unlimitedKeyKeepsDailySpend() throws {
+        let fixture =
+            openRouterFixture
+            .replacingOccurrences(of: "\"limit\": 100", with: "\"limit\": null")
+            .replacingOccurrences(of: "\"limit_remaining\": 74.5", with: "\"limit_remaining\": null")
+            .replacingOccurrences(of: "\"limit_reset\": \"monthly\"", with: "\"limit_reset\": null")
+        let pools = try #require(mappedSnapshot(fixture).onDemand)
+
+        #expect(pools.count == 2)
+        #expect(pools.first?.used == 50)
+        #expect(pools.last?.id == "openrouter-key-daily-spend")
+        #expect(pools.last?.used == 1.25)
+        #expect(pools.last?.isUnlimited == true)
+        #expect(pools.last?.limit == nil)
+    }
+
+    @Test("A budgeted key reports one pool, not a duplicate daily row")
+    func budgetedKeyHasSinglePool() throws {
+        let pools = try #require(mappedSnapshot(openRouterFixture).onDemand)
+
+        #expect(pools.count == 1)
+        #expect(pools.first?.id == "openrouter-key-spending")
     }
 
     private func mappedSnapshot(_ fixture: String) throws -> UsageSnapshot {

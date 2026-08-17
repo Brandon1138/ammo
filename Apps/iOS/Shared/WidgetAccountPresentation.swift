@@ -38,6 +38,33 @@ enum WidgetAccountOrder {
     }
 }
 
+/// One panel of the extra-large widget: a shipping provider and the account
+/// backing it, if the widget was given one. The provider is always present so a
+/// missing account renders an explicit slot instead of a gap.
+struct WidgetProviderSlot: Identifiable {
+    let provider: ProviderID
+    let state: AccountState?
+
+    var id: String { provider.rawValue }
+}
+
+enum WidgetProviderPanels {
+    /// Fixed panel order, matching the provider ranking used by the default
+    /// account ordering so the grid does not move between refreshes.
+    static let providers: [ProviderID] = [.codex, .claude, .cursor, .openRouter]
+
+    /// One slot per shipping provider. Where several accounts share a provider,
+    /// the default ordering picks the one with the most complete usage data.
+    static func slots(states: [AccountState]) -> [WidgetProviderSlot] {
+        providers.map { provider in
+            let candidates = states.filter { $0.account.provider == provider }
+            return WidgetProviderSlot(
+                provider: provider,
+                state: WidgetAccountOrder.defaultOrder(candidates).first)
+        }
+    }
+}
+
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
 

@@ -396,8 +396,17 @@ included only when `include_byok_in_limit` is true. Daily boundaries are midnigh
 UTC, weekly boundaries are Monday 00:00 UTC, and monthly boundaries are the first
 day 00:00 UTC. The aggregate fields are money, never synthetic `LimitWindow`s.
 
+`is_free_tier` is read defensively and is not contract: `true` renders
+`Free tier · 50 free req/day cap`, `false` renders `1000 free req/day cap`, and an
+omitted flag renders no badge at all. It is a static entitlement — free-model
+requests cost $0.00 and never move the monetary meters — so Ammo never derives a
+remaining free-request count from it.
+
 A missing `limit` is a valid no-limit key: Ammo persists the reported spend but no
-remaining balance, credit substitute, percentage, or reset timestamp. Imported keys
+remaining balance, credit substitute, percentage, or reset timestamp. Such a key also
+keeps `usage_daily` as a separate amount-only pool ("Spend today") beside its
+lifetime total; a budgeted key records the UTC start of the period it is spending
+inside so display surfaces name the cadence instead of inferring it. Imported keys
 are non-refreshable. Management/provisioning keys are rejected when the API reports
 them: `is_management_key` and `is_provisioning_key` are read as optional, so a key
 whose class the API omits is accepted rather than failing the account. Only the
@@ -525,6 +534,20 @@ state, then request widget reloads after app-owned changes.
   shows full details for the first two. Each instance exposes ordered First–Fourth
   account slots. With no explicit configuration, accounts with quota windows sort
   first, metered-only accounts follow, and unavailable accounts are last.
+- **Accounts widget, systemExtraLarge** (iPad-only in WidgetKit's gallery): a fixed
+  2×2 board with one panel per shipping provider — Codex, Claude, Cursor,
+  OpenRouter — in that order, regardless of which accounts the instance is
+  configured with. Codex, Claude, and Cursor panels show up to three of their own
+  windows with the shared reset footer; OpenRouter shows its USD key meter
+  (remaining against the budget with the period the spend belongs to, or
+  `Pay-as-you-go` with spend to date and today's spend) plus its free-model request
+  cap badge when `/api/v1/key` reported `is_free_tier`. A provider without a
+  configured or selected account keeps its panel and says `Not configured`; a
+  configured account with no meter states why (waiting, paused after a failure, or
+  metered-only) and carries the same failure/staleness marker as the other
+  families. Known gate: the app still ships `TARGETED_DEVICE_FAMILY = 1`
+  (iPhone), so this declared family only becomes reachable once iPad support is
+  enabled.
 - **Lock-screen** (`AmmoAccount`, accessoryCircular): gauge of "% left" for the
   account's most-consumed window.
 - **Activity widget** (`AmmoActivity`, systemSmall/systemMedium): a configurable

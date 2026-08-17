@@ -47,7 +47,8 @@ struct AmmoAccountWidget: Widget {
 }
 
 /// Ordered configured accounts. Small: percent list. Medium: bar per account.
-/// Large: full details for the first two accounts.
+/// Large: full details for the first two accounts. Extra large (iPad): a 2×2
+/// panel per shipping provider, including providers without an account.
 struct AmmoAllAccountsWidget: Widget {
     let kind = "AmmoAllAccounts"
 
@@ -60,6 +61,6 @@ struct AmmoAllAccountsWidget: Widget {
         }
         .configurationDisplayName("Accounts")
         .description("Usage left across selected accounts in your preferred order.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }

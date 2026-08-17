@@ -65,9 +65,14 @@ struct AllAccountsEntry: TimelineEntry {
 struct AllAccountsProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> AllAccountsEntry {
         AmmoLog.widgetTimeline.debug("All Accounts placeholder requested")
+        // The extra-large board has a panel per provider, so its sample covers
+        // every provider instead of the two the smaller families show.
+        let states = context.family == .systemExtraLarge
+            ? AccountState.providerBoardPlaceholders
+            : AccountState.galleryPlaceholders
         return AllAccountsEntry(
             date: .now,
-            states: WidgetAccountOrder.defaultOrder(AccountState.galleryPlaceholders))
+            states: WidgetAccountOrder.defaultOrder(states))
     }
 
     func snapshot(for configuration: SelectAccountsIntent, in context: Context) async -> AllAccountsEntry {
@@ -271,6 +276,49 @@ extension AccountState {
                 lastError: nil,
                 updatedAt: .now),
             .placeholder,
+        ]
+    }
+
+    /// One sample account per shipping provider for the extra-large board, in
+    /// each provider's own shape: percentage windows for Codex, Claude, and
+    /// Cursor, and amount-only key spending for OpenRouter.
+    static var providerBoardPlaceholders: [AccountState] {
+        galleryPlaceholders + [
+            AccountState(
+                account: StoredAccount(provider: .cursor, label: "Cursor"),
+                snapshot: UsageSnapshot(
+                    provider: .cursor,
+                    plan: nil,
+                    windows: [
+                        LimitWindow(kind: .monthly, label: "Composer", usedPercent: 54,
+                                    resetsAt: Date(timeIntervalSinceNow: 11 * 86400)),
+                        LimitWindow(kind: .monthly, label: "API", usedPercent: 18,
+                                    resetsAt: Date(timeIntervalSinceNow: 11 * 86400)),
+                    ]),
+                lastError: nil,
+                updatedAt: .now),
+            AccountState(
+                account: StoredAccount(provider: .openRouter, label: "OpenRouter"),
+                snapshot: UsageSnapshot(
+                    provider: .openRouter,
+                    plan: nil,
+                    windows: [],
+                    onDemand: [
+                        OnDemandUsage(
+                            id: "openrouter-key-spending",
+                            label: "API key spending",
+                            kind: .spendingLimit,
+                            scope: .personal,
+                            isEnabled: true,
+                            used: 25.5,
+                            limit: 100,
+                            remaining: 74.5,
+                            periodStart: Date(timeIntervalSinceNow: -18 * 86400),
+                            resetsAt: Date(timeIntervalSinceNow: 12 * 86400)),
+                    ],
+                    isFreeTier: false),
+                lastError: nil,
+                updatedAt: .now),
         ]
     }
 }
