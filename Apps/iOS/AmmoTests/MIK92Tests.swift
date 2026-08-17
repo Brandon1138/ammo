@@ -62,6 +62,46 @@ struct MIK92Tests {
         #expect(LockScreenUsagePresentation(snapshot: snapshot) == nil)
     }
 
+    @Test("An unlimited entry with only a balance keeps showing that balance")
+    func unlimitedBalancePresentation() {
+        let usage = OnDemandUsage(
+            id: "codex-usage-credits",
+            label: "Usage credits",
+            kind: .creditBalance,
+            scope: .personal,
+            isEnabled: true,
+            isUnlimited: true,
+            unit: .credits,
+            currencyCode: "",
+            remaining: 21_062)
+        let presentation = OnDemandUsagePresentation(usage: usage, referenceDate: now)
+
+        #expect(presentation.primaryText.hasSuffix(" balance"))
+        #expect(presentation.primaryText.contains("credits"))
+        #expect(presentation.primaryText != "Amount unavailable")
+        #expect(presentation.detailText == "Prepaid usage balance")
+        #expect(presentation.statusText == "No limit")
+    }
+
+    @Test("A metered-only widget keeps its failure and staleness indicator")
+    func meteredWidgetStatusSymbol() {
+        var failing = openRouterState()
+        failing.lastFailure = .authentication
+        var stale = openRouterState()
+        stale.snapshot = UsageSnapshot(
+            provider: .openRouter,
+            plan: nil,
+            windows: [],
+            onDemand: [openRouterUsage()],
+            fetchedAt: now.addingTimeInterval(-(LockScreenUsagePresentation.staleAfter + 60)))
+
+        #expect(failing.hasWidgetMeteredUsage)
+        #expect(failing.widgetStatusSymbol(at: now) == "exclamationmark.circle.fill")
+        #expect(stale.hasWidgetMeteredUsage)
+        #expect(stale.widgetStatusSymbol(at: now) == "clock.badge.exclamationmark")
+        #expect(openRouterState().widgetStatusSymbol(at: now) == nil)
+    }
+
     @Test("OpenRouter 429 uses the existing long backoff lane")
     func rateLimitBackoff() {
         #expect(RefreshFailureBackoff.delay(consecutiveFailures: 1, status: 429) == 5 * 60)

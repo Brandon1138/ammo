@@ -45,6 +45,17 @@ extension AccountState {
         snapshot?.onDemand?.contains { $0.isEnabled != false && $0.used != nil } == true
     }
 
+    /// Failure and staleness marker for widget surfaces that draw no percentage
+    /// gauge. Metered-only accounts must not silently present cached spending as
+    /// if it were current.
+    func widgetStatusSymbol(at referenceDate: Date) -> String? {
+        if activeFailure != nil { return "exclamationmark.circle.fill" }
+        guard let fetchedAt = snapshot?.fetchedAt else { return nil }
+        let isStale = referenceDate.timeIntervalSince(fetchedAt)
+            > LockScreenUsagePresentation.staleAfter
+        return isStale ? "clock.badge.exclamationmark" : nil
+    }
+
     var widgetAvailabilityText: String {
         if snapshot?.onDemand?.isEmpty == false { return "Metered usage only" }
         return activeFailure == nil ? "No usage limits yet" : "Update paused — open Ammo"

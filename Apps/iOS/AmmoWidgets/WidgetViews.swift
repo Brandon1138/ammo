@@ -179,8 +179,9 @@ struct CircularGaugeView: View {
                 Image(systemName: "dollarsign")
                     .font(.system(size: 8, weight: .semibold))
             }
+            .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(state.account.provider.displayName) reports spending without a percentage limit")
+            .accessibilityLabel(meteredAccessibilityLabel)
         } else {
             Gauge(value: 0, in: 0...100) {
                 ProviderLogo(provider: state.account.provider, size: 12)
@@ -220,6 +221,18 @@ struct CircularGaugeView: View {
             return "clock.badge.exclamationmark"
         }
         return nil
+    }
+
+    private var meteredAccessibilityLabel: String {
+        var values = [
+            "\(state.account.provider.displayName) reports spending without a percentage limit"
+        ]
+        if state.activeFailure != nil {
+            values.append("Update failed; showing cached data")
+        } else if state.widgetStatusSymbol(at: referenceDate) != nil {
+            values.append("Update is stale")
+        }
+        return values.joined(separator: ", ")
     }
 
     private func accessibilityLabel(

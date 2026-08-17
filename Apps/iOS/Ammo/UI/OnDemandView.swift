@@ -285,6 +285,10 @@ struct OnDemandUsagePresentation: Equatable {
             primaryText = "On-demand is off"
         } else if usage.isUnlimited, let used = usage.used {
             primaryText = "\(Self.amount(used, usage: usage)) used"
+        } else if usage.isUnlimited, let remaining = usage.remainingAmount {
+            // Unlimited entries with a known balance (Codex usage credits) keep
+            // showing that balance instead of reading like a fetch failure.
+            primaryText = "\(Self.amount(remaining, usage: usage)) balance"
         } else if usage.isUnlimited {
             primaryText = "Amount unavailable"
         } else if let remaining = usage.remainingAmount {
@@ -306,14 +310,14 @@ struct OnDemandUsagePresentation: Equatable {
         } else if let equivalentAmount = usage.equivalentAmount,
                   let code = usage.equivalentCurrencyCode {
             detailText = "\(Self.money(equivalentAmount, currencyCode: code)) equivalent"
-        } else if usage.isUnlimited {
-            detailText = "No spending limit reported"
         } else if let used = usage.used, let limit = usage.limit {
             detailText = "\(Self.amount(used, usage: usage)) of \(Self.amount(limit, usage: usage)) used"
         } else if usage.kind == .creditBalance {
             detailText = usage.remainingAmount == nil
                 ? "Balance not reported to Ammo"
                 : "Prepaid usage balance"
+        } else if usage.isUnlimited {
+            detailText = "No spending limit reported"
         } else if let limit = usage.limit {
             detailText = "\(Self.amount(limit, usage: usage)) limit"
         } else {
