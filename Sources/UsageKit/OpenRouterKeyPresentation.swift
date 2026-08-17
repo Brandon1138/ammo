@@ -40,8 +40,6 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
     /// Static entitlement label, or `nil` when the API omitted `is_free_tier`.
     public let tierBadge: String?
 
-    public var hasBudget: Bool { remainingFraction != nil || resetsAt != nil }
-
     public init?(snapshot: UsageSnapshot) {
         guard snapshot.provider == .openRouter else { return nil }
         let pools = snapshot.onDemand ?? []
@@ -83,16 +81,18 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
         tierBadge = Self.tierBadge(isFreeTier: snapshot.isFreeTier)
     }
 
-    static let spendingPoolID = "openrouter-key-spending"
-    static let dailyPoolID = "openrouter-key-daily-spend"
+    public static let spendingPoolID = "openrouter-key-spending"
+    /// Today's spend: an amount-only pool with no capacity, so surfaces that
+    /// describe pools as limits must exclude it rather than call it unlimited.
+    public static let dailyPoolID = "openrouter-key-daily-spend"
 
     /// Free-tier keys are capped at 50 free-model requests per day; paid keys at
     /// 1000. Both numbers are OpenRouter policy attached to the reported flag,
     /// which is why an unreported flag produces no badge at all.
     static func tierBadge(isFreeTier: Bool?) -> String? {
         switch isFreeTier {
-        case true: "Free tier · 50 free req/day cap"
-        case false: "1000 free req/day cap"
+        case true: "Free models: 50 req/day"
+        case false: "Free models: 1000 req/day"
         case nil: nil
         }
     }

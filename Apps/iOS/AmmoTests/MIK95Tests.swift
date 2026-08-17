@@ -46,13 +46,28 @@ struct MIK95Tests {
     func slotsAlwaysHaveCopy() {
         var waiting = claudeState()
         waiting.snapshot = nil
-        var failing = claudeState()
+        var failing = state(for: .codex)
         failing.snapshot = nil
         failing.lastFailure = .authentication
 
-        #expect(waiting.widgetAvailabilityText == "No usage limits yet")
-        #expect(failing.widgetAvailabilityText == "Update paused — open Ammo")
-        #expect(!ProviderID.openRouter.displayName.isEmpty)
+        let slots = WidgetProviderPanels.slots(states: [waiting, failing])
+
+        // Every slot resolves to copy: a present state names its availability,
+        // an absent one still names the provider the panel is asking for.
+        for slot in slots {
+            if let state = slot.state {
+                #expect(!state.widgetAvailabilityText.isEmpty)
+            } else {
+                #expect(!slot.provider.displayName.isEmpty)
+            }
+        }
+
+        #expect(slots.count == WidgetProviderPanels.providers.count)
+        #expect(slots.filter { $0.state == nil }.map(\.provider) == [.cursor, .openRouter])
+        #expect(slots.first { $0.provider == .claude }?.state?.widgetAvailabilityText
+            == "No usage limits yet")
+        #expect(slots.first { $0.provider == .codex }?.state?.widgetAvailabilityText
+            == "Update paused — open Ammo")
     }
 
     @Test("An OpenRouter panel meters credits and labels its tier entitlement")
@@ -80,7 +95,7 @@ struct MIK95Tests {
 
         #expect(presentation.remainingFraction == 0.745)
         #expect(presentation.cadence == .monthly)
-        #expect(presentation.tierBadge == "Free tier · 50 free req/day cap")
+        #expect(presentation.tierBadge == "Free models: 50 req/day")
         // The widget must not invent a percentage window for money.
         #expect(snapshot.windows.isEmpty)
     }
@@ -134,10 +149,17 @@ struct MIK95Tests {
     private func claudeState(
         id: UUID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     ) -> AccountState {
+        state(for: .claude, id: id)
+    }
+
+    private func state(
+        for provider: ProviderID,
+        id: UUID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    ) -> AccountState {
         AccountState(
-            account: StoredAccount(id: id, provider: .claude, label: "Claude"),
+            account: StoredAccount(id: id, provider: provider, label: provider.displayName),
             snapshot: UsageSnapshot(
-                provider: .claude,
+                provider: provider,
                 plan: nil,
                 windows: [
                     LimitWindow(kind: .session, label: "Session", usedPercent: 36,

@@ -20,7 +20,6 @@ struct OpenRouterKeyPresentationTests {
         #expect(presentation.resetsAt != nil)
         #expect(presentation.dailyDetail == nil)
         #expect(!presentation.isExhausted)
-        #expect(presentation.hasBudget)
     }
 
     @Test("Daily and weekly budgets name their own period")
@@ -59,7 +58,6 @@ struct OpenRouterKeyPresentationTests {
         #expect(presentation.dailyDetail == "\(money(1.25)) today")
         #expect(presentation.remainingFraction == nil)
         #expect(presentation.resetsAt == nil)
-        #expect(!presentation.hasBudget)
     }
 
     @Test("A pay-as-you-go key without a daily aggregate omits that line")
@@ -73,9 +71,9 @@ struct OpenRouterKeyPresentationTests {
     @Test("The tier badge is entitlement copy, and absent when unreported")
     func tierBadges() {
         #expect(OpenRouterKeyPresentation.tierBadge(isFreeTier: true)
-            == "Free tier · 50 free req/day cap")
+            == "Free models: 50 req/day")
         #expect(OpenRouterKeyPresentation.tierBadge(isFreeTier: false)
-            == "1000 free req/day cap")
+            == "Free models: 1000 req/day")
         #expect(OpenRouterKeyPresentation.tierBadge(isFreeTier: nil) == nil)
     }
 

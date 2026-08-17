@@ -660,6 +660,15 @@ private struct ExtraLargeProviderPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.quaternary,
                     in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Same phrasing the Lock Screen metered label uses, so the header marker is
+    /// never a glyph without a spoken meaning.
+    private var statusNotice: String? {
+        guard let state = slot.state else { return nil }
+        if state.activeFailure != nil { return "Update failed; showing cached data" }
+        return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
     }
 
     private var header: some View {
@@ -679,11 +688,12 @@ private struct ExtraLargeProviderPanel: View {
                     .background(.quaternary, in: Capsule())
             }
             Spacer(minLength: 0)
-            if let symbol = slot.state?.widgetStatusSymbol(at: referenceDate) {
+            if let symbol = slot.state?.widgetStatusSymbol(at: referenceDate),
+               let statusNotice {
                 Image(systemName: symbol)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+                    .accessibilityLabel(statusNotice)
             }
         }
     }
@@ -696,7 +706,8 @@ private struct ExtraLargeProviderPanel: View {
             } else if let snapshot = state.snapshot,
                       let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
                 OpenRouterCreditsPanel(presentation: presentation,
-                                       referenceDate: referenceDate)
+                                       referenceDate: referenceDate,
+                                       statusNotice: statusNotice)
             } else {
                 unavailable(state: state)
             }
@@ -707,7 +718,10 @@ private struct ExtraLargeProviderPanel: View {
 
     private func windows(state: AccountState, snapshot: UsageSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(snapshot.windowGroups(limitedTo: 3), id: \.first!.id) { group in
+            // Grouped by position: a group is identified by where it sits in the
+            // truncated list, so no window id has to be unwrapped or unique.
+            let groups = Array(snapshot.windowGroups(limitedTo: 3).enumerated())
+            ForEach(groups, id: \.offset) { _, group in
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(group) { window in
                         UsageWindowRow(window: window,
@@ -773,6 +787,10 @@ private struct ExtraLargeProviderPanel: View {
 private struct OpenRouterCreditsPanel: View {
     let presentation: OpenRouterKeyPresentation
     let referenceDate: Date
+    /// Set when the panel is drawing a cached snapshot. Money is stated as a
+    /// present-tense fact, so a failed or stale fetch has to say so visibly and
+    /// not only through the header glyph.
+    var statusNotice: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -782,6 +800,12 @@ private struct OpenRouterCreditsPanel: View {
                 .widgetAccentable()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            if let statusNotice {
+                Label(statusNotice, systemImage: "exclamationmark.circle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
             if let fraction = presentation.remainingFraction {
                 CapsuleBar(fraction: fraction, color: meterColor(fraction), height: 8)
             }

@@ -60,7 +60,9 @@ struct AmmoAllAccountsWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Accounts")
-        .description("Usage left across selected accounts in your preferred order.")
+        .description(
+            "Usage left across your accounts. Small, medium, and large follow your "
+                + "selected order; extra large shows a fixed panel per provider.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }

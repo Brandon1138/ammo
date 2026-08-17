@@ -77,6 +77,14 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: SelectAccountsIntent, in context: Context) async -> AllAccountsEntry {
         let entry = entry(for: configuration)
+        // A gallery preview with nothing configured would otherwise show the
+        // extra-large board as four empty panels, which reads as the layout
+        // rather than as the person's own empty state.
+        if context.isPreview, entry.states.isEmpty, context.family == .systemExtraLarge {
+            return AllAccountsEntry(
+                date: entry.date,
+                states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))
+        }
         AmmoLog.widgetTimeline.info("All Accounts snapshot produced with \(entry.states.count, privacy: .public) states")
         return entry
     }

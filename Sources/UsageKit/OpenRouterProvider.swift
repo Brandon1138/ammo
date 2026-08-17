@@ -91,9 +91,22 @@ public struct OpenRouterProvider: UsageProvider {
             /// Static entitlement flag: it selects the free-model request cap the
             /// key is subject to. It is not a counter, and free-model requests
             /// cost $0.00, so it never moves the monetary values above.
-            let isFreeTier: Bool?
+            let isFreeTier: TolerantFlag?
             let isManagementKey: Bool?
             let isProvisioningKey: Bool?
+        }
+
+        /// A flag whose only job is a label. A value of the wrong JSON type
+        /// reads as unreported instead of failing the decode, because an account
+        /// must never go offline over a cosmetic badge. The key-class flags are
+        /// deliberately *not* tolerant: an unreadable `is_management_key` has to
+        /// keep failing closed.
+        struct TolerantFlag: Decodable, Equatable {
+            let value: Bool?
+
+            init(from decoder: any Decoder) throws {
+                value = try? Bool(from: decoder)
+            }
         }
 
         let data: KeyData
@@ -178,8 +191,10 @@ public struct OpenRouterProvider: UsageProvider {
                 unit: .currency,
                 dataSource: .providerUsageResponse,
                 currencyCode: "USD",
-                used: today,
-                periodStart: periodStart(for: "daily", containing: fetchedAt)))
+                // No periodStart: nothing reads it here, and a value rolling over
+                // at UTC midnight would register as a usage change and pull an
+                // otherwise idle key into an extra refresh every day.
+                used: today))
         }
 
         return UsageSnapshot(
@@ -187,7 +202,7 @@ public struct OpenRouterProvider: UsageProvider {
             plan: nil,
             windows: [],
             onDemand: pools,
-            isFreeTier: key.isFreeTier,
+            isFreeTier: key.isFreeTier?.value,
             fetchedAt: fetchedAt)
     }
 
