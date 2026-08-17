@@ -86,6 +86,8 @@ enum DemoData {
                                          plan: provider == .cursor ? "pro" : nil,
                                          windows: windows,
                                          onDemand: onDemand,
+                                         // Only OpenRouter reports a tier at all.
+                                         isFreeTier: provider == .openRouter ? true : nil,
                                          fetchedAt: now)
             return AccountState(account: StoredAccount(id: id,
                                                        provider: provider,

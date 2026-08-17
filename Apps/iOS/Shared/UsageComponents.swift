@@ -400,4 +400,18 @@ extension UsageSnapshot {
         return groups
     }
 
+    /// The first `limit` windows with their shared-reset grouping intact, so a
+    /// space-constrained surface truncates the list without orphaning a reset
+    /// footer from the windows it describes.
+    func windowGroups(limitedTo limit: Int) -> [[LimitWindow]] {
+        var remaining = limit
+        var groups: [[LimitWindow]] = []
+        for group in windowGroups {
+            guard remaining > 0 else { break }
+            let visibleGroup = Array(group.prefix(remaining))
+            groups.append(visibleGroup)
+            remaining -= visibleGroup.count
+        }
+        return groups
+    }
 }

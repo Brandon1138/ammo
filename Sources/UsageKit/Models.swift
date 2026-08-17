@@ -193,17 +193,23 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
     /// contract supplied no on-demand data; an entry with `isEnabled == false`
     /// means the provider explicitly reported that pool as disabled.
     public let onDemand: [OnDemandUsage]?
+    /// Provider-reported free-tier entitlement for the credential behind this
+    /// snapshot (OpenRouter's `is_free_tier`). `nil` means the provider did not
+    /// report a tier, in which case no tier may be claimed in the UI.
+    public let isFreeTier: Bool?
     public let fetchedAt: Date
 
     public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
                 resetCreditsAvailable: Int? = nil,
                 onDemand: [OnDemandUsage]? = nil,
+                isFreeTier: Bool? = nil,
                 fetchedAt: Date = Date()) {
         self.provider = provider
         self.plan = plan
         self.windows = windows
         self.resetCreditsAvailable = resetCreditsAvailable
         self.onDemand = onDemand
+        self.isFreeTier = isFreeTier
         self.fetchedAt = fetchedAt
     }
 }

@@ -111,7 +111,7 @@ private struct AccountOnDemandSection: View {
 
     var body: some View {
         Section {
-            ForEach(state.snapshot?.onDemand ?? []) { usage in
+            ForEach(onDemandRows) { usage in
                 OnDemandUsageRow(usage: usage, referenceDate: referenceDate)
                     .padding(.vertical, 4)
             }
@@ -151,6 +151,16 @@ private struct AccountOnDemandSection: View {
                 Text("Updated \(elapsedText(since: updatedAt)) ago")
                     .textCase(nil)
             }
+        }
+    }
+
+    /// OpenRouter's daily-spend pool is a one-day total, not capacity. This list
+    /// describes every pool through limit/remaining language, which would read a
+    /// day's spend as unlimited capacity, so the pool stays out of it and is
+    /// shown only where it is labelled as today's spend.
+    private var onDemandRows: [OnDemandUsage] {
+        (state.snapshot?.onDemand ?? []).filter {
+            $0.id != OpenRouterKeyPresentation.dailyPoolID
         }
     }
 

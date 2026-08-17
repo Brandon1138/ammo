@@ -455,7 +455,11 @@ struct AllAccountsWidgetView: View {
     }
 
     var body: some View {
-        if entry.states.isEmpty {
+        if WidgetProviderPanels.isProviderBoard(family) {
+            // The board keeps a panel per provider, so an empty configuration
+            // still explains itself provider by provider.
+            ProviderBoardView(states: entry.states, referenceDate: entry.date)
+        } else if entry.states.isEmpty {
             SetupHintView()
         } else {
             switch family {
@@ -610,14 +614,253 @@ private struct LargeProviderSection: View {
     }
 
     private func detailGroups(_ snapshot: UsageSnapshot) -> [[LimitWindow]] {
-        var remaining = 3
-        var groups: [[LimitWindow]] = []
-        for group in snapshot.windowGroups {
-            guard remaining > 0 else { break }
-            let visibleGroup = Array(group.prefix(remaining))
-            groups.append(visibleGroup)
-            remaining -= visibleGroup.count
+        snapshot.windowGroups(limitedTo: 3)
+    }
+}
+
+// MARK: - All accounts (systemExtraLargePortrait)
+
+/// systemExtraLargePortrait: one panel per shipping provider, stacked. The
+/// family is one grid column wide and six rows tall, so the panels are full
+/// width and share the height four ways — a stack keeps each panel as wide as a
+/// systemMedium widget, where a 2×2 grid would halve the width the meters read
+/// at without buying enough height back. Unlike the smaller families, which show
+/// only what is configured, this layout is a fixed board: a provider without an
+/// account keeps its panel and says why it is empty, so the board never reads as
+/// a failed render.
+struct ProviderBoardView: View {
+    let states: [AccountState]
+    let referenceDate: Date
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(WidgetProviderPanels.slots(states: states)) { slot in
+                ProviderBoardPanel(slot: slot, referenceDate: referenceDate)
+            }
         }
-        return groups
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct ProviderBoardPanel: View {
+    let slot: WidgetProviderSlot
+    let referenceDate: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header
+            content
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.quaternary,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Same phrasing the Lock Screen metered label uses, so the header marker is
+    /// never a glyph without a spoken meaning.
+    private var statusNotice: String? {
+        guard let state = slot.state else { return nil }
+        if state.activeFailure != nil { return "Update failed; showing cached data" }
+        return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            ProviderLogo(provider: slot.provider, size: 20)
+            Text(slot.state?.account.label ?? slot.provider.displayName)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .layoutPriority(1)
+            if let plan = slot.state?.snapshot?.displayPlan {
+                Text(plan)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+            Spacer(minLength: 0)
+            if let symbol = slot.state?.widgetStatusSymbol(at: referenceDate),
+               let statusNotice {
+                Image(systemName: symbol)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(statusNotice)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let state = slot.state {
+            if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
+                windows(state: state, snapshot: snapshot)
+            } else if let snapshot = state.snapshot,
+                      let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
+                OpenRouterCreditsPanel(presentation: presentation,
+                                       referenceDate: referenceDate,
+                                       statusNotice: statusNotice)
+            } else {
+                unavailable(state: state)
+            }
+        } else {
+            missingAccount
+        }
+    }
+
+    private func windows(state: AccountState, snapshot: UsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Grouped by position: a group is identified by where it sits in the
+            // truncated list, so no window id has to be unwrapped or unique.
+            let groups = Array(
+                snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
+                    .enumerated())
+            ForEach(groups, id: \.offset) { _, group in
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(group) { window in
+                        UsageWindowRow(window: window,
+                                       font: .subheadline,
+                                       barHeight: 7,
+                                       spacing: 3)
+                    }
+                    ResetStatusLine(snapshot: snapshot,
+                                    group: group,
+                                    referenceDate: referenceDate,
+                                    font: .caption)
+                }
+            }
+            if let balance = snapshot.verifiedMonetaryOnDemandBalance,
+               let remaining = balance.remainingAmount {
+                Text("\(remaining.formatted(.currency(code: balance.currencyCode).precision(.fractionLength(2)))) on-demand")
+                    .font(.footnote)
+                    .foregroundStyle(balance.isExhausted ? .red : .secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// A configured account that has no usable meter yet still states its
+    /// condition — waiting for a first update, paused after a failure, or
+    /// reporting money Ammo will not redraw as a percentage.
+    private func unavailable(state: AccountState) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(state.widgetAvailabilityText,
+                  systemImage: state.activeFailure == nil
+                      ? "clock.arrow.circlepath"
+                      : "exclamationmark.circle")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if let balance = state.snapshot?.verifiedMonetaryOnDemandBalance,
+               let remaining = balance.remainingAmount {
+                Text("\(remaining.formatted(.currency(code: balance.currencyCode).precision(.fractionLength(2)))) remaining")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(balance.isExhausted ? .red : .primary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var missingAccount: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Not configured")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("Add or select \(slot.provider.displayName) in Ammo.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}
+
+/// OpenRouter reports money and one static entitlement, never a percentage
+/// window, so its panel meters credits and labels the free-model request cap
+/// the key is subject to. The cap is not a counter and is omitted entirely when
+/// the key endpoint does not report a tier.
+private struct OpenRouterCreditsPanel: View {
+    let presentation: OpenRouterKeyPresentation
+    let referenceDate: Date
+    /// Set when the panel is drawing a cached snapshot. Money is stated as a
+    /// present-tense fact, so a failed or stale fetch has to say so visibly and
+    /// not only through the header glyph.
+    var statusNotice: String?
+
+    var body: some View {
+        // A board panel is about a grid row and a half tall, so the money, the
+        // entitlement badge, and the reset all share lines with something else
+        // rather than each claiming one.
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(presentation.headline)
+                    .font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
+                    .foregroundStyle(presentation.isExhausted ? .red : .primary)
+                    .widgetAccentable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+                if let badge = presentation.tierBadge {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
+            // Kept directly under the money it qualifies: a panel that runs out
+            // of height clips from the bottom, and a cached balance must not be
+            // the line that goes missing.
+            if let statusNotice {
+                Label(statusNotice, systemImage: "exclamationmark.circle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            if let fraction = presentation.remainingFraction {
+                CapsuleBar(fraction: fraction, color: meterColor(fraction), height: 7)
+            }
+            HStack(spacing: 8) {
+                Text(presentation.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let resetsAt = presentation.resetsAt {
+                    if resetsAt > referenceDate {
+                        ResetLine(date: resetsAt, referenceDate: referenceDate, font: .footnote)
+                    } else {
+                        Label("Reset due", systemImage: "arrow.clockwise")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            if let daily = presentation.dailyDetail {
+                Text(daily)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+    }
+
+    /// Same thresholds as the window meters: amber once a quarter of the budget
+    /// is left, red in the last tenth.
+    private func meterColor(_ fraction: Double) -> Color {
+        if fraction <= 0.1 { .red } else if fraction <= 0.25 { .orange } else { .blue }
     }
 }

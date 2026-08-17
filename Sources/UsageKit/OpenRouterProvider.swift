@@ -71,7 +71,8 @@ public struct OpenRouterProvider: UsageProvider {
     /// Only `label` and `usage` are treated as contract. Every other field is
     /// optional so that one retired or renamed field cannot take every
     /// OpenRouter account offline at once; period aggregates fall back to the
-    /// lifetime totals and the key-class flags fall back to "not reported".
+    /// lifetime totals, and the key-class and tier flags fall back to
+    /// "not reported".
     struct Response: Decodable {
         struct KeyData: Decodable {
             let label: String
@@ -87,8 +88,25 @@ public struct OpenRouterProvider: UsageProvider {
             let byokUsageWeekly: Double?
             let byokUsageMonthly: Double?
             let includeByokInLimit: Bool?
+            /// Static entitlement flag: it selects the free-model request cap the
+            /// key is subject to. It is not a counter, and free-model requests
+            /// cost $0.00, so it never moves the monetary values above.
+            let isFreeTier: TolerantFlag?
             let isManagementKey: Bool?
             let isProvisioningKey: Bool?
+        }
+
+        /// A flag whose only job is a label. A value of the wrong JSON type
+        /// reads as unreported instead of failing the decode, because an account
+        /// must never go offline over a cosmetic badge. The key-class flags are
+        /// deliberately *not* tolerant: an unreadable `is_management_key` has to
+        /// keep failing closed.
+        struct TolerantFlag: Decodable, Equatable {
+            let value: Bool?
+
+            init(from decoder: any Decoder) throws {
+                value = try? Bool(from: decoder)
+            }
         }
 
         let data: KeyData
@@ -155,14 +173,71 @@ public struct OpenRouterProvider: UsageProvider {
             used: used,
             limit: key.limit,
             remaining: hasLimit ? key.limitRemaining.map { max(0, $0) } : nil,
+            periodStart: hasLimit ? periodStart(for: cadence, containing: fetchedAt) : nil,
             resetsAt: hasLimit ? nextReset(for: cadence, after: fetchedAt) : nil)
+
+        var pools = [usage]
+        if let today = dailySpend(key), !hasLimit {
+            // A key with no budget has no period, so its headline spend is the
+            // lifetime total. Today's reported spend is kept beside it rather
+            // than folded into that total.
+            pools.append(OnDemandUsage(
+                id: "openrouter-key-daily-spend",
+                label: "Spend today",
+                kind: .spendingLimit,
+                scope: .personal,
+                isEnabled: true,
+                isUnlimited: true,
+                unit: .currency,
+                dataSource: .providerUsageResponse,
+                currencyCode: "USD",
+                // No periodStart: nothing reads it here, and a value rolling over
+                // at UTC midnight would register as a usage change and pull an
+                // otherwise idle key into an extra refresh every day.
+                used: today))
+        }
 
         return UsageSnapshot(
             provider: .openRouter,
             plan: nil,
             windows: [],
-            onDemand: [usage],
+            onDemand: pools,
+            isFreeTier: key.isFreeTier?.value,
             fetchedAt: fetchedAt)
+    }
+
+    /// Today's spend in the same accounting the headline meter uses: BYOK is
+    /// counted only where the key says BYOK counts. Absent daily aggregates
+    /// yield no value rather than a total borrowed from another period.
+    static func dailySpend(_ key: Response.KeyData) -> Double? {
+        guard let usageDaily = key.usageDaily else { return nil }
+        let byok = (key.includeByokInLimit ?? false) ? (key.byokUsageDaily ?? 0) : 0
+        let total = usageDaily + byok
+        guard total.isFinite, total >= 0 else { return nil }
+        return total
+    }
+
+    /// Start of the budget period the key is currently inside, on the same UTC
+    /// boundaries as `nextReset`. Persisting it lets display surfaces name the
+    /// cadence exactly instead of inferring one from a countdown.
+    static func periodStart(for cadence: String?, containing date: Date) -> Date? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let startOfDay = calendar.startOfDay(for: date)
+
+        switch cadence {
+        case "daily":
+            return startOfDay
+        case "weekly":
+            let weekday = calendar.component(.weekday, from: startOfDay)
+            let daysSinceMonday = (weekday + 5) % 7
+            return calendar.date(byAdding: .day, value: -daysSinceMonday, to: startOfDay)
+        case "monthly":
+            let components = calendar.dateComponents([.year, .month], from: startOfDay)
+            return calendar.date(from: components)
+        default:
+            return nil
+        }
     }
 
     /// OpenRouter documents daily midnight, Monday-start weekly, and first-day
