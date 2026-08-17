@@ -68,6 +68,10 @@ public struct OpenRouterProvider: UsageProvider {
         return decoder
     }()
 
+    /// Only `label` and `usage` are treated as contract. Every other field is
+    /// optional so that one retired or renamed field cannot take every
+    /// OpenRouter account offline at once; period aggregates fall back to the
+    /// lifetime totals and the key-class flags fall back to "not reported".
     struct Response: Decodable {
         struct KeyData: Decodable {
             let label: String
@@ -75,16 +79,16 @@ public struct OpenRouterProvider: UsageProvider {
             let limitRemaining: Double?
             let limitReset: String?
             let usage: Double
-            let usageDaily: Double
-            let usageWeekly: Double
-            let usageMonthly: Double
-            let byokUsage: Double
-            let byokUsageDaily: Double
-            let byokUsageWeekly: Double
-            let byokUsageMonthly: Double
-            let includeByokInLimit: Bool
-            let isManagementKey: Bool
-            let isProvisioningKey: Bool
+            let usageDaily: Double?
+            let usageWeekly: Double?
+            let usageMonthly: Double?
+            let byokUsage: Double?
+            let byokUsageDaily: Double?
+            let byokUsageWeekly: Double?
+            let byokUsageMonthly: Double?
+            let includeByokInLimit: Bool?
+            let isManagementKey: Bool?
+            let isProvisioningKey: Bool?
         }
 
         let data: KeyData
@@ -95,46 +99,44 @@ public struct OpenRouterProvider: UsageProvider {
         guard !key.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw UsageError.malformedResponse("openrouter key usage: missing key label")
         }
-        guard !key.isManagementKey, !key.isProvisioningKey else {
+        // A key class the API declines to report cannot be proven safe, but the
+        // provider only ever calls the read-only current-key endpoint, so an
+        // unreported flag is accepted rather than failing the account.
+        guard key.isManagementKey != true, key.isProvisioningKey != true else {
             throw UsageError.notAuthenticated(
                 "openrouter: Management API keys are not accepted; import an ordinary inference key")
         }
 
-        let values = [
-            key.usage,
-            key.usageDaily,
-            key.usageWeekly,
-            key.usageMonthly,
-            key.byokUsage,
-            key.byokUsageDaily,
-            key.byokUsageWeekly,
-            key.byokUsageMonthly,
-        ]
-        guard values.allSatisfy({ $0.isFinite && $0 >= 0 }),
-            key.limit.map({ $0.isFinite && $0 >= 0 }) ?? true,
-            key.limitRemaining.map({ $0.isFinite && $0 >= 0 }) ?? true
-        else {
-            throw UsageError.malformedResponse("openrouter key usage: invalid monetary value")
-        }
-
         let cadence = key.limitReset?.lowercased()
+        let totalByokUsage = key.byokUsage ?? 0
         let providerUsage: Double
         let byokUsage: Double
         switch cadence {
         case "daily":
-            providerUsage = key.usageDaily
-            byokUsage = key.byokUsageDaily
+            providerUsage = key.usageDaily ?? key.usage
+            byokUsage = key.byokUsageDaily ?? totalByokUsage
         case "weekly":
-            providerUsage = key.usageWeekly
-            byokUsage = key.byokUsageWeekly
+            providerUsage = key.usageWeekly ?? key.usage
+            byokUsage = key.byokUsageWeekly ?? totalByokUsage
         case "monthly":
-            providerUsage = key.usageMonthly
-            byokUsage = key.byokUsageMonthly
+            providerUsage = key.usageMonthly ?? key.usage
+            byokUsage = key.byokUsageMonthly ?? totalByokUsage
         default:
             providerUsage = key.usage
-            byokUsage = key.byokUsage
+            byokUsage = totalByokUsage
         }
-        let used = providerUsage + (key.includeByokInLimit ? byokUsage : 0)
+
+        let values = [key.usage, totalByokUsage, providerUsage, byokUsage]
+        // A negative remaining balance is a real over-spend state, not a
+        // malformed payload; it is clamped below rather than rejected.
+        guard values.allSatisfy({ $0.isFinite && $0 >= 0 }),
+            key.limit.map({ $0.isFinite && $0 >= 0 }) ?? true,
+            key.limitRemaining.map({ $0.isFinite }) ?? true
+        else {
+            throw UsageError.malformedResponse("openrouter key usage: invalid monetary value")
+        }
+
+        let used = providerUsage + ((key.includeByokInLimit ?? false) ? byokUsage : 0)
         guard used.isFinite else {
             throw UsageError.malformedResponse("openrouter key usage: invalid combined usage")
         }
@@ -152,7 +154,7 @@ public struct OpenRouterProvider: UsageProvider {
             currencyCode: "USD",
             used: used,
             limit: key.limit,
-            remaining: hasLimit ? key.limitRemaining : nil,
+            remaining: hasLimit ? key.limitRemaining.map { max(0, $0) } : nil,
             resetsAt: hasLimit ? nextReset(for: cadence, after: fetchedAt) : nil)
 
         return UsageSnapshot(

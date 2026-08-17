@@ -25,6 +25,40 @@ private let openRouterFixture = """
     }
     """
 
+/// Verbatim copy of the documented `GET /api/v1/key` 200 example published in
+/// OpenRouter's OpenAPI document (`https://openrouter.ai/openapi.json`, path
+/// `/key`, retrieved 2026-08-17). Fields Ammo does not read are kept so a
+/// documented payload proves tolerated, not just the trimmed subset above.
+private let openRouterDocumentedFixture = """
+    {
+      "data": {
+        "byok_usage": 17.38,
+        "byok_usage_daily": 17.38,
+        "byok_usage_monthly": 17.38,
+        "byok_usage_weekly": 17.38,
+        "creator_user_id": "user_2dHFtVWx2n56w6HkM0000000000",
+        "expires_at": "2027-12-31T23:59:59Z",
+        "include_byok_in_limit": false,
+        "is_free_tier": false,
+        "is_management_key": false,
+        "is_provisioning_key": false,
+        "label": "sk-or-v1-au7...890",
+        "limit": 100,
+        "limit_remaining": 74.5,
+        "limit_reset": "monthly",
+        "rate_limit": {
+          "interval": "1h",
+          "note": "This field is deprecated and safe to ignore.",
+          "requests": 1000
+        },
+        "usage": 25.5,
+        "usage_daily": 25.5,
+        "usage_monthly": 25.5,
+        "usage_weekly": 25.5
+      }
+    }
+    """
+
 private struct OpenRouterFixtureTransport: HTTPTransport {
     let data: Data
     let status: Int
@@ -219,6 +253,105 @@ struct OpenRouterProviderTests {
         let response = try OpenRouterProvider.decoder.decode(
             OpenRouterProvider.Response.self,
             from: Data(fixture.utf8))
+
+        #expect(throws: UsageError.self) {
+            _ = try OpenRouterProvider.snapshot(from: response, at: referenceDate)
+        }
+    }
+
+    @Test("The documented full payload decodes and maps end to end")
+    func documentedPayload() async throws {
+        let provider = OpenRouterProvider(
+            transport: OpenRouterFixtureTransport(
+                data: Data(openRouterDocumentedFixture.utf8),
+                status: 200,
+                expectedToken: "ordinary-test-key"))
+        let snapshot = try await provider.fetchUsage(
+            tokens: OAuthTokens(accessToken: "ordinary-test-key"))
+        let usage = try #require(snapshot.onDemand?.first)
+
+        #expect(snapshot.provider == .openRouter)
+        #expect(snapshot.windows.isEmpty)
+        #expect(usage.used == 25.5)
+        #expect(usage.limit == 100)
+        #expect(usage.remaining == 74.5)
+        #expect(usage.isUnlimited == false)
+    }
+
+    @Test("A dropped key-class flag does not fail the account")
+    func missingKeyClassFlagsTolerated() throws {
+        let fixture =
+            openRouterDocumentedFixture
+            .replacingOccurrences(of: "    \"is_management_key\": false,\n", with: "")
+            .replacingOccurrences(of: "    \"is_provisioning_key\": false,\n", with: "")
+        let usage = try #require(mappedSnapshot(fixture).onDemand?.first)
+
+        #expect(!fixture.contains("is_management_key"))
+        #expect(!fixture.contains("is_provisioning_key"))
+        #expect(usage.used == 25.5)
+        #expect(usage.remaining == 74.5)
+    }
+
+    @Test("A dropped period aggregate falls back to the lifetime total")
+    func missingPeriodAggregatesFallBack() throws {
+        let fixture =
+            openRouterDocumentedFixture
+            .replacingOccurrences(of: "    \"usage_monthly\": 25.5,\n", with: "")
+            .replacingOccurrences(of: "    \"byok_usage_monthly\": 17.38,\n", with: "")
+            .replacingOccurrences(of: "\"usage\": 25.5", with: "\"usage\": 31")
+            .replacingOccurrences(of: "\"byok_usage\": 17.38", with: "\"byok_usage\": 4")
+            .replacingOccurrences(of: "\"include_byok_in_limit\": false",
+                                  with: "\"include_byok_in_limit\": true")
+        let usage = try #require(mappedSnapshot(fixture).onDemand?.first)
+
+        #expect(usage.used == 35)
+    }
+
+    @Test("Provisioning keys are rejected")
+    func provisioningKeyRejected() throws {
+        let fixture = openRouterDocumentedFixture.replacingOccurrences(
+            of: "\"is_provisioning_key\": false",
+            with: "\"is_provisioning_key\": true")
+        let response = try OpenRouterProvider.decoder.decode(
+            OpenRouterProvider.Response.self,
+            from: Data(fixture.utf8))
+
+        #expect(throws: UsageError.self) {
+            _ = try OpenRouterProvider.snapshot(from: response, at: referenceDate)
+        }
+    }
+
+    @Test("An over-spent key clamps remaining instead of failing the snapshot")
+    func negativeRemainingIsClamped() throws {
+        let fixture = openRouterFixture.replacingOccurrences(
+            of: "\"limit_remaining\": 74.5",
+            with: "\"limit_remaining\": -0.42")
+        let usage = try #require(mappedSnapshot(fixture).onDemand?.first)
+
+        #expect(usage.remaining == 0)
+        #expect(usage.remainingAmount == 0)
+        #expect(usage.isExhausted)
+    }
+
+    @Test("Non-finite monetary values are still rejected")
+    func nonFiniteValuesRejected() {
+        let response = OpenRouterProvider.Response(
+            data: OpenRouterProvider.Response.KeyData(
+                label: "sk-or-v1-test…only",
+                limit: 100,
+                limitRemaining: -.infinity,
+                limitReset: "monthly",
+                usage: 25.5,
+                usageDaily: nil,
+                usageWeekly: nil,
+                usageMonthly: nil,
+                byokUsage: nil,
+                byokUsageDaily: nil,
+                byokUsageWeekly: nil,
+                byokUsageMonthly: nil,
+                includeByokInLimit: nil,
+                isManagementKey: nil,
+                isProvisioningKey: nil))
 
         #expect(throws: UsageError.self) {
             _ = try OpenRouterProvider.snapshot(from: response, at: referenceDate)

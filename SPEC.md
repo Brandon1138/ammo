@@ -398,7 +398,11 @@ day 00:00 UTC. The aggregate fields are money, never synthetic `LimitWindow`s.
 
 A missing `limit` is a valid no-limit key: Ammo persists the reported spend but no
 remaining balance, credit substitute, percentage, or reset timestamp. Imported keys
-are non-refreshable. Management/provisioning keys are rejected.
+are non-refreshable. Management/provisioning keys are rejected when the API reports
+them: `is_management_key` and `is_provisioning_key` are read as optional, so a key
+whose class the API omits is accepted rather than failing the account. Only the
+read-only current-key endpoint is ever called, so an unreported class cannot widen
+what Ammo does with the key.
 
 OpenRouter documents S256 PKCE at `https://openrouter.ai/auth` and code exchange at
 `POST https://openrouter.ai/api/v1/auth/keys`, including localhost callbacks on any
