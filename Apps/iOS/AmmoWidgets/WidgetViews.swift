@@ -71,8 +71,9 @@ private extension AccountState {
     /// Persisted state can prove no successful fetch has ever completed. It has
     /// no separate in-flight flag, so loading remains WidgetKit's placeholder
     /// redaction while this state is reserved for durable first-fetch absence.
+    /// Failed first fetches keep their existing failure presentation instead.
     var hasNeverFetchedWidgetData: Bool {
-        snapshot == nil && updatedAt == nil
+        snapshot == nil && updatedAt == nil && activeFailure == nil
     }
 }
 
