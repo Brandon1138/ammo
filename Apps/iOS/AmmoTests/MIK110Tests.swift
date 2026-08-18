@@ -460,6 +460,37 @@ struct MIK110Tests {
         #expect(recovered.revision == 8)
     }
 
+    @Test("Revision preparation failures do not abort functional cache writes")
+    func revisionPreparationIsBestEffort() throws {
+        struct PreparationFailure: Error {}
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let sequenceURL = directory.appendingPathComponent("usage-states-revision-sequence.json")
+        let cacheURL = directory.appendingPathComponent("usage-states.json")
+        let previous = SharedStoreRevision(
+            revision: 7,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            accountCount: 1,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        try UsageCacheCodec.encode(previous).write(to: revisionURL, options: .atomic)
+
+        SharedStoreRevisionStore.prepareForCacheWriteBestEffort(
+            fileURL: revisionURL,
+            sequenceFileURL: sequenceURL,
+            writeSequence: { _, _ in throw PreparationFailure() })
+        try Data("functional cache".utf8).write(to: cacheURL, options: .atomic)
+
+        #expect(FileManager.default.fileExists(atPath: cacheURL.path))
+    }
+
     @Test("An interleaved writer cannot split cache bytes from their revision")
     func interleavedWriteReadsConsistentSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory

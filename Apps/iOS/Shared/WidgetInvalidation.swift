@@ -305,10 +305,34 @@ enum SharedStoreRevisionStore {
     /// The current sequence is made durable first, then the descriptive marker
     /// is removed. A process that stops after this point leaves readers with an
     /// unknown revision, never old metadata attached to new cache bytes.
-    static func prepareForCacheWrite() throws {
-        try prepareForCacheWrite(
+    static func prepareForCacheWrite() {
+        prepareForCacheWriteBestEffort(
             fileURL: fileURL,
             sequenceFileURL: sequenceFileURL)
+    }
+
+    static func prepareForCacheWriteBestEffort(
+        fileURL: URL,
+        sequenceFileURL: URL,
+        writeSequence: (Data, URL) throws -> Void = { data, destination in
+            try data.write(to: destination, options: .atomic)
+        },
+        removeMarker: (URL) throws -> Void = { destination in
+            try FileManager.default.removeItem(at: destination)
+        }
+    ) {
+        do {
+            try prepareForCacheWrite(
+                fileURL: fileURL,
+                sequenceFileURL: sequenceFileURL,
+                writeSequence: writeSequence,
+                removeMarker: removeMarker)
+        } catch {
+            // Revision metadata is diagnostic. A damaged or unavailable marker
+            // must not prevent the functional App Group cache from advancing.
+            AmmoLog.sharedStore.error(
+                "Unable to prepare shared cache revision: \(String(describing: error), privacy: .private)")
+        }
     }
 
     static func prepareForCacheWrite(
