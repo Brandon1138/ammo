@@ -71,8 +71,10 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
             dailyDetail = nil
         } else {
             headline = "Pay-as-you-go"
-            lockScreenCenterText = daily?.used.map {
-                Self.compactMoney($0, code: daily?.currencyCode ?? "USD")
+            lockScreenCenterText = daily?.used.flatMap {
+                $0 > 0 ? Self.compactMoney(
+                    $0,
+                    code: daily?.currencyCode ?? "USD") : nil
             }
             if let used = spending.used {
                 detail = "\(Self.money(used, code: spending.currencyCode)) spent to date"
@@ -129,6 +131,8 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
     private static func compactMoney(_ amount: Double, code: String) -> String {
         amount.formatted(
             .currency(code: code)
-                .precision(.fractionLength(amount >= 10 ? 0 : 2)))
+                .presentation(.narrow)
+                .precision(.fractionLength(amount >= 10 ? 0 : 2))
+                .locale(Locale(identifier: "en_US")))
     }
 }

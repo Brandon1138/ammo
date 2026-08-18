@@ -71,6 +71,15 @@ struct OpenRouterKeyPresentationTests {
         #expect(presentation.lockScreenCenterText == nil)
     }
 
+    @Test("A pay-as-you-go key with zero daily spend uses the dollar glyph")
+    func payAsYouGoWithZeroDailySpend() throws {
+        let presentation = try #require(
+            OpenRouterKeyPresentation(snapshot: unlimitedSnapshot(daily: 0)))
+
+        #expect(presentation.dailyDetail == "\(money(0)) today")
+        #expect(presentation.lockScreenCenterText == nil)
+    }
+
     @Test("The tier badge is entitlement copy, and absent when unreported")
     func tierBadges() {
         #expect(OpenRouterKeyPresentation.tierBadge(isFreeTier: true)
@@ -97,8 +106,8 @@ struct OpenRouterKeyPresentationTests {
         let dollarsAndCents = try #require(OpenRouterKeyPresentation(
             snapshot: budgetedSnapshot(remaining: 3.4, used: 96.6)))
 
-        #expect(wholeDollars.lockScreenCenterText == compactMoney(12))
-        #expect(dollarsAndCents.lockScreenCenterText == compactMoney(3.4))
+        #expect(wholeDollars.lockScreenCenterText == "$12")
+        #expect(dollarsAndCents.lockScreenCenterText == "$3.40")
     }
 
     @Test("Other providers never render as an OpenRouter key")
@@ -191,8 +200,6 @@ struct OpenRouterKeyPresentationTests {
         ISO8601DateFormatter().date(from: value)
     }
 
-    /// Currency copy is locale-formatted; assertions compare against the same
-    /// formatter rather than hard-coding one locale's output.
     private func money(_ amount: Double) -> String {
         amount.formatted(.currency(code: "USD").precision(.fractionLength(2)))
     }
@@ -200,6 +207,8 @@ struct OpenRouterKeyPresentationTests {
     private func compactMoney(_ amount: Double) -> String {
         amount.formatted(
             .currency(code: "USD")
-                .precision(.fractionLength(amount >= 10 ? 0 : 2)))
+                .presentation(.narrow)
+                .precision(.fractionLength(amount >= 10 ? 0 : 2))
+                .locale(Locale(identifier: "en_US")))
     }
 }

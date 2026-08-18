@@ -28,7 +28,7 @@ struct AmmoAccessoryCircularGaugeStyle: GaugeStyle {
             ZStack {
                 gaugeArc
                     .stroke(
-                        Color.secondary.opacity(0.32),
+                        variant == .fill ? .tertiary : .primary,
                         style: StrokeStyle(
                             lineWidth: lineWidth,
                             lineCap: .round
@@ -43,7 +43,7 @@ struct AmmoAccessoryCircularGaugeStyle: GaugeStyle {
                         .trim(from: 0, to: 0.75 * progress)
                         .rotation(.degrees(135))
                         .stroke(
-                            .tint,
+                            .primary,
                             style: StrokeStyle(
                                 lineWidth: lineWidth,
                                 lineCap: .round
@@ -54,7 +54,7 @@ struct AmmoAccessoryCircularGaugeStyle: GaugeStyle {
                         .widgetAccentable()
                 case .marker:
                     Circle()
-                        .fill(.tint)
+                        .fill(.primary)
                         .frame(width: lineWidth + 2, height: lineWidth + 2)
                         .position(markerPosition(
                             center: center,
@@ -65,7 +65,8 @@ struct AmmoAccessoryCircularGaugeStyle: GaugeStyle {
                 }
 
                 configuration.currentValueLabel
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: side * 0.62)
