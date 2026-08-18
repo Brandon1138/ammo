@@ -83,23 +83,32 @@ public enum WidgetTimelinePlan {
     ) -> [Date] {
         precondition(limit >= 1, "A timeline needs at least the current entry")
 
-        var dates: Set<Date> = [now]
-        appendSteps(into: &dates, from: now, until: now.addingTimeInterval(2 * 3600),
+        var gridDates: Set<Date> = [now]
+        appendSteps(into: &gridDates, from: now, until: now.addingTimeInterval(2 * 3600),
                     step: 15 * 60, after: now)
-        appendSteps(into: &dates, from: now.addingTimeInterval(2 * 3600),
+        appendSteps(into: &gridDates, from: now.addingTimeInterval(2 * 3600),
                     until: now.addingTimeInterval(24 * 3600), step: 60 * 60, after: now)
-        appendSteps(into: &dates, from: now.addingTimeInterval(24 * 3600),
+        appendSteps(into: &gridDates, from: now.addingTimeInterval(24 * 3600),
                     until: now.addingTimeInterval(horizon), step: 6 * 3600, after: now)
 
         let horizonEnd = now.addingTimeInterval(horizon)
-        for reset in resetDates where reset > now && reset <= horizonEnd {
-            dates.insert(reset)
+        let resetBoundaries = Set(resetDates.filter { $0 > now && $0 <= horizonEnd })
+        var requiredDates = resetBoundaries
+        requiredDates.insert(now)
+
+        // Reset boundaries carry state transitions; grid entries only improve
+        // countdown resolution. Reserve every boundary first, then spend the
+        // remaining budget on nearest grid entries. If boundaries alone exceed
+        // WidgetKit's hard cap, retain `now` and the earliest reachable resets.
+        let sortedRequired = requiredDates.sorted()
+        guard sortedRequired.count < limit else {
+            return Array(sortedRequired.prefix(limit))
         }
 
-        // Nearest-first: WidgetKit asks for a new timeline long before the tail
-        // is reached, so dropping the far end costs nothing a reload would not
-        // already have replaced.
-        return Array(dates.sorted().prefix(limit))
+        gridDates.subtract(requiredDates)
+        let gridSlots = limit - sortedRequired.count
+        let selectedGrid = gridDates.sorted().prefix(gridSlots)
+        return (sortedRequired + selectedGrid).sorted()
     }
 
     private static func appendSteps(

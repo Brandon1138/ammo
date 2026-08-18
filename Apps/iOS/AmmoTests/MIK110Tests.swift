@@ -61,18 +61,29 @@ struct MIK110Tests {
             hasCachedSnapshot: false))
     }
 
-    @Test("Fresh snapshots and visible failures always reload")
-    func mutationsReload() {
-        #expect(WidgetReloadPolicy.shouldReload(
+    @Test("Persisted refresh outcomes rely on the SharedStore write seam")
+    func persistedOutcomesDoNotReloadFromCaller() {
+        #expect(!WidgetReloadPolicy.shouldReload(
             after: [.refreshed(accountID: accountID)],
             reason: .background,
             hasCachedSnapshot: true))
-        #expect(WidgetReloadPolicy.shouldReload(
+        #expect(!WidgetReloadPolicy.shouldReload(
             after: [.failed(accountID: accountID,
                             message: "network",
                             nextEligibleAt: nil)],
             reason: .manual,
             hasCachedSnapshot: false))
+    }
+
+    @Test("A mixed persisted and cached run still relies on the write seam")
+    func mixedOutcomesDoNotReloadFromCaller() {
+        #expect(!WidgetReloadPolicy.shouldReload(
+            after: [
+                .refreshed(accountID: accountID),
+                .cached(accountID: UUID(), nextEligibleAt: .distantFuture),
+            ],
+            reason: .foreground,
+            hasCachedSnapshot: true))
     }
 
     // MARK: - Invalidation dispatch
@@ -104,6 +115,49 @@ struct MIK110Tests {
         // deliberately not awaited here — what matters is that eight commits do
         // not become eight reload requests.
         #expect(recorder.count == 1)
+    }
+
+    @Test("A persisted refresh dispatches exactly once without a trailing reload")
+    func persistedRefreshDispatchesOnce() {
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted)
+        if WidgetReloadPolicy.shouldReload(
+            after: [.refreshed(accountID: accountID)],
+            reason: .foreground,
+            hasCachedSnapshot: true
+        ) {
+            WidgetInvalidator.shared.invalidate(reason: .refreshFinished)
+        }
+
+        #expect(recorder.reasons == [.cacheCommitted])
+        #expect(scheduled.count == 0)
+    }
+
+    @Test("A cache-only refresh dispatches exactly once from the caller")
+    func cacheOnlyRefreshDispatchesOnce() {
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        if WidgetReloadPolicy.shouldReload(
+            after: [.cached(accountID: accountID, nextEligibleAt: .distantFuture)],
+            reason: .foreground,
+            hasCachedSnapshot: true
+        ) {
+            WidgetInvalidator.shared.invalidate(reason: .refreshFinished)
+        }
+
+        #expect(recorder.reasons == [.refreshFinished])
+        #expect(scheduled.count == 0)
     }
 
     @Test("Requests spaced beyond the coalescing window each dispatch")

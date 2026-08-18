@@ -175,9 +175,9 @@ final class AccountStore {
         for id in uniqueIDs where refreshGenerations[id] == generations[id] {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
-        // Failures mutate shared render state too. A foreground cache hit also
-        // reloads: newly placed/restored widgets may still hold a placeholder
-        // even though the App Group already contains a usable snapshot.
+        // Persisted outcomes already reload through the SharedStore write seam.
+        // A foreground cache hit reloads here because no write occurred and a
+        // newly placed/restored widget may still hold a placeholder.
         let hasCachedSnapshot = states.contains { state in
             uniqueIDs.contains(state.id) && state.snapshot != nil
         }

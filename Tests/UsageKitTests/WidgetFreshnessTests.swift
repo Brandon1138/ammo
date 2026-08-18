@@ -113,6 +113,19 @@ struct WidgetFreshnessTests {
         #expect(dates.contains(reset))
     }
 
+    @Test("Reset boundaries survive the entry cap before grid density")
+    func resetBoundariesSurviveCap() {
+        let resets = (1...40).map { offset in
+            // Distinct off-grid boundaries spread across the full horizon.
+            now.addingTimeInterval(Double(offset) * 4 * 3600 + Double(offset))
+        }
+        let dates = WidgetTimelinePlan.dates(resetDates: resets, now: now)
+
+        #expect(dates.count == WidgetTimelinePlan.maximumEntries)
+        #expect(resets.count == 40)
+        #expect(Set(resets).isSubset(of: Set(dates)))
+    }
+
     @Test("Past resets and resets beyond the horizon are ignored")
     func planIgnoresOutOfRangeResets() {
         let past = now.addingTimeInterval(-3600)

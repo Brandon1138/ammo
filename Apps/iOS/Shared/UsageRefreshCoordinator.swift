@@ -31,10 +31,10 @@ enum RefreshOutcome: Sendable {
         }
     }
 
-    var requiresTimelineReload: Bool {
+    var isCacheOnly: Bool {
         switch self {
-        case .refreshed, .failed: true
-        case .cached: false
+        case .cached: true
+        case .refreshed, .failed: false
         }
     }
 }
@@ -55,7 +55,13 @@ enum WidgetReloadPolicy {
         reason: RefreshReason,
         hasCachedSnapshot: Bool
     ) -> Bool {
-        if outcomes.contains(where: \.requiresTimelineReload) { return true }
+        // Fresh snapshots and failures already invalidated through
+        // `SharedStore.commit` or `SharedStore.record(failure:)`. Invalidating
+        // again here would arm the coalescer's trailing dispatch and spend a
+        // second WidgetKit reload for the same persisted revision. Only a run
+        // made entirely from cache reaches this caller without crossing the
+        // write seam.
+        guard !outcomes.isEmpty, outcomes.allSatisfy(\.isCacheOnly) else { return false }
         // A user-initiated refresh can be throttled by the shared 60-second
         // floor and return only `.cached`. Reload anyway when the App Group
         // already has usable data: a newly placed or restored widget may still
