@@ -282,6 +282,17 @@ struct MIK110Tests {
         scheduled.runAll()
 
         #expect(recorder.reasons == [.appForeground, .cacheCommitted])
+
+        // A writer racing after the flush must not arm another suspendable
+        // timer. Activation is the explicit boundary that re-enables it.
+        WidgetInvalidator.shared.invalidate(reason: .refreshFinished, nowUptime: start)
+        #expect(recorder.reasons == [
+            .appForeground,
+            .cacheCommitted,
+            .refreshFinished,
+        ])
+        #expect(scheduled.count == 0)
+        WidgetInvalidator.shared.resumeAfterSuspension()
     }
 
     @Test("A regressed uptime never extends the coalescing delay")

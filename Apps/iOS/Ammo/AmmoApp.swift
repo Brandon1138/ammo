@@ -23,6 +23,7 @@ struct AmmoApp: App {
         .onChange(of: scenePhase, initial: true) { _, phase in
             switch phase {
             case .active:
+                WidgetInvalidator.shared.resumeAfterSuspension()
                 // Republish the cache first so a widget placed while the app was
                 // closed leaves its placeholder now, not after the slowest
                 // provider answers — or never, when the device is offline.

@@ -43,6 +43,9 @@ final class WidgetInvalidator: @unchecked Sendable {
     private let lock = NSLock()
     private var lastDispatchUptime: UInt64?
     private var pendingReason: WidgetInvalidationReason?
+    /// Once suspension begins, a timer is no longer a reliable delivery
+    /// mechanism. Keep every later invalidation synchronous until activation.
+    private var suspensionPending = false
     /// Identifies the currently armed trailing dispatch. Immediate dispatches
     /// and test resets advance it so a delayed closure cannot mutate newer
     /// coalescing state or spend another WidgetKit reload.
@@ -72,30 +75,40 @@ final class WidgetInvalidator: @unchecked Sendable {
         let delay: TimeInterval
         let scheduledGeneration: UInt64?
         lock.lock()
-        delay = Self.coalescingDelay(
-            lastDispatchUptime: lastDispatchUptime,
-            nowUptime: nowUptime)
-        if lastDispatchUptime != nil, delay > 0 {
-            shouldDispatchNow = false
-            // A trailing request is already armed; fold this one into it.
-            let alreadyPending = pendingReason != nil
-            pendingReason = reason
-            scheduledGeneration = alreadyPending ? nil : generation
-            lock.unlock()
-            if alreadyPending {
-                AmmoLog.widgetInvalidation.debug(
-                    "Coalesced reload request (\(reason.rawValue, privacy: .public))")
-                return
-            }
-        } else {
+        if suspensionPending {
             shouldDispatchNow = true
-            // Retire any delayed closure from an older window before handing
-            // this request to WidgetKit immediately.
+            delay = 0
             generation &+= 1
             pendingReason = nil
             lastDispatchUptime = nowUptime
             scheduledGeneration = nil
             lock.unlock()
+        } else {
+            delay = Self.coalescingDelay(
+                lastDispatchUptime: lastDispatchUptime,
+                nowUptime: nowUptime)
+            if lastDispatchUptime != nil, delay > 0 {
+                shouldDispatchNow = false
+                // A trailing request is already armed; fold this one into it.
+                let alreadyPending = pendingReason != nil
+                pendingReason = reason
+                scheduledGeneration = alreadyPending ? nil : generation
+                lock.unlock()
+                if alreadyPending {
+                    AmmoLog.widgetInvalidation.debug(
+                        "Coalesced reload request (\(reason.rawValue, privacy: .public))")
+                    return
+                }
+            } else {
+                shouldDispatchNow = true
+                // Retire any delayed closure from an older window before handing
+                // this request to WidgetKit immediately.
+                generation &+= 1
+                pendingReason = nil
+                lastDispatchUptime = nowUptime
+                scheduledGeneration = nil
+                lock.unlock()
+            }
         }
 
         if shouldDispatchNow {
@@ -131,16 +144,18 @@ final class WidgetInvalidator: @unchecked Sendable {
         }
     }
 
-    /// Delivers an armed trailing reload before iOS can suspend this process.
-    /// The scheduled work item is retired by advancing `generation`, so it
-    /// cannot spend a second reload if the process remains alive long enough
-    /// for its original deadline to arrive.
+    /// Delivers an armed trailing reload before iOS can suspend this process,
+    /// then keeps later invalidations immediate until activation. Setting the
+    /// mode under the same lock as `invalidate` closes the race where a writer
+    /// could otherwise arm a new timer immediately after an empty or completed
+    /// flush. The old work item is retired by advancing `generation`.
     func flushPendingBeforeSuspension(
         nowUptime: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         guard !Self.isWidgetProcess else { return }
 
         lock.lock()
+        suspensionPending = true
         guard let pendingReason else {
             lock.unlock()
             return
@@ -151,6 +166,13 @@ final class WidgetInvalidator: @unchecked Sendable {
         lock.unlock()
 
         dispatch(reason: pendingReason, revision: nil)
+    }
+
+    /// Restores budget-preserving coalescing once timers are reliable again.
+    func resumeAfterSuspension() {
+        lock.lock()
+        suspensionPending = false
+        lock.unlock()
     }
 
     /// Remaining coalescing delay from monotonic uptime. A regressed injected
@@ -205,6 +227,7 @@ final class WidgetInvalidator: @unchecked Sendable {
         generation &+= 1
         lastDispatchUptime = nil
         pendingReason = nil
+        suspensionPending = false
         lock.unlock()
         return WidgetInvalidatorOverrideToken(
             invalidator: self,
@@ -222,6 +245,7 @@ final class WidgetInvalidator: @unchecked Sendable {
         generation &+= 1
         lastDispatchUptime = nil
         pendingReason = nil
+        suspensionPending = false
         lock.unlock()
     }
 }
