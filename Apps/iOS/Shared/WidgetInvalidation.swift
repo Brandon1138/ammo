@@ -254,6 +254,39 @@ enum SharedStoreRevisionStore {
         return try? UsageCacheCodec.decode(SharedStoreRevision.self, from: data)
     }
 
+    /// Makes the marker/cache handoff fail-safe before cache replacement.
+    ///
+    /// The current sequence is made durable first, then the descriptive marker
+    /// is removed. A process that stops after this point leaves readers with an
+    /// unknown revision, never old metadata attached to new cache bytes.
+    static func prepareForCacheWrite() throws {
+        try prepareForCacheWrite(
+            fileURL: fileURL,
+            sequenceFileURL: sequenceFileURL)
+    }
+
+    static func prepareForCacheWrite(
+        fileURL: URL,
+        sequenceFileURL: URL,
+        writeSequence: (Data, URL) throws -> Void = { data, destination in
+            try data.write(to: destination, options: .atomic)
+        },
+        removeMarker: (URL) throws -> Void = { destination in
+            try FileManager.default.removeItem(at: destination)
+        }
+    ) throws {
+        let markerRevision = load(from: fileURL)?.revision ?? 0
+        let sequenceRevision = loadSequence(from: sequenceFileURL)?.lastAllocatedRevision ?? 0
+        let currentRevision = max(markerRevision, sequenceRevision)
+        if currentRevision > 0 {
+            let sequence = RevisionSequence(lastAllocatedRevision: currentRevision)
+            try writeSequence(UsageCacheCodec.encode(sequence), sequenceFileURL)
+        }
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try removeMarker(fileURL)
+        }
+    }
+
     /// Records the revision describing `states`. Never throws: a revision is a
     /// diagnostic, and losing it must not fail the cache write it annotates.
     @discardableResult

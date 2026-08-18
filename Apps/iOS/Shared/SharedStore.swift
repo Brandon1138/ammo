@@ -301,6 +301,11 @@ enum SharedStore {
     private static func saveUnlocked(_ states: [AccountState]) throws -> SharedStoreRevision? {
         let startedAt = Date()
         let data = try UsageCacheCodec.encode(states)
+        // Persist the high-water mark and invalidate the old descriptive marker
+        // before replacing cache bytes. A suspension or termination in the
+        // following gap therefore reads as rev=unknown, never as a stale
+        // revision attached to newly committed states.
+        try SharedStoreRevisionStore.prepareForCacheWrite()
         try data.write(to: fileURL, options: .atomic)
         let revision = SharedStoreRevisionStore.record(states: states)
         AmmoLog.sharedStore.info(
