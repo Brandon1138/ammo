@@ -81,6 +81,43 @@ enum SharedStore {
         loadSnapshot().states
     }
 
+    /// Account IDs trusted for security-sensitive export decisions.
+    ///
+    /// Widgets may render an atomic cache snapshot when tombstones are
+    /// temporarily unreadable, but an export must never make that fail-open
+    /// tradeoff. A nil result means the caller must not release any payload.
+    static func loadAuthoritativeAccountIDs() -> Set<UUID>? {
+        guard !DemoModeStore.isEnabled else { return [] }
+        removeLegacyCodexBillingCache()
+        do {
+            let diskSnapshot = try readCacheSnapshot(
+                fileURL: fileURL,
+                revisionURL: SharedStoreRevisionStore.fileURL,
+                lock: lock)
+            let decoded = sanitize(
+                try UsageCacheCodec.decode([AccountState].self, from: diskSnapshot.data))
+            let deletedIDs = AccountDeletionStore.deletedIDs()
+                ?? AccountDeletionStore.deletedIDs(timeout: 1)
+            return authoritativeAccountIDs(decoded, deletedIDs: deletedIDs)
+        } catch {
+            AmmoLog.sharedStore.error(
+                "Unable to establish authoritative live accounts for export: \(String(describing: error), privacy: .private)")
+            return nil
+        }
+    }
+
+    static func authoritativeAccountIDs(
+        _ states: [AccountState],
+        deletedIDs: Set<UUID>?
+    ) -> Set<UUID>? {
+        guard let deletedIDs else {
+            AmmoLog.sharedStore.error(
+                "Refusing account export because tombstones are unavailable")
+            return nil
+        }
+        return Set(states.lazy.filter { !deletedIDs.contains($0.id) }.map(\.id))
+    }
+
     /// Reads cache bytes and their revision while holding the writer's lock.
     /// The decoded states may outlive the lock, but both source files always
     /// come from the same committed write.

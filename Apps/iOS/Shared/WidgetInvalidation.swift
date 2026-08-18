@@ -233,8 +233,16 @@ final class WidgetInvalidatorOverrideToken: @unchecked Sendable {
 /// after the cache file is committed, so a reader that sees revision N is
 /// guaranteed the bytes for N are already on disk.
 enum SharedStoreRevisionStore {
+    private struct RevisionSequence: Codable {
+        let lastAllocatedRevision: UInt64
+    }
+
     static var fileURL: URL {
         AppGroup.containerURL.appendingPathComponent("usage-states-revision.json")
+    }
+
+    static var sequenceFileURL: URL {
+        AppGroup.containerURL.appendingPathComponent("usage-states-revision-sequence.json")
     }
 
     static func load() -> SharedStoreRevision? {
@@ -250,7 +258,11 @@ enum SharedStoreRevisionStore {
     /// diagnostic, and losing it must not fail the cache write it annotates.
     @discardableResult
     static func record(states: [AccountState], at date: Date = Date()) -> SharedStoreRevision? {
-        record(states: states, at: date, fileURL: fileURL)
+        record(
+            states: states,
+            at: date,
+            fileURL: fileURL,
+            sequenceFileURL: sequenceFileURL)
     }
 
     @discardableResult
@@ -258,20 +270,36 @@ enum SharedStoreRevisionStore {
         states: [AccountState],
         at date: Date,
         fileURL: URL,
-        write: (Data, URL) throws -> Void = { data, destination in
+        sequenceFileURL: URL,
+        writeMarker: (Data, URL) throws -> Void = { data, destination in
+            try data.write(to: destination, options: .atomic)
+        },
+        writeSequence: (Data, URL) throws -> Void = { data, destination in
             try data.write(to: destination, options: .atomic)
         }
     ) -> SharedStoreRevision? {
         let snapshots = states.compactMap(\.snapshot)
+        let markerRevision = load(from: fileURL)?.revision ?? 0
+        let sequenceRevision = loadSequence(from: sequenceFileURL)?.lastAllocatedRevision ?? 0
         let revision = SharedStoreRevision.next(
-            after: load(from: fileURL),
+            afterRevision: max(markerRevision, sequenceRevision),
             writtenAt: date,
             accountCount: states.count,
             snapshotCount: snapshots.count,
             newestSnapshotAt: snapshots.map(\.fetchedAt).max())
         do {
+            let sequence = RevisionSequence(lastAllocatedRevision: revision.revision)
+            try writeSequence(UsageCacheCodec.encode(sequence), sequenceFileURL)
+        } catch {
+            // The marker itself is also a durable sequence source when it can
+            // be published. Keep the cache write non-failing, but record that
+            // recovery would be weaker if marker publication also fails.
+            AmmoLog.sharedStore.error(
+                "Unable to advance shared cache revision sequence: \(String(describing: error), privacy: .private)")
+        }
+        do {
             let data = try UsageCacheCodec.encode(revision)
-            try write(data, fileURL)
+            try writeMarker(data, fileURL)
             return revision
         } catch {
             // The cache bytes were already committed under the shared lock. If
@@ -289,5 +317,10 @@ enum SharedStoreRevisionStore {
                 "Unable to record shared cache revision: \(String(describing: error), privacy: .private)")
             return nil
         }
+    }
+
+    private static func loadSequence(from fileURL: URL) -> RevisionSequence? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? UsageCacheCodec.decode(RevisionSequence.self, from: data)
     }
 }

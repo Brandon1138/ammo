@@ -57,7 +57,9 @@ enum RawUsagePayloadStore {
         // Deletion prunes the store, but that prune is best effort. Re-check
         // against the live accounts so a payload for a removed account can
         // never leave the device even if its prune failed.
-        let live = Set(SharedStore.load().map(\.account.id))
+        guard let live = SharedStore.loadAuthoritativeAccountIDs() else {
+            throw ExportError.accountStateUnavailable
+        }
         let captures = load().filter { live.contains($0.accountID) }
         guard !captures.isEmpty else { throw ExportError.noPayloads }
         let data = try exportData(captures: captures)
@@ -119,9 +121,15 @@ enum RawUsagePayloadStore {
 
     enum ExportError: LocalizedError {
         case noPayloads
+        case accountStateUnavailable
 
         var errorDescription: String? {
-            "No raw usage payloads have been captured yet. Refresh an account first."
+            switch self {
+            case .noPayloads:
+                "No raw usage payloads have been captured yet. Refresh an account first."
+            case .accountStateUnavailable:
+                "Account deletion state is unavailable. Unlock this device and try again."
+            }
         }
     }
 }

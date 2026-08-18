@@ -346,8 +346,8 @@ struct MIK110Tests {
         #expect(afterCommit.newestSnapshotAt == fetchedAt)
     }
 
-    @Test("A failed revision publication invalidates the previous marker")
-    func failedRevisionPublicationRemovesStaleMarker() throws {
+    @Test("A failed marker publication invalidates it without resetting the sequence")
+    func failedRevisionPublicationPreservesSequence() throws {
         struct PublicationFailure: Error {}
 
         let directory = FileManager.default.temporaryDirectory
@@ -358,6 +358,7 @@ struct MIK110Tests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let sequenceURL = directory.appendingPathComponent("usage-states-revision-sequence.json")
         let previous = SharedStoreRevision(
             revision: 7,
             writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
@@ -370,11 +371,19 @@ struct MIK110Tests {
             states: [],
             at: Date(timeIntervalSince1970: 1_800_000_001),
             fileURL: revisionURL,
-            write: { _, _ in throw PublicationFailure() })
+            sequenceFileURL: sequenceURL,
+            writeMarker: { _, _ in throw PublicationFailure() })
 
         #expect(published == nil)
         #expect(SharedStoreRevisionStore.load(from: revisionURL) == nil)
         #expect(!FileManager.default.fileExists(atPath: revisionURL.path))
+
+        let recovered = try #require(SharedStoreRevisionStore.record(
+            states: [],
+            at: Date(timeIntervalSince1970: 1_800_000_002),
+            fileURL: revisionURL,
+            sequenceFileURL: sequenceURL))
+        #expect(recovered.revision == 9)
     }
 
     @Test("An interleaved writer cannot split cache bytes from their revision")
@@ -542,6 +551,9 @@ struct MIK110Tests {
             states,
             deletedIDs: nil,
             knownDeletedIDs: []).count == 2)
+        #expect(SharedStore.authoritativeAccountIDs(
+            states,
+            deletedIDs: nil) == nil)
     }
 
     @Test("Unreadable tombstones still hide previously observed removals")

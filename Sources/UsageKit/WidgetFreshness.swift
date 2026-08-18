@@ -54,6 +54,23 @@ public struct SharedStoreRevision: Codable, Sendable, Equatable {
             newestSnapshotAt: newestSnapshotAt)
     }
 
+    /// Allocates after a durable sequence even when the descriptive marker for
+    /// that sequence was deliberately invalidated.
+    public static func next(
+        afterRevision previousRevision: UInt64,
+        writtenAt: Date,
+        accountCount: Int,
+        snapshotCount: Int,
+        newestSnapshotAt: Date?
+    ) -> SharedStoreRevision {
+        SharedStoreRevision(
+            revision: previousRevision &+ 1,
+            writtenAt: writtenAt,
+            accountCount: accountCount,
+            snapshotCount: snapshotCount,
+            newestSnapshotAt: newestSnapshotAt)
+    }
+
     /// Compact, non-sensitive description for os_log. Counts and dates only —
     /// no labels, no provider identity, nothing account-specific.
     public var logDescription: String {
