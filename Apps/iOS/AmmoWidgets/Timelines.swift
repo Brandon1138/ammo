@@ -6,6 +6,53 @@ import WidgetKit
 // app and its background task own refreshes, commit snapshots to the App Group,
 // then ask WidgetKit to reload. This lets a newly placed widget render the last
 // successful snapshot immediately, even when WidgetKit limits network/runtime.
+//
+// Every provider entry point is instrumented. A widget stuck on its redacted
+// placeholder is only diagnosable if the log distinguishes "WidgetKit never
+// asked", "the provider was asked and read an empty cache", and "the provider
+// was asked, read revision N, and returned entries" — so each phase logs the
+// cache revision it saw, the number of entries it produced, and how long it
+// took to produce them.
+
+/// Emits one line per timeline-provider phase.
+///
+/// `phase` names the WidgetKit callback, `revision` identifies the App Group
+/// write being rendered, and `newestSnapshot` is the timestamp any "Updated …
+/// ago" text would reference — which makes an app-side "Saved rev=N" line and a
+/// widget-side "read rev=N" line directly comparable.
+enum WidgetTimelineDiagnostics {
+    static func log(
+        kind: String,
+        phase: String,
+        family: WidgetFamily?,
+        stateCount: Int,
+        entryCount: Int?,
+        newestSnapshot: Date?,
+        refreshDate: Date?,
+        startedAt: Date
+    ) {
+        let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let formatter = ISO8601DateFormatter()
+        let newest = newestSnapshot.map(formatter.string(from:)) ?? "none"
+        let refresh = refreshDate.map(formatter.string(from:)) ?? "none"
+        let revision = SharedStoreRevisionStore.load()?.logDescription ?? "rev=unknown"
+        AmmoLog.widgetTimeline.info(
+            """
+            \(kind, privacy: .public).\(phase, privacy: .public) \
+            family=\(family.map(String.init(describing:)) ?? "unknown", privacy: .public) \
+            states=\(stateCount, privacy: .public) \
+            entries=\(entryCount.map(String.init) ?? "n/a", privacy: .public) \
+            newestSnapshot=\(newest, privacy: .public) \
+            nextRefresh=\(refresh, privacy: .public) \
+            elapsed=\(elapsed, privacy: .public)ms \
+            \(revision, privacy: .public)
+            """)
+    }
+
+    static func newestSnapshot(in states: [AccountState]) -> Date? {
+        states.compactMap(\.snapshot?.fetchedAt).max()
+    }
+}
 
 struct UsageEntry: TimelineEntry {
     let date: Date
@@ -14,22 +61,34 @@ struct UsageEntry: TimelineEntry {
 
 struct AccountTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> UsageEntry {
-        AmmoLog.widgetTimeline.debug("Account placeholder requested")
+        AmmoLog.widgetTimeline.debug("AmmoAccount.placeholder requested")
         return UsageEntry(date: .now, state: .placeholder)
     }
 
     func snapshot(for configuration: SelectAccountIntent, in context: Context) async -> UsageEntry {
+        let startedAt = Date()
         let entry = entry(for: configuration)
-        AmmoLog.widgetTimeline.info("Account snapshot produced; hasState=\(entry.state != nil, privacy: .public)")
+        let states = entry.state.map { [$0] } ?? []
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoAccount", phase: "snapshot", family: context.family,
+            stateCount: states.count, entryCount: 1,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
+            refreshDate: nil, startedAt: startedAt)
         return entry
     }
 
     func timeline(for configuration: SelectAccountIntent, in context: Context) async -> Timeline<UsageEntry> {
+        let startedAt = Date()
         let entry = entry(for: configuration)
-        AmmoLog.widgetTimeline.info("Account timeline produced; hasState=\(entry.state != nil, privacy: .public)")
         let states = entry.state.map { [$0] } ?? []
-        return Timeline(entries: timelineEntries(state: entry.state),
-                        policy: .after(RefreshLedgerStore.nextRefreshDate(states: states)))
+        let refreshDate = RefreshLedgerStore.nextRefreshDate(states: states)
+        let entries = timelineEntries(state: entry.state)
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoAccount", phase: "timeline", family: context.family,
+            stateCount: states.count, entryCount: entries.count,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
+            refreshDate: refreshDate, startedAt: startedAt)
+        return Timeline(entries: entries, policy: .after(refreshDate))
     }
 
     private func entry(for configuration: SelectAccountIntent) -> UsageEntry {
@@ -65,6 +124,7 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: SelectAccountsIntent, in context: Context) async -> AllAccountsEntry {
+        let startedAt = Date()
         let entry = entry(for: configuration)
         // A gallery preview with nothing configured would otherwise show the
         // board as four empty panels, which reads as the layout rather than as
@@ -75,18 +135,26 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
                 date: entry.date,
                 states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))
         }
-        AmmoLog.widgetTimeline.info("All Accounts snapshot produced with \(entry.states.count, privacy: .public) states")
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoAllAccounts", phase: "snapshot", family: context.family,
+            stateCount: entry.states.count, entryCount: 1,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: entry.states),
+            refreshDate: nil, startedAt: startedAt)
         return entry
     }
 
     func timeline(for configuration: SelectAccountsIntent, in context: Context) async -> Timeline<AllAccountsEntry> {
+        let startedAt = Date()
         let entry = entry(for: configuration)
-        AmmoLog.widgetTimeline.info("All Accounts timeline produced with \(entry.states.count, privacy: .public) states")
+        let refreshDate = RefreshLedgerStore.nextRefreshDate(states: entry.states)
         let entries = WidgetTimelineDates.make(states: entry.states)
             .map { AllAccountsEntry(date: $0, states: entry.states) }
-        return Timeline(
-            entries: entries,
-            policy: .after(RefreshLedgerStore.nextRefreshDate(states: entry.states)))
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoAllAccounts", phase: "timeline", family: context.family,
+            stateCount: entry.states.count, entryCount: entries.count,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: entry.states),
+            refreshDate: refreshDate, startedAt: startedAt)
+        return Timeline(entries: entries, policy: .after(refreshDate))
     }
 
     private func entry(for configuration: SelectAccountsIntent) -> AllAccountsEntry {
@@ -124,17 +192,32 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: SelectLimitIntent, in context: Context) async -> ActivityEntry {
-        entry(for: configuration)
+        let startedAt = Date()
+        let entry = entry(for: configuration)
+        let states = entry.state.map { [$0] } ?? []
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoActivity", phase: "snapshot", family: context.family,
+            stateCount: states.count, entryCount: 1,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
+            refreshDate: nil, startedAt: startedAt)
+        return entry
     }
 
     func timeline(for configuration: SelectLimitIntent, in context: Context) async -> Timeline<ActivityEntry> {
+        let startedAt = Date()
         let entry = entry(for: configuration)
         let states = entry.state.map { [$0] } ?? []
         let refreshDate = RefreshLedgerStore.nextRefreshDate(states: states)
         let tomorrow = Calendar.current.nextDate(after: entry.date,
                                                  matching: DateComponents(hour: 0, minute: 0),
                                                  matchingPolicy: .nextTime) ?? refreshDate
-        return Timeline(entries: [entry], policy: .after(min(refreshDate, tomorrow)))
+        let policyDate = min(refreshDate, tomorrow)
+        WidgetTimelineDiagnostics.log(
+            kind: "AmmoActivity", phase: "timeline", family: context.family,
+            stateCount: states.count, entryCount: 1,
+            newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
+            refreshDate: policyDate, startedAt: startedAt)
+        return Timeline(entries: [entry], policy: .after(policyDate))
     }
 
     private func entry(for configuration: SelectLimitIntent) -> ActivityEntry {
@@ -196,38 +279,20 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
 /// Preloads local-only display updates far enough to keep week-long countdowns
 /// moving even when WidgetKit defers network/timeline reloads. Exact reset
 /// boundaries switch stale meters to the conservative "Reset due" state.
-private enum WidgetTimelineDates {
+///
+/// The schedule itself lives in `UsageKit.WidgetTimelinePlan` so it is bounded
+/// and testable headless. The previous five-minute grid produced ~280 entries,
+/// each carrying a full copy of every rendered account — an archive the widget
+/// process has to build and WidgetKit has to accept before anything leaves the
+/// placeholder, and the largest such archive belonged to the widest family.
+enum WidgetTimelineDates {
     static func make(states: [AccountState], now: Date = .now) -> [Date] {
-        var dates = [now]
-
-        let fineEnd = now.addingTimeInterval(2 * 3600)
-        var next = now.addingTimeInterval(5 * 60)
-        while next <= fineEnd {
-            dates.append(next)
-            next = next.addingTimeInterval(5 * 60)
-        }
-
-        let dayEnd = now.addingTimeInterval(24 * 3600)
-        next = fineEnd.addingTimeInterval(15 * 60)
-        while next <= dayEnd {
-            dates.append(next)
-            next = next.addingTimeInterval(15 * 60)
-        }
-
-        let horizon = now.addingTimeInterval(8 * 24 * 3600)
-        next = dayEnd.addingTimeInterval(60 * 60)
-        while next <= horizon {
-            dates.append(next)
-            next = next.addingTimeInterval(60 * 60)
-        }
-
-        let resetDates = states
-            .compactMap(\.snapshot)
-            .flatMap(\.windows)
-            .compactMap(\.resetsAt)
-            .filter { $0 > now && $0 <= horizon }
-        dates.append(contentsOf: resetDates)
-        return Array(Set(dates)).sorted()
+        WidgetTimelinePlan.dates(
+            resetDates: states
+                .compactMap(\.snapshot)
+                .flatMap(\.windows)
+                .compactMap(\.resetsAt),
+            now: now)
     }
 }
 
