@@ -131,6 +131,28 @@ final class WidgetInvalidator: @unchecked Sendable {
         }
     }
 
+    /// Delivers an armed trailing reload before iOS can suspend this process.
+    /// The scheduled work item is retired by advancing `generation`, so it
+    /// cannot spend a second reload if the process remains alive long enough
+    /// for its original deadline to arrive.
+    func flushPendingBeforeSuspension(
+        nowUptime: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) {
+        guard !Self.isWidgetProcess else { return }
+
+        lock.lock()
+        guard let pendingReason else {
+            lock.unlock()
+            return
+        }
+        self.pendingReason = nil
+        lastDispatchUptime = nowUptime
+        generation &+= 1
+        lock.unlock()
+
+        dispatch(reason: pendingReason, revision: nil)
+    }
+
     /// Remaining coalescing delay from monotonic uptime. A regressed injected
     /// value is clamped to zero elapsed time, so delay never exceeds the window.
     static func coalescingDelay(

@@ -27,8 +27,14 @@ struct AmmoApp: App {
                 // closed leaves its placeholder now, not after the slowest
                 // provider answers — or never, when the device is offline.
                 AccountStore.shared.invalidateWidgetsFromCache()
-                Task { await AccountStore.shared.refreshAll(reason: .foreground) }
+                Task {
+                    await AccountStore.shared.refreshAll(reason: .foreground)
+                    if scenePhase != .active {
+                        WidgetInvalidator.shared.flushPendingBeforeSuspension()
+                    }
+                }
             case .background:
+                WidgetInvalidator.shared.flushPendingBeforeSuspension()
                 BackgroundRefresh.schedule()
             default:
                 break

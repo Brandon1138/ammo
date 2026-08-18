@@ -29,12 +29,14 @@ enum BackgroundRefresh {
             if !success {
                 AmmoLog.refresh.error("Background refresh finished with no successful account")
             }
+            WidgetInvalidator.shared.flushPendingBeforeSuspension()
             task.setTaskCompleted(success: success)
         }
         task.expirationHandler = {
             work.cancel()
             guard completion.claim() else { return }
             AmmoLog.refresh.error("Background refresh expired before it finished")
+            WidgetInvalidator.shared.flushPendingBeforeSuspension()
             task.setTaskCompleted(success: false)
         }
     }

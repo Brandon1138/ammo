@@ -262,6 +262,28 @@ struct MIK110Tests {
         #expect(recorder.reasons == [.appForeground, .refreshFinished])
     }
 
+    @Test("Suspension flushes a trailing reload exactly once")
+    func suspensionFlushesPendingReload() {
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        WidgetInvalidator.shared.invalidate(reason: .appForeground, nowUptime: start)
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, nowUptime: start)
+
+        #expect(recorder.reasons == [.appForeground])
+        #expect(scheduled.count == 1)
+
+        WidgetInvalidator.shared.flushPendingBeforeSuspension(nowUptime: start)
+        scheduled.runAll()
+
+        #expect(recorder.reasons == [.appForeground, .cacheCommitted])
+    }
+
     @Test("A regressed uptime never extends the coalescing delay")
     func regressedUptimeIsClamped() {
         let delay = WidgetInvalidator.coalescingDelay(
