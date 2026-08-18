@@ -13,15 +13,27 @@ struct MIK110Tests {
 
     // MARK: - Reload policy
 
-    @Test("Foreground cache hit reloads a placeholder widget")
-    func foregroundCacheHitReloads() {
+    @Test("Foreground cache hit relies on the activation republish")
+    func foregroundCacheHitDoesNotReloadAgain() {
+        let outcomes: [RefreshOutcome] = [
+            .cached(accountID: accountID, nextEligibleAt: .distantFuture),
+        ]
+
+        #expect(!WidgetReloadPolicy.shouldReload(
+            after: outcomes,
+            reason: .foreground,
+            hasCachedSnapshot: true))
+    }
+
+    @Test("An account-add cache hit still reloads when a snapshot exists")
+    func accountAddedCacheHitReloads() {
         let outcomes: [RefreshOutcome] = [
             .cached(accountID: accountID, nextEligibleAt: .distantFuture),
         ]
 
         #expect(WidgetReloadPolicy.shouldReload(
             after: outcomes,
-            reason: .foreground,
+            reason: .accountAdded,
             hasCachedSnapshot: true))
     }
 
@@ -88,17 +100,21 @@ struct MIK110Tests {
 
     // MARK: - Invalidation dispatch
 
-    @Test("A cache commit dispatches a widget reload")
-    func commitDispatchesReload() throws {
+    @Test("Account insertion dispatches exactly once at the write seam")
+    func accountInsertionDispatchesOnce() throws {
         let recorder = ReloadRecorder()
-        let token = WidgetInvalidator.shared.installDispatchOverride { recorder.record($0) }
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
         defer { _ = token }
 
         let account = StoredAccount(provider: .claude, label: "Reload probe")
         try SharedStore.insert(AccountState(account: account))
         defer { try? SharedStore.remove(id: account.id) }
 
-        #expect(recorder.reasons.contains(.accountAdded))
+        #expect(recorder.reasons == [.accountAdded])
+        #expect(scheduled.count == 0)
     }
 
     @Test("A burst of per-account commits collapses into one reload request")
@@ -139,8 +155,8 @@ struct MIK110Tests {
         #expect(scheduled.count == 0)
     }
 
-    @Test("A cache-only refresh dispatches exactly once from the caller")
-    func cacheOnlyRefreshDispatchesOnce() {
+    @Test("A cache-only manual refresh dispatches exactly once from the caller")
+    func cacheOnlyManualRefreshDispatchesOnce() {
         let recorder = ReloadRecorder()
         let scheduled = TrailingWorkRecorder()
         let token = WidgetInvalidator.shared.installDispatchOverride(
@@ -150,7 +166,7 @@ struct MIK110Tests {
 
         if WidgetReloadPolicy.shouldReload(
             after: [.cached(accountID: accountID, nextEligibleAt: .distantFuture)],
-            reason: .foreground,
+            reason: .manual,
             hasCachedSnapshot: true
         ) {
             WidgetInvalidator.shared.invalidate(reason: .refreshFinished)
@@ -209,16 +225,29 @@ struct MIK110Tests {
         #expect(delay == WidgetInvalidator.coalescingWindow)
     }
 
-    @Test("Opening the app publishes the cache without waiting for the network")
+    @Test("Foreground activation dispatches once for an unchanged revision")
     @MainActor
-    func foregroundPublishesCacheImmediately() {
+    func foregroundUnchangedRevisionDispatchesOnce() {
         let recorder = ReloadRecorder()
-        let token = WidgetInvalidator.shared.installDispatchOverride { recorder.record($0) }
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
         defer { _ = token }
 
         AccountStore.shared.invalidateWidgetsFromCache()
+        if WidgetReloadPolicy.shouldReload(
+            after: [.cached(accountID: accountID, nextEligibleAt: .distantFuture)],
+            reason: .foreground,
+            hasCachedSnapshot: true
+        ) {
+            WidgetInvalidator.shared.invalidate(
+                reason: .refreshFinished,
+                revision: SharedStoreRevisionStore.load())
+        }
 
         #expect(recorder.reasons == [.appForeground])
+        #expect(scheduled.count == 0)
     }
 
     // MARK: - Canonical snapshot persistence

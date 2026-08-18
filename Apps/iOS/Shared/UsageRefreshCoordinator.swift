@@ -62,12 +62,11 @@ enum WidgetReloadPolicy {
         // made entirely from cache reaches this caller without crossing the
         // write seam.
         guard !outcomes.isEmpty, outcomes.allSatisfy(\.isCacheOnly) else { return false }
-        // A user-initiated refresh can be throttled by the shared 60-second
-        // floor and return only `.cached`. Reload anyway when the App Group
-        // already has usable data: a newly placed or restored widget may still
-        // be displaying its placeholder, and a pull-to-refresh that quietly
-        // does nothing to the widget is exactly the MIK-51 report.
-        return isUserInitiated(reason) && hasCachedSnapshot
+        // Foreground activation republishes this same cache before starting the
+        // refresh, so a throttled foreground result must not arm a second reload
+        // for an unchanged revision. Manual and account-add flows have no such
+        // leading republish and keep the cache-only fallback.
+        return reason != .foreground && isUserInitiated(reason) && hasCachedSnapshot
     }
 }
 

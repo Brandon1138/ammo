@@ -77,7 +77,6 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
-        WidgetInvalidator.shared.invalidate(reason: .accountAdded)
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
     }
 
@@ -176,8 +175,8 @@ final class AccountStore {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
         // Persisted outcomes already reload through the SharedStore write seam.
-        // A foreground cache hit reloads here because no write occurred and a
-        // newly placed/restored widget may still hold a placeholder.
+        // Cache-only manual/account-add outcomes reload here because no write
+        // occurred. Foreground already republished the cache on activation.
         let hasCachedSnapshot = states.contains { state in
             uniqueIDs.contains(state.id) && state.snapshot != nil
         }
