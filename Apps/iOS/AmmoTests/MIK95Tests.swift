@@ -32,7 +32,7 @@ struct MIK95Tests {
         }
     }
 
-    @Test("A stacked panel shows two windows so the board's height divides four ways")
+    @Test("A divider section preserves Claude's optional third window")
     func stackedPanelWindowBudget() {
         let resetsAt = now.addingTimeInterval(2 * 86_400)
         let snapshot = UsageSnapshot(
@@ -46,10 +46,10 @@ struct MIK95Tests {
             ],
             fetchedAt: now)
 
-        #expect(WidgetProviderPanels.boardWindowLimit == 2)
-        let groups = snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
-        #expect(groups.flatMap { $0 }.map(\.label) == ["Session", "Weekly"])
-        #expect(groups.map(\.count) == [1, 1])
+        #expect(WidgetProviderPanels.boardWindowLimit == 3)
+        let groups = snapshot.widgetWindowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
+        #expect(groups.flatMap { $0 }.map(\.label) == ["Session", "Weekly", "Opus"])
+        #expect(groups.map(\.count) == [1, 2])
     }
 
     @Test("The board keeps a fixed panel per shipping provider")

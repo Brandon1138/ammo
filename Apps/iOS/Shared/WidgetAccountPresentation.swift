@@ -78,10 +78,10 @@ enum WidgetProviderPanels {
         return family == .systemExtraLargePortrait
     }
 
-    /// Windows one stacked panel shows. The board splits its height four ways, so
-    /// a panel is about a grid row and a half tall — two windows plus the shared
-    /// reset footer is what fits without the rows compressing into each other.
-    static let boardWindowLimit = 2
+    /// Three windows preserve Claude's Session, Weekly, and provider-reported
+    /// model bucket (currently Fable) without manufacturing a row on plans that
+    /// omit it. Other providers naturally collapse to their shorter lists.
+    static let boardWindowLimit = 3
 
     /// One slot per shipping provider. Where several accounts share a provider,
     /// the default ordering picks the one with the most complete usage data.
@@ -97,6 +97,25 @@ enum WidgetProviderPanels {
 
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
+
+    /// Optional provider-reported model buckets, Fable first and otherwise in
+    /// payload order. Empty means the payload omitted them; compact widgets
+    /// reserve no row and invent no placeholder.
+    var widgetModelScopedWindows: [LimitWindow] {
+        let windows = snapshot?.windows.filter { $0.kind == .modelScoped } ?? []
+        // A partition keeps the provider's own ordering intact behind Fable;
+        // `sorted` would be free to shuffle the equally-ranked remainder.
+        return windows.filter(\.isFableModelWindow)
+            + windows.filter { !$0.isFableModelWindow }
+    }
+
+    /// The one model bucket a compact surface prints beside its headline meter.
+    /// Nil when the payload has no bucket, or when the headline meter already
+    /// is that bucket — the same window must never be drawn twice.
+    var widgetCompactModelWindow: LimitWindow? {
+        guard let window = widgetModelScopedWindows.first else { return nil }
+        return window.id == widgetPercentageWindow?.id ? nil : window
+    }
 
     var hasWidgetMeteredUsage: Bool {
         snapshot?.onDemand?.contains { $0.isEnabled != false && $0.used != nil } == true

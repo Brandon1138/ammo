@@ -111,7 +111,7 @@ actor UsageRefreshCoordinator {
         }
         let account = state.account
 
-        guard let provider = provider(for: account.provider) else {
+        guard let provider = provider(for: account) else {
             let message = "\(account.provider.displayName) is not supported yet"
             if isCurrent(account), !Task.isCancelled {
                 try? SharedStore.record(failure: .unavailable, for: accountID)
@@ -272,12 +272,24 @@ actor UsageRefreshCoordinator {
                 nextEligibleAt: nil)
     }
 
-    private nonisolated static func provider(for id: ProviderID) -> (any UsageProvider)? {
+    private nonisolated static func provider(for account: StoredAccount) -> (any UsageProvider)? {
+        let id = account.provider
+        let usageURL: URL
         switch id {
-        case .claude: ClaudeProvider()
-        case .codex: CodexProvider()
-        case .cursor: CursorProvider()
-        case .openRouter: OpenRouterProvider()
+        case .claude: usageURL = ClaudeProvider.usageURL
+        case .codex: usageURL = CodexProvider.usageURL
+        case .cursor: usageURL = CursorProvider.usageURL
+        case .openRouter: usageURL = OpenRouterProvider.usageURL
+        case .antigravity: return nil
+        }
+        let transport = PayloadCapturingTransport(accountID: account.id,
+                                                  provider: id,
+                                                  usageURL: usageURL)
+        return switch id {
+        case .claude: ClaudeProvider(transport: transport)
+        case .codex: CodexProvider(transport: transport)
+        case .cursor: CursorProvider(transport: transport)
+        case .openRouter: OpenRouterProvider(transport: transport)
         case .antigravity: nil
         }
     }

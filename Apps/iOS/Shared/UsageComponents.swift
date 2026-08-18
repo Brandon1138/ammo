@@ -386,19 +386,7 @@ extension UsageSnapshot {
     /// Windows bucketed so that consecutive windows resetting at the same
     /// moment (within a minute) share one reset footer — e.g. Claude's
     /// Weekly and per-model windows both reset with the weekly cycle.
-    var windowGroups: [[LimitWindow]] {
-        var groups: [[LimitWindow]] = []
-        for window in windows {
-            if let last = groups.last?.last,
-               let a = last.resetsAt, let b = window.resetsAt,
-               abs(a.timeIntervalSince(b)) < 60 {
-                groups[groups.count - 1].append(window)
-            } else {
-                groups.append([window])
-            }
-        }
-        return groups
-    }
+    var windowGroups: [[LimitWindow]] { Self.grouped(windows) }
 
     /// The first `limit` windows with their shared-reset grouping intact, so a
     /// space-constrained surface truncates the list without orphaning a reset
@@ -413,5 +401,46 @@ extension UsageSnapshot {
             remaining -= visibleGroup.count
         }
         return groups
+    }
+
+    /// Space-constrained widget surfaces retain the provider-reported Fable
+    /// bucket even if another model bucket precedes it. This selects from the
+    /// parsed windows only; absent Fable means ordinary prefix behavior and no
+    /// synthetic row.
+    func widgetWindowGroups(limitedTo limit: Int) -> [[LimitWindow]] {
+        guard limit > 0 else { return [] }
+        var visible = Array(windows.prefix(limit))
+        if windows.count > limit,
+           let fable = windows.first(where: \.isFableModelWindow),
+           !visible.contains(fable) {
+            let replacement = visible.lastIndex { $0.kind == .modelScoped }
+                ?? visible.indices.last
+            if let replacement { visible[replacement] = fable }
+        }
+        return Self.grouped(visible)
+    }
+
+    /// Consecutive windows resetting within a minute of each other share one
+    /// reset footer. One implementation so every surface groups identically.
+    static func grouped(_ windows: [LimitWindow]) -> [[LimitWindow]] {
+        var groups: [[LimitWindow]] = []
+        for window in windows {
+            if let last = groups.last?.last,
+               let a = last.resetsAt, let b = window.resetsAt,
+               abs(a.timeIntervalSince(b)) < 60 {
+                groups[groups.count - 1].append(window)
+            } else {
+                groups.append([window])
+            }
+        }
+        return groups
+    }
+}
+
+extension LimitWindow {
+    /// The provider names its model buckets; Ammo never invents one. This is
+    /// the single place the reported display name is matched.
+    var isFableModelWindow: Bool {
+        kind == .modelScoped && label.localizedCaseInsensitiveCompare("Fable") == .orderedSame
     }
 }

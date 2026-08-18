@@ -7,6 +7,8 @@ struct SettingsView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     let model: NotificationSettingsModel
+    @State private var payloadExport: PayloadExport?
+    @State private var payloadExportError: String?
 
     var body: some View {
         NavigationStack {
@@ -56,6 +58,18 @@ struct SettingsView: View {
                     Text("Monthly reset alerts fire when Cursor's monthly allowance renews.")
                 }
                 .disabled(!model.preferences.masterEnabled)
+
+                Section {
+                    Button {
+                        exportRawUsagePayloads()
+                    } label: {
+                        Label("Export Raw Usage Payloads", systemImage: "square.and.arrow.up")
+                    }
+                } header: {
+                    Text("Debug")
+                } footer: {
+                    Text("Exports latest provider response bodies for fixture capture. Authentication headers and token responses are never included.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -73,6 +87,29 @@ struct SettingsView: View {
                 guard phase == .active else { return }
                 Task { await model.refreshAuthorizationStatus() }
             }
+            .sheet(item: $payloadExport) { export in
+                ActivityShareSheet(items: [export.url])
+            }
+            .alert("Couldn't Export Payloads", isPresented: payloadExportAlertBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(payloadExportError ?? "Unknown export error")
+            }
+        }
+    }
+
+    private var payloadExportAlertBinding: Binding<Bool> {
+        Binding(
+            get: { payloadExportError != nil },
+            set: { if !$0 { payloadExportError = nil } }
+        )
+    }
+
+    private func exportRawUsagePayloads() {
+        do {
+            payloadExport = PayloadExport(url: try RawUsagePayloadStore.makeExportFile())
+        } catch {
+            payloadExportError = error.localizedDescription
         }
     }
 
@@ -105,4 +142,22 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+private struct PayloadExport: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
 }
