@@ -360,6 +360,65 @@ struct MIK110Tests {
         #expect(diskSnapshot.revision?.accountCount == decoded.count)
     }
 
+    @Test("A contended cache lock still yields the atomic snapshot")
+    func contendedLockFallsBackToAtomicSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let cacheURL = directory.appendingPathComponent("usage-states.json")
+        let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let lock = SharedFileLock(url: directory.appendingPathComponent("usage-states.lock"))
+        let states = [
+            AccountState(account: StoredAccount(provider: .claude, label: "Cached")),
+        ]
+        let revision = SharedStoreRevision(
+            revision: 7,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            accountCount: states.count,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        try UsageCacheCodec.encode(states).write(to: cacheURL, options: .atomic)
+        try UsageCacheCodec.encode(revision).write(to: revisionURL, options: .atomic)
+
+        let lockHeld = DispatchSemaphore(value: 0)
+        let releaseLock = DispatchSemaphore(value: 0)
+        let holderFinished = DispatchSemaphore(value: 0)
+        let holderOutcome = OutcomeBox<Void>()
+        DispatchQueue.global().async {
+            defer { holderFinished.signal() }
+            holderOutcome.store(Result {
+                try lock.withLock(timeout: 2) {
+                    lockHeld.signal()
+                    _ = releaseLock.wait(timeout: .now() + 5)
+                }
+            })
+        }
+        #expect(lockHeld.wait(timeout: .now() + 2) == .success)
+        defer {
+            releaseLock.signal()
+            _ = holderFinished.wait(timeout: .now() + 2)
+        }
+
+        let diskSnapshot = try SharedStore.readCacheSnapshot(
+            fileURL: cacheURL,
+            revisionURL: revisionURL,
+            lock: lock)
+        let decoded = try UsageCacheCodec.decode(
+            [AccountState].self,
+            from: diskSnapshot.data)
+
+        #expect(decoded.map(\.account.label) == ["Cached"])
+        #expect(diskSnapshot.revision == revision)
+
+        releaseLock.signal()
+        #expect(holderFinished.wait(timeout: .now() + 2) == .success)
+        try holderOutcome.take()?.get()
+    }
+
     // MARK: - Tombstone filtering on the read path
 
     @Test("Unreadable tombstones keep cached states with unknown status")
