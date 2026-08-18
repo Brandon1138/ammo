@@ -829,7 +829,8 @@ private struct OpenRouterCreditsPanel: View {
 } timeline: {
     AllAccountsEntry(
         date: .now,
-        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))
+        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders),
+        revision: nil)
 }
 
 @available(iOS 27.0, *)
@@ -838,5 +839,6 @@ private struct OpenRouterCreditsPanel: View {
 } timeline: {
     AllAccountsEntry(
         date: .now,
-        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholdersWithoutFable))
+        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholdersWithoutFable),
+        revision: nil)
 }

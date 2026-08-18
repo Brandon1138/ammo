@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import UsageKit
-import WidgetKit
 
 /// Source of truth for accounts and their latest usage. Persists to the App
 /// Group (SharedStore) so widgets see every change; tokens go to the Keychain.
@@ -78,22 +77,28 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
-        WidgetCenter.shared.reloadAllTimelines()
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
     }
 
     func remove(_ account: StoredAccount) {
+        var needsCallerInvalidation = false
         do {
             try AccountMutationStore.begin(.removing, account: account)
             try AccountMutationStore.finishRemoval(account)
         } catch {
+            needsCallerInvalidation = AccountMutationStore.needsCallerInvalidation(after: error)
             // Durable journal or tombstone preserves intent. Recovery retries
             // any unfinished cleanup; reload now so tombstoned state vanishes.
             AmmoLog.sharedStore.error("Account removal cleanup remains pending: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
-        WidgetCenter.shared.reloadAllTimelines()
+        // Successful removal already invalidated after SharedStore committed its
+        // bytes. Only the deferred-cleanup path needs a caller-side reload so a
+        // newly written tombstone hides the stale cached account immediately.
+        if needsCallerInvalidation {
+            WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
+        }
         Task { await self.refresh(ids: []) }
     }
 
@@ -103,7 +108,7 @@ final class AccountStore {
             states = DemoData.states()
             historySamples = DemoData.historySamples()
             retryStates = [:]
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
         } catch {
             AmmoLog.sharedStore.error("Unable to enable demo mode: \(String(describing: error), privacy: .private)")
         }
@@ -119,7 +124,22 @@ final class AccountStore {
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
         retryStates = [:]
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
+    }
+
+    /// Publishes whatever the App Group already holds, without waiting for a
+    /// network round trip.
+    ///
+    /// Opening Ammo is the moment a person expects their widgets to agree with
+    /// the app, and a widget placed while the app was closed has never been told
+    /// the cache exists. Waiting for `refreshAll` to finish first makes that
+    /// wait as long as the slowest provider — or unbounded when the device is
+    /// offline. Ordering is safe: the cache being republished was committed by
+    /// an earlier write.
+    func invalidateWidgetsFromCache(reason: WidgetInvalidationReason = .appForeground) {
+        WidgetInvalidator.shared.invalidate(
+            reason: reason,
+            revision: SharedStoreRevisionStore.load())
     }
 
     // MARK: - Fetch pipeline
@@ -161,16 +181,18 @@ final class AccountStore {
         for id in uniqueIDs where refreshGenerations[id] == generations[id] {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
-        // Failures mutate shared render state too. A foreground cache hit also
-        // reloads: newly placed/restored widgets may still hold a placeholder
-        // even though the App Group already contains a usable snapshot.
+        // Persisted outcomes already reload through the SharedStore write seam.
+        // Cache-only manual/account-add outcomes reload here because no write
+        // occurred. Foreground already republished the cache on activation.
         let hasCachedSnapshot = states.contains { state in
             uniqueIDs.contains(state.id) && state.snapshot != nil
         }
         if WidgetReloadPolicy.shouldReload(after: outcomes,
                                            reason: reason,
                                            hasCachedSnapshot: hasCachedSnapshot) {
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetInvalidator.shared.invalidate(
+                reason: .refreshFinished,
+                revision: SharedStoreRevisionStore.load())
         }
         let refreshedAccountIDs = Set(outcomes.compactMap { outcome -> UUID? in
             guard case .refreshed(let accountID) = outcome else { return nil }

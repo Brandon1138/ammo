@@ -5,6 +5,11 @@ import Foundation
 /// Tokens cannot share an atomic transaction with App Group files. Recording
 /// intent first makes crashes and partial failures recoverable on next launch.
 enum AccountMutationStore {
+    struct RemovalError: Error {
+        let sharedCacheRemoved: Bool
+        let underlying: Error
+    }
+
     enum Kind: String, Codable, Sendable {
         case adding
         case removing
@@ -78,7 +83,19 @@ enum AccountMutationStore {
     }
 
     static func finishRemoval(_ account: StoredAccount) throws {
-        try cleanUp(account: account)
+        var sharedCacheRemoved = false
+        do {
+            try cleanUp(account: account) {
+                sharedCacheRemoved = true
+            }
+        } catch {
+            throw RemovalError(sharedCacheRemoved: sharedCacheRemoved, underlying: error)
+        }
+    }
+
+    static func needsCallerInvalidation(after error: Error) -> Bool {
+        guard let removalError = error as? RemovalError else { return true }
+        return !removalError.sharedCacheRemoved
     }
 
     static func recoveryAction(
@@ -96,13 +113,17 @@ enum AccountMutationStore {
         }
     }
 
-    private static func cleanUp(account: StoredAccount) throws {
+    private static func cleanUp(
+        account: StoredAccount,
+        onSharedCacheRemoved: () -> Void = {}
+    ) throws {
         // Tombstone is durable logical commit. Remaining deletes are idempotent
         // cleanup and may safely resume after interruption.
         try AccountDeletionStore.markDeleted(account.id)
         try KeychainStore.deleteOrThrow(for: account.id)
         try RefreshLedgerStore.removeOrThrow(accountID: account.id)
         try SharedStore.remove(id: account.id)
+        onSharedCacheRemoved()
         try UsageHistoryStore.remove(accountID: account.id)
         try finish(accountID: account.id)
     }

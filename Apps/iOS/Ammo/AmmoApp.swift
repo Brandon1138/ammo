@@ -23,8 +23,19 @@ struct AmmoApp: App {
         .onChange(of: scenePhase, initial: true) { _, phase in
             switch phase {
             case .active:
-                Task { await AccountStore.shared.refreshAll(reason: .foreground) }
+                WidgetInvalidator.shared.resumeAfterSuspension()
+                // Republish the cache first so a widget placed while the app was
+                // closed leaves its placeholder now, not after the slowest
+                // provider answers — or never, when the device is offline.
+                AccountStore.shared.invalidateWidgetsFromCache()
+                Task {
+                    await AccountStore.shared.refreshAll(reason: .foreground)
+                    if scenePhase != .active {
+                        WidgetInvalidator.shared.flushPendingBeforeSuspension()
+                    }
+                }
             case .background:
+                WidgetInvalidator.shared.flushPendingBeforeSuspension()
                 BackgroundRefresh.schedule()
             default:
                 break

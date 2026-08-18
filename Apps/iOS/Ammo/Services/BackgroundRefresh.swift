@@ -17,6 +17,7 @@ enum BackgroundRefresh {
     /// the real one: a run in which every account failed is not a success, and a
     /// run iOS expires before we finish did not complete at all.
     static func handle(_ task: BGTask) {
+        WidgetInvalidator.shared.flushPendingBeforeSuspension()
         nonisolated(unsafe) let task = task
         let completion = CompletionLatch()
         // Re-arm before provider work. Nothing should enqueue new background
