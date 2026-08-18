@@ -6,6 +6,7 @@ import WidgetKit
 
 struct AccountWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.redactionReasons) private var redactionReasons
     let entry: UsageEntry
 
     init(entry: UsageEntry) {
@@ -14,7 +15,10 @@ struct AccountWidgetView: View {
     }
 
     var body: some View {
-        if let state = entry.state {
+        if redactionReasons.contains(.placeholder) {
+            AccountWidgetSkeleton(family: family)
+                .unredacted()
+        } else if let state = entry.state {
             switch family {
             case .accessoryCircular:
                 CircularGaugeView(state: state, referenceDate: entry.date)
@@ -41,10 +45,226 @@ struct SetupHintView: View {
     }
 }
 
+private struct WidgetNoDataView: View {
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: compact ? .leading : .center, spacing: compact ? 3 : 5) {
+            Image(systemName: "tray")
+                .font(compact ? .caption.weight(.semibold) : .title3)
+            Text("No data yet")
+                .font(compact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+            Text("Open Ammo to sign in or refresh.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(compact ? .leading : .center)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity,
+               maxHeight: .infinity,
+               alignment: compact ? .leading : .center)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private extension AccountState {
+    /// Persisted state can prove no successful fetch has ever completed. It has
+    /// no separate in-flight flag, so loading remains WidgetKit's placeholder
+    /// redaction while this state is reserved for durable first-fetch absence.
+    /// Failed first fetches keep their existing failure presentation instead.
+    var hasNeverFetchedWidgetData: Bool {
+        snapshot == nil && updatedAt == nil && activeFailure == nil
+    }
+}
+
+// MARK: - Intentional widget placeholders
+
+private struct AccountWidgetSkeleton: View {
+    let family: WidgetFamily
+
+    @ViewBuilder
+    var body: some View {
+        switch family {
+        case .accessoryCircular:
+            CircularGaugeSkeleton()
+        case .systemMedium:
+            MediumAccountSkeleton()
+        default:
+            SmallAccountSkeleton()
+        }
+    }
+}
+
+private struct SmallAccountSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SkeletonHeader(titleWidth: 62, showsLoadingLabel: true)
+            ViewThatFits(in: .vertical) {
+                rows(limit: 3)
+                rows(limit: 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading usage")
+    }
+
+    private func rows(limit: Int) -> some View {
+        let rows: [(CGFloat, Double, CGFloat)] = [
+            (42.0, 0.68, 66.0),
+            (50.0, 0.42, 82.0),
+            (38.0, 0.76, 72.0),
+        ]
+        return VStack(alignment: .leading, spacing: 7) {
+            ForEach(Array(rows.prefix(limit).enumerated()), id: \.offset) { _, row in
+                SkeletonMeterRow(labelWidth: row.0,
+                                 fraction: row.1,
+                                 resetWidth: row.2)
+            }
+        }
+    }
+}
+
+private struct MediumAccountSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SkeletonHeader(titleWidth: 74, showsLoadingLabel: true)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(.primary.opacity(0.18))
+                        .frame(width: 78, height: 28)
+                    SkeletonBar(fraction: 0.64, height: 9)
+                    SkeletonLine(width: 72, height: 6, opacity: 0.1)
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 10) {
+                    SkeletonLedgerRow(labelWidth: 38, valueWidth: 46)
+                    SkeletonLedgerRow(labelWidth: 44, valueWidth: 34)
+                    SkeletonLedgerRow(labelWidth: 52, valueWidth: 42)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 128)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading usage")
+    }
+}
+
+private struct CircularGaugeSkeleton: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.primary.opacity(0.1), lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: 0.64)
+                .stroke(.blue.opacity(0.42),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .widgetAccentable()
+            VStack(spacing: 2) {
+                Circle()
+                    .fill(.primary.opacity(0.18))
+                    .frame(width: 10, height: 10)
+                Text("…")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading usage")
+    }
+}
+
+private struct SkeletonHeader: View {
+    let titleWidth: CGFloat
+    var showsLoadingLabel = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(.primary.opacity(0.18))
+                .frame(width: 20, height: 20)
+            SkeletonLine(width: titleWidth, height: 9, opacity: 0.18)
+            Spacer(minLength: 4)
+            if showsLoadingLabel {
+                Text("Updating")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct SkeletonMeterRow: View {
+    let labelWidth: CGFloat
+    let fraction: Double
+    let resetWidth: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                SkeletonLine(width: labelWidth, height: 7, opacity: 0.14)
+                Spacer(minLength: 8)
+                SkeletonLine(width: 28, height: 8, opacity: 0.18)
+            }
+            SkeletonBar(fraction: fraction, height: 7)
+            SkeletonLine(width: resetWidth, height: 5, opacity: 0.09)
+        }
+    }
+}
+
+private struct SkeletonBar: View {
+    let fraction: Double
+    let height: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.primary.opacity(0.08))
+                Capsule()
+                    .fill(.blue.opacity(0.34))
+                    .widgetAccentable()
+                    .frame(width: max(height, proxy.size.width * fraction))
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+private struct SkeletonLine: View {
+    let width: CGFloat
+    let height: CGFloat
+    let opacity: Double
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(.primary.opacity(opacity))
+            .frame(width: width, height: height)
+    }
+}
+
+private struct SkeletonLedgerRow: View {
+    let labelWidth: CGFloat
+    let valueWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            SkeletonLine(width: labelWidth, height: 7, opacity: 0.11)
+            Spacer(minLength: 4)
+            SkeletonLine(width: valueWidth, height: 8, opacity: 0.18)
+        }
+    }
+}
+
 // MARK: - Activity (systemSmall + systemMedium)
 
 struct ActivityWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.redactionReasons) private var redactionReasons
     let entry: ActivityEntry
 
     private var weekCount: Int {
@@ -52,7 +272,13 @@ struct ActivityWidgetView: View {
     }
 
     var body: some View {
-        if let state = entry.state,
+        if redactionReasons.contains(.placeholder) {
+            graph(days: emptyDays)
+                .overlay { SkeletonLoadingBadge(title: "Loading activity") }
+                .unredacted()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Loading activity")
+        } else if let state = entry.state,
            let windowID = entry.windowID,
            let window = state.snapshot?.windows.first(where: { $0.id == windowID }) {
             graph(
@@ -65,6 +291,10 @@ struct ActivityWidgetView: View {
                 )
             )
             .widgetURL(HistoryLink(accountID: state.id, windowID: window.id).url)
+        } else if let state = entry.state, state.hasNeverFetchedWidgetData {
+            WidgetNoDataView(compact: family == .systemSmall)
+        } else if entry.state == nil {
+            SetupHintView()
         } else {
             graph(days: emptyDays)
         }
@@ -88,6 +318,19 @@ struct ActivityWidgetView: View {
             matchesContainerCorners: true
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct SkeletonLoadingBadge: View {
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: "arrow.triangle.2.circlepath")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.regularMaterial, in: Capsule())
     }
 }
 
@@ -116,6 +359,8 @@ struct SmallAccountView: View {
                     windows(snapshot: snapshot, limit: 2)
                 }
                 Spacer(minLength: 0)
+            } else if state.hasNeverFetchedWidgetData {
+                WidgetNoDataView(compact: true)
             } else {
                 Spacer(minLength: 0)
                 Text(state.widgetAvailabilityText)
@@ -169,7 +414,9 @@ struct CircularGaugeView: View {
 
     @ViewBuilder
     var body: some View {
-        if let snapshot = state.snapshot,
+        if state.hasNeverFetchedWidgetData {
+            CircularNoDataView(provider: state.account.provider)
+        } else if let snapshot = state.snapshot,
            let presentation = LockScreenUsagePresentation(snapshot: snapshot) {
             if presentation.numericWindow != nil {
                 usageGauge(presentation: presentation)
@@ -270,6 +517,26 @@ struct CircularGaugeView: View {
     }
 }
 
+private struct CircularNoDataView: View {
+    let provider: ProviderID
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.primary.opacity(0.18), lineWidth: 3)
+            VStack(spacing: 2) {
+                ProviderLogo(provider: provider, size: 13)
+                Image(systemName: "tray")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("No data yet. Open Ammo to sign in or refresh.")
+    }
+}
+
 private extension View {
     @ViewBuilder
     func statusOverlay(symbol: String?) -> some View {
@@ -299,6 +566,8 @@ struct MediumAccountView: View {
             header
             if let snapshot = state.snapshot, let hero = snapshot.worstWindow {
                 content(snapshot: snapshot, hero: hero)
+            } else if state.hasNeverFetchedWidgetData {
+                WidgetNoDataView(compact: true)
             } else {
                 Spacer(minLength: 0)
                 Text(state.widgetAvailabilityText)
@@ -462,6 +731,7 @@ struct MediumAccountView: View {
 
 struct AllAccountsWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.redactionReasons) private var redactionReasons
     let entry: AllAccountsEntry
 
     init(entry: AllAccountsEntry) {
@@ -470,12 +740,17 @@ struct AllAccountsWidgetView: View {
     }
 
     var body: some View {
-        if WidgetProviderPanels.isProviderBoard(family) {
+        if redactionReasons.contains(.placeholder) {
+            AccountsWidgetSkeleton(family: family)
+                .unredacted()
+        } else if WidgetProviderPanels.isProviderBoard(family) {
             // The board keeps a panel per provider, so an empty configuration
             // still explains itself provider by provider.
             ProviderBoardView(states: entry.states, referenceDate: entry.date)
         } else if entry.states.isEmpty {
             SetupHintView()
+        } else if entry.states.allSatisfy(\.hasNeverFetchedWidgetData) {
+            WidgetNoDataView(compact: family == .systemSmall)
         } else {
             switch family {
             case .systemSmall:
@@ -486,6 +761,162 @@ struct AllAccountsWidgetView: View {
                 MediumAccountsView(states: entry.states)
             }
         }
+    }
+}
+
+private struct AccountsWidgetSkeleton: View {
+    let family: WidgetFamily
+
+    @ViewBuilder
+    var body: some View {
+        if WidgetProviderPanels.isProviderBoard(family) {
+            ProviderBoardSkeleton()
+        } else {
+            switch family {
+            case .systemSmall:
+                SmallAccountsSkeleton()
+            case .systemLarge:
+                LargeAccountsSkeleton()
+            default:
+                MediumAccountsSkeleton()
+            }
+        }
+    }
+}
+
+private struct SmallAccountsSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CompactAccountSkeletonRow(titleWidth: 48, fraction: 0.7,
+                                      showsLoadingLabel: true)
+            CompactAccountSkeletonRow(titleWidth: 62, fraction: 0.46)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading accounts")
+    }
+}
+
+private struct MediumAccountsSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array([0.74, 0.56, 0.38, 0.66].enumerated()), id: \.offset) { index, fraction in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(.primary.opacity(0.18))
+                        .frame(width: 20, height: 20)
+                    SkeletonLine(width: index.isMultiple(of: 2) ? 58 : 70,
+                                 height: 9,
+                                 opacity: 0.16)
+                        .frame(width: 76, alignment: .leading)
+                    SkeletonBar(fraction: fraction, height: 7)
+                    if index == 0 {
+                        Text("Updating")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    } else {
+                        SkeletonLine(width: 34, height: 9, opacity: 0.18)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading accounts")
+    }
+}
+
+private struct LargeAccountsSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DetailedProviderSkeletonSection(rowFractions: [0.7],
+                                            showsLoadingLabel: true)
+            Divider()
+            DetailedProviderSkeletonSection(rowFractions: [0.58, 0.42, 0.76])
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading accounts")
+    }
+}
+
+private struct ProviderBoardSkeleton: View {
+    private let sections: [(ProviderID, [Double], Bool)] = [
+        (.codex, [0.7], false),
+        (.claude, [0.58, 0.42, 0.76], false),
+        (.cursor, [0.64, 0.36], false),
+        (.openRouter, [0.72], true),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+                if index > 0 { Divider() }
+                DetailedProviderSkeletonSection(
+                    provider: section.0,
+                    rowFractions: section.1,
+                    showsLoadingLabel: index == 0,
+                    showsMeteredHeadline: section.2)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading provider usage")
+    }
+}
+
+private struct CompactAccountSkeletonRow: View {
+    let titleWidth: CGFloat
+    let fraction: Double
+    var showsLoadingLabel = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SkeletonHeader(titleWidth: titleWidth,
+                           showsLoadingLabel: showsLoadingLabel)
+            SkeletonBar(fraction: fraction, height: 6)
+        }
+    }
+}
+
+private struct DetailedProviderSkeletonSection: View {
+    var provider: ProviderID?
+    let rowFractions: [Double]
+    var showsLoadingLabel = false
+    var showsMeteredHeadline = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if let provider {
+                HStack(spacing: 7) {
+                    ProviderLogo(provider: provider, size: 20)
+                        .opacity(0.72)
+                    Text(provider.displayName)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    if showsLoadingLabel {
+                        Text("Updating")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                SkeletonHeader(titleWidth: 68,
+                               showsLoadingLabel: showsLoadingLabel)
+            }
+            if showsMeteredHeadline {
+                SkeletonLine(width: 94, height: 18, opacity: 0.18)
+            }
+            ForEach(Array(rowFractions.enumerated()), id: \.offset) { index, fraction in
+                SkeletonMeterRow(
+                    labelWidth: index.isMultiple(of: 2) ? 48 : 58,
+                    fraction: fraction,
+                    resetWidth: index.isMultiple(of: 2) ? 72 : 88)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -505,7 +936,11 @@ struct ProviderListView: View {
                             .minimumScaleFactor(0.85)
                             .layoutPriority(1)
                         Spacer(minLength: 4)
-                        if let worst = state.widgetPercentageWindow {
+                        if state.hasNeverFetchedWidgetData {
+                            Image(systemName: "tray")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        } else if let worst = state.widgetPercentageWindow {
                             Text(worst.remainingPercentText)
                                 .font(.headline.monospacedDigit())
                                 .foregroundStyle(worst.isRunningLow ? worst.barColor : .primary)
@@ -517,7 +952,12 @@ struct ProviderListView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    if let worst = state.widgetPercentageWindow {
+                    if state.hasNeverFetchedWidgetData {
+                        Text("No data yet — open Ammo")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else if let worst = state.widgetPercentageWindow {
                         CapsuleBar(fraction: worst.remainingPercent / 100,
                                    color: worst.barColor,
                                    height: 6)
@@ -560,7 +1000,13 @@ struct MediumAccountsView: View {
                             .font(.body)
                             .lineLimit(1)
                             .frame(width: 76, alignment: .leading)
-                        if let worst = state.widgetPercentageWindow {
+                        if state.hasNeverFetchedWidgetData {
+                            Text("No data yet — open Ammo")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        } else if let worst = state.widgetPercentageWindow {
                             CapsuleBar(fraction: worst.remainingPercent / 100,
                                        color: worst.barColor, height: 7)
                             Text(worst.remainingPercentText)
@@ -693,6 +1139,8 @@ private struct LargeProviderSection: View {
                     presentation: presentation,
                     referenceDate: referenceDate,
                     statusNotice: statusNotice(for: state))
+            } else if let state, state.hasNeverFetchedWidgetData {
+                InlineWidgetNoDataView()
             } else if let state {
                 Text(state.widgetAvailabilityText)
                     .font(.footnote)
@@ -711,6 +1159,20 @@ private struct LargeProviderSection: View {
     private func statusNotice(for state: AccountState) -> String? {
         if state.activeFailure != nil { return "Update failed; showing cached data" }
         return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
+    }
+}
+
+private struct InlineWidgetNoDataView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label("No data yet", systemImage: "tray")
+                .font(.footnote.weight(.semibold))
+            Text("Open Ammo to sign in or refresh.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
