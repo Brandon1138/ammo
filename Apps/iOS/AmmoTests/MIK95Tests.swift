@@ -47,7 +47,7 @@ struct MIK95Tests {
             fetchedAt: now)
 
         #expect(WidgetProviderPanels.boardWindowLimit == 3)
-        let groups = snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
+        let groups = snapshot.widgetWindowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
         #expect(groups.flatMap { $0 }.map(\.label) == ["Session", "Weekly", "Opus"])
         #expect(groups.map(\.count) == [1, 2])
     }
