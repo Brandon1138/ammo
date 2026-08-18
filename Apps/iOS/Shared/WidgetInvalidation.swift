@@ -38,7 +38,7 @@ final class WidgetInvalidator: @unchecked Sendable {
     private var dispatchOverride: (@Sendable (WidgetInvalidationReason) -> Void)?
 
     private let lock = NSLock()
-    private var lastDispatchAt: Date?
+    private var lastDispatchUptime: UInt64?
     private var pendingReason: WidgetInvalidationReason?
 
     private init() {}
@@ -53,7 +53,7 @@ final class WidgetInvalidator: @unchecked Sendable {
     func invalidate(
         reason: WidgetInvalidationReason,
         revision: SharedStoreRevision? = nil,
-        now: Date = Date()
+        nowUptime: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         guard !Self.isWidgetProcess else {
             AmmoLog.widgetInvalidation.debug(
@@ -64,9 +64,11 @@ final class WidgetInvalidator: @unchecked Sendable {
         let shouldDispatchNow: Bool
         let delay: TimeInterval
         lock.lock()
-        if let lastDispatchAt, now.timeIntervalSince(lastDispatchAt) < Self.coalescingWindow {
+        delay = Self.coalescingDelay(
+            lastDispatchUptime: lastDispatchUptime,
+            nowUptime: nowUptime)
+        if lastDispatchUptime != nil, delay > 0 {
             shouldDispatchNow = false
-            delay = Self.coalescingWindow - now.timeIntervalSince(lastDispatchAt)
             // A trailing request is already armed; fold this one into it.
             let alreadyPending = pendingReason != nil
             pendingReason = reason
@@ -78,8 +80,7 @@ final class WidgetInvalidator: @unchecked Sendable {
             }
         } else {
             shouldDispatchNow = true
-            delay = 0
-            lastDispatchAt = now
+            lastDispatchUptime = nowUptime
             lock.unlock()
         }
 
@@ -93,11 +94,25 @@ final class WidgetInvalidator: @unchecked Sendable {
             self.lock.lock()
             let trailing = self.pendingReason
             self.pendingReason = nil
-            self.lastDispatchAt = Date()
+            self.lastDispatchUptime = DispatchTime.now().uptimeNanoseconds
             self.lock.unlock()
             guard let trailing else { return }
             self.dispatch(reason: trailing, revision: nil)
         }
+    }
+
+    /// Remaining coalescing delay from monotonic uptime. A regressed injected
+    /// value is clamped to zero elapsed time, so delay never exceeds the window.
+    static func coalescingDelay(
+        lastDispatchUptime: UInt64?,
+        nowUptime: UInt64
+    ) -> TimeInterval {
+        guard let lastDispatchUptime else { return 0 }
+        let elapsedNanoseconds = nowUptime >= lastDispatchUptime
+            ? nowUptime - lastDispatchUptime
+            : 0
+        let elapsed = TimeInterval(elapsedNanoseconds) / 1_000_000_000
+        return max(0, coalescingWindow - elapsed)
     }
 
     private func dispatch(reason: WidgetInvalidationReason, revision: SharedStoreRevision?) {
@@ -132,7 +147,7 @@ final class WidgetInvalidator: @unchecked Sendable {
         dispatchOverride = override
         // Coalescing state is per-test; a leftover timestamp would silently
         // swallow the first assertion of the next test.
-        lastDispatchAt = nil
+        lastDispatchUptime = nil
         pendingReason = nil
         lock.unlock()
         return WidgetInvalidatorOverrideToken(invalidator: self, previous: previous)
@@ -143,7 +158,7 @@ final class WidgetInvalidator: @unchecked Sendable {
     ) {
         lock.lock()
         dispatchOverride = override
-        lastDispatchAt = nil
+        lastDispatchUptime = nil
         pendingReason = nil
         lock.unlock()
     }

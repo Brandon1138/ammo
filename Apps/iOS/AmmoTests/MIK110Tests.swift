@@ -112,14 +112,24 @@ struct MIK110Tests {
         let token = WidgetInvalidator.shared.installDispatchOverride { recorder.record($0) }
         defer { _ = token }
 
-        let start = Date()
-        WidgetInvalidator.shared.invalidate(reason: .appForeground, now: start)
+        let start = DispatchTime.now().uptimeNanoseconds
+        let spacing = UInt64((WidgetInvalidator.coalescingWindow + 1) * 1_000_000_000)
+        WidgetInvalidator.shared.invalidate(reason: .appForeground, nowUptime: start)
         WidgetInvalidator.shared.invalidate(
             reason: .refreshFinished,
-            now: start.addingTimeInterval(WidgetInvalidator.coalescingWindow + 1))
+            nowUptime: start + spacing)
 
         #expect(recorder.count == 2)
         #expect(recorder.reasons == [.appForeground, .refreshFinished])
+    }
+
+    @Test("A regressed uptime never extends the coalescing delay")
+    func regressedUptimeIsClamped() {
+        let delay = WidgetInvalidator.coalescingDelay(
+            lastDispatchUptime: 10_000_000_000,
+            nowUptime: 1_000_000_000)
+
+        #expect(delay == WidgetInvalidator.coalescingWindow)
     }
 
     @Test("Opening the app publishes the cache without waiting for the network")
@@ -186,14 +196,30 @@ struct MIK110Tests {
 
     // MARK: - Tombstone filtering on the read path
 
-    @Test("Unreadable tombstones render the cache instead of blanking every widget")
-    func unknownTombstonesKeepCachedStates() {
+    @Test("Unreadable tombstones keep cached states with unknown status")
+    func unknownTombstonesKeepUnknownCachedStates() {
         let states = [
             AccountState(account: StoredAccount(provider: .claude, label: "Claude")),
             AccountState(account: StoredAccount(provider: .codex, label: "Codex")),
         ]
 
-        #expect(SharedStore.removingDeleted(states, deletedIDs: nil).count == 2)
+        #expect(SharedStore.removingDeleted(
+            states,
+            deletedIDs: nil,
+            knownDeletedIDs: []).count == 2)
+    }
+
+    @Test("Unreadable tombstones still hide previously observed removals")
+    func unknownTombstonesFilterKnownRemovalOnly() {
+        let deleted = AccountState(account: StoredAccount(provider: .claude, label: "Claude"))
+        let kept = AccountState(account: StoredAccount(provider: .codex, label: "Codex"))
+
+        let remaining = SharedStore.removingDeleted(
+            [deleted, kept],
+            deletedIDs: nil,
+            knownDeletedIDs: [deleted.id])
+
+        #expect(remaining.map(\.id) == [kept.id])
     }
 
     @Test("A readable tombstone still removes the account it names")
@@ -202,7 +228,8 @@ struct MIK110Tests {
         let kept = AccountState(account: StoredAccount(provider: .codex, label: "Codex"))
 
         let remaining = SharedStore.removingDeleted([deleted, kept],
-                                                    deletedIDs: [deleted.id])
+                                                    deletedIDs: [deleted.id],
+                                                    knownDeletedIDs: [])
 
         #expect(remaining.map(\.id) == [kept.id])
     }
@@ -213,7 +240,10 @@ struct MIK110Tests {
             AccountState(account: StoredAccount(provider: .openRouter, label: "OpenRouter")),
         ]
 
-        #expect(SharedStore.removingDeleted(states, deletedIDs: []).count == 1)
+        #expect(SharedStore.removingDeleted(
+            states,
+            deletedIDs: [],
+            knownDeletedIDs: []).count == 1)
     }
 }
 

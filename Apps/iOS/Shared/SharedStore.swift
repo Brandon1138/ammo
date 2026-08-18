@@ -92,25 +92,23 @@ enum SharedStore {
 
     /// Drops tombstoned accounts from a decoded cache.
     ///
-    /// When the tombstone set cannot be read the cache is returned intact rather
-    /// than emptied. Removal already rewrites this file without the account, so
-    /// the tombstone filter only guards the window of a half-finished removal;
-    /// treating an unreadable tombstone file as "everything is deleted" traded
-    /// that narrow window for blanking every widget whenever the lock was
-    /// contended or protected data was locked. Writers keep failing closed via
-    /// `AccountDeletionStore.isDeleted`, so nothing is re-persisted for an
-    /// account whose status is unknown.
+    /// When the current tombstone set cannot be read, previously observed
+    /// tombstones still filter the cache. Unknown IDs remain visible, preserving
+    /// live cached accounts instead of blanking every widget during contention.
+    /// Writers keep failing closed via `AccountDeletionStore.isDeleted`, so
+    /// nothing is re-persisted for an account whose status is unknown.
     static func removingDeleted(
         _ states: [AccountState],
         deletedIDs: Set<UUID>? = AccountDeletionStore.deletedIDs()
-            ?? AccountDeletionStore.deletedIDs(timeout: 1)
+            ?? AccountDeletionStore.deletedIDs(timeout: 1),
+        knownDeletedIDs: Set<UUID> = AccountDeletionStore.lastKnownDeletedIDs
     ) -> [AccountState] {
-        guard let deletedIDs else {
+        let effectiveDeletedIDs = knownDeletedIDs.union(deletedIDs ?? [])
+        if deletedIDs == nil {
             AmmoLog.sharedStore.notice(
-                "Tombstones unreadable; rendering \(states.count, privacy: .public) cached account states unfiltered")
-            return states
+                "Tombstones unreadable; filtering \(effectiveDeletedIDs.count, privacy: .public) known deleted accounts")
         }
-        return states.filter { !deletedIDs.contains($0.id) }
+        return states.filter { !effectiveDeletedIDs.contains($0.id) }
     }
 
     static func insert(_ state: AccountState) throws {
