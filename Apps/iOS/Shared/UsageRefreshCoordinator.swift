@@ -40,16 +40,28 @@ enum RefreshOutcome: Sendable {
 }
 
 enum WidgetReloadPolicy {
+    /// Whether a person is watching the result of this refresh. They are the
+    /// cases where the app screen visibly settles on an answer, so a widget that
+    /// disagrees with it reads as broken even when nothing was fetched.
+    static func isUserInitiated(_ reason: RefreshReason) -> Bool {
+        switch reason {
+        case .accountAdded, .foreground, .manual: true
+        case .background: false
+        }
+    }
+
     static func shouldReload(
         after outcomes: [RefreshOutcome],
         reason: RefreshReason,
         hasCachedSnapshot: Bool
     ) -> Bool {
         if outcomes.contains(where: \.requiresTimelineReload) { return true }
-        // A foreground refresh can be throttled by the shared 60-second floor.
-        // Reload anyway when the App Group already has usable data: a newly
-        // placed or restored widget may still be displaying its placeholder.
-        return reason == .foreground && hasCachedSnapshot
+        // A user-initiated refresh can be throttled by the shared 60-second
+        // floor and return only `.cached`. Reload anyway when the App Group
+        // already has usable data: a newly placed or restored widget may still
+        // be displaying its placeholder, and a pull-to-refresh that quietly
+        // does nothing to the widget is exactly the MIK-51 report.
+        return isUserInitiated(reason) && hasCachedSnapshot
     }
 }
 

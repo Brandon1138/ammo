@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import UsageKit
-import WidgetKit
 
 /// Source of truth for accounts and their latest usage. Persists to the App
 /// Group (SharedStore) so widgets see every change; tokens go to the Keychain.
@@ -78,7 +77,7 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidator.shared.invalidate(reason: .accountAdded)
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
     }
 
@@ -93,7 +92,7 @@ final class AccountStore {
         }
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
         Task { await self.refresh(ids: []) }
     }
 
@@ -103,7 +102,7 @@ final class AccountStore {
             states = DemoData.states()
             historySamples = DemoData.historySamples()
             retryStates = [:]
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
         } catch {
             AmmoLog.sharedStore.error("Unable to enable demo mode: \(String(describing: error), privacy: .private)")
         }
@@ -119,7 +118,22 @@ final class AccountStore {
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
         retryStates = [:]
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
+    }
+
+    /// Publishes whatever the App Group already holds, without waiting for a
+    /// network round trip.
+    ///
+    /// Opening Ammo is the moment a person expects their widgets to agree with
+    /// the app, and a widget placed while the app was closed has never been told
+    /// the cache exists. Waiting for `refreshAll` to finish first makes that
+    /// wait as long as the slowest provider — or unbounded when the device is
+    /// offline. Ordering is safe: the cache being republished was committed by
+    /// an earlier write.
+    func invalidateWidgetsFromCache(reason: WidgetInvalidationReason = .appForeground) {
+        WidgetInvalidator.shared.invalidate(
+            reason: reason,
+            revision: SharedStoreRevisionStore.load())
     }
 
     // MARK: - Fetch pipeline
@@ -170,7 +184,9 @@ final class AccountStore {
         if WidgetReloadPolicy.shouldReload(after: outcomes,
                                            reason: reason,
                                            hasCachedSnapshot: hasCachedSnapshot) {
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetInvalidator.shared.invalidate(
+                reason: .refreshFinished,
+                revision: SharedStoreRevisionStore.load())
         }
         let refreshedAccountIDs = Set(outcomes.compactMap { outcome -> UUID? in
             guard case .refreshed(let accountID) = outcome else { return nil }
