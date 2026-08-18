@@ -2,9 +2,10 @@ import Foundation
 import UsageKit
 import WidgetKit
 
-// Timeline requests use the same provider-neutral coordinator as the app. The
-// coordinator serves a cache hit inside the 60-second floor and owns the network
-// fetch otherwise, so opening Ammo and a WidgetKit wake cannot double-request.
+// Widget timelines are cache-first and never wait on provider networking. The
+// app and its background task own refreshes, commit snapshots to the App Group,
+// then ask WidgetKit to reload. This lets a newly placed widget render the last
+// successful snapshot immediately, even when WidgetKit limits network/runtime.
 
 struct UsageEntry: TimelineEntry {
     let date: Date
@@ -24,10 +25,6 @@ struct AccountTimelineProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SelectAccountIntent, in context: Context) async -> Timeline<UsageEntry> {
-        if let accountID = selectedAccountID(for: configuration) {
-            _ = await UsageRefreshCoordinator.shared.refresh(accountID: accountID,
-                                                               reason: .widget)
-        }
         let entry = entry(for: configuration)
         AmmoLog.widgetTimeline.info("Account timeline produced; hasState=\(entry.state != nil, privacy: .public)")
         let states = entry.state.map { [$0] } ?? []
@@ -42,14 +39,6 @@ struct AccountTimelineProvider: AppIntentTimelineProvider {
             ?? WidgetAccountOrder.defaultOrder(states).first
         return UsageEntry(date: .now, state: state)
     }
-
-    private func selectedAccountID(for configuration: SelectAccountIntent) -> UUID? {
-        let states = SharedStore.load()
-        return configuration.account
-            .flatMap { chosen in states.first { $0.account.id == chosen.id }?.account.id }
-            ?? WidgetAccountOrder.defaultOrder(states).first?.account.id
-    }
-
 
     private func timelineEntries(state: AccountState?) -> [UsageEntry] {
         WidgetTimelineDates.make(states: state.map { [$0] } ?? [])
@@ -91,11 +80,6 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SelectAccountsIntent, in context: Context) async -> Timeline<AllAccountsEntry> {
-        let allStates = SharedStore.load()
-        let selectedIDs = configuration.orderedAccountIDs
-        let refreshIDs = selectedIDs.isEmpty ? allStates.map(\.id) : selectedIDs
-        _ = await UsageRefreshCoordinator.shared.refresh(accountIDs: refreshIDs, reason: .widget)
-
         let entry = entry(for: configuration)
         AmmoLog.widgetTimeline.info("All Accounts timeline produced with \(entry.states.count, privacy: .public) states")
         let entries = WidgetTimelineDates.make(states: entry.states)
@@ -144,11 +128,6 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SelectLimitIntent, in context: Context) async -> Timeline<ActivityEntry> {
-        let initial = selectedLimit(for: configuration)
-        if let accountID = initial.state?.id {
-            _ = await UsageRefreshCoordinator.shared.refresh(accountID: accountID, reason: .widget)
-        }
-
         let entry = entry(for: configuration)
         let states = entry.state.map { [$0] } ?? []
         let refreshDate = RefreshLedgerStore.nextRefreshDate(states: states)

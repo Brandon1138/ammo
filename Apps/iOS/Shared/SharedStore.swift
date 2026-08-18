@@ -70,10 +70,8 @@ enum SharedStore {
         removeLegacyCodexBillingCache()
         do {
             let data = try Data(contentsOf: fileURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
             let states = sanitize(
-                try decoder.decode([AccountState].self, from: data))
+                try UsageCacheCodec.decode([AccountState].self, from: data))
                 .filter { !AccountDeletionStore.isDeleted($0.id) }
             AmmoLog.sharedStore.info("Loaded \(states.count, privacy: .public) account states")
             return states
@@ -161,16 +159,11 @@ enum SharedStore {
 
     private static func loadUnlocked() -> [AccountState] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return sanitize((try? decoder.decode([AccountState].self, from: data)) ?? [])
+        return sanitize((try? UsageCacheCodec.decode([AccountState].self, from: data)) ?? [])
     }
 
     private static func saveUnlocked(_ states: [AccountState]) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(states)
+        let data = try UsageCacheCodec.encode(states)
         try data.write(to: fileURL, options: .atomic)
         AmmoLog.sharedStore.info("Saved \(states.count, privacy: .public) account states")
     }

@@ -20,7 +20,7 @@ struct AmmoApp: App {
                 }
             }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             switch phase {
             case .active:
                 Task { await AccountStore.shared.refreshAll(reason: .foreground) }

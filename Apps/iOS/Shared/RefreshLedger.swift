@@ -1,8 +1,8 @@
 import Foundation
 import UsageKit
 
-/// Persistent per-account fetch state shared by the app and widget processes.
-/// Claiming happens under a file lock before network work begins.
+/// Persistent per-account fetch state shared across app launches and background
+/// tasks. Claiming happens under a file lock before network work begins.
 enum RefreshLedgerStore {
     static let minimumFetchInterval: TimeInterval = 60
     private static let inFlightLease: TimeInterval = 2 * 60
@@ -123,8 +123,8 @@ enum RefreshLedgerStore {
     }
 
     /// The earliest passive refresh due across the supplied accounts. WidgetKit
-    /// and BGTaskScheduler both use this so their wake requests agree with the
-    /// same persistent activity state used by the network gate.
+    /// uses this for cache timeline requests while BGTaskScheduler uses it for
+    /// provider work, keeping both on the same persistent activity schedule.
     static func nextRefreshDate(states: [AccountState], now: Date = Date()) -> Date {
         guard !states.isEmpty else {
             return UsageRefreshSchedule.nextRefreshDate(snapshots: [], now: now)

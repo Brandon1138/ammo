@@ -6,13 +6,12 @@ enum RefreshReason: String, Sendable {
     case background
     case foreground
     case manual
-    case widget
 
     /// User-visible app work may bypass the adaptive quiet period, but every
     /// reason still obeys the shared 60-second floor and provider backoff.
     var usesAdaptiveSchedule: Bool {
         switch self {
-        case .background, .widget: true
+        case .background: true
         case .accountAdded, .foreground, .manual: false
         }
     }
@@ -40,9 +39,22 @@ enum RefreshOutcome: Sendable {
     }
 }
 
-/// The only network-fetch entry point for both the app and widget extension.
-/// Child work remains structured under each caller; RefreshLedgerStore
-/// coalesces overlapping attempts across both independent processes.
+enum WidgetReloadPolicy {
+    static func shouldReload(
+        after outcomes: [RefreshOutcome],
+        reason: RefreshReason,
+        hasCachedSnapshot: Bool
+    ) -> Bool {
+        if outcomes.contains(where: \.requiresTimelineReload) { return true }
+        // A foreground refresh can be throttled by the shared 60-second floor.
+        // Reload anyway when the App Group already has usable data: a newly
+        // placed or restored widget may still be displaying its placeholder.
+        return reason == .foreground && hasCachedSnapshot
+    }
+}
+
+/// The app's network-fetch entry point. Child work remains structured under
+/// each caller; RefreshLedgerStore coalesces overlapping app/background work.
 actor UsageRefreshCoordinator {
     static let shared = UsageRefreshCoordinator()
 
