@@ -17,6 +17,7 @@ struct OpenRouterKeyPresentationTests {
         #expect(presentation.detail.hasSuffix("used this month"))
         #expect(presentation.cadence == .monthly)
         #expect(presentation.remainingFraction == 0.745)
+        #expect(presentation.lockScreenCenterText == compactMoney(74.5))
         #expect(presentation.resetsAt != nil)
         #expect(presentation.dailyDetail == nil)
         #expect(!presentation.isExhausted)
@@ -57,6 +58,7 @@ struct OpenRouterKeyPresentationTests {
         #expect(presentation.detail == "\(money(50)) spent to date")
         #expect(presentation.dailyDetail == "\(money(1.25)) today")
         #expect(presentation.remainingFraction == nil)
+        #expect(presentation.lockScreenCenterText == compactMoney(1.25))
         #expect(presentation.resetsAt == nil)
     }
 
@@ -66,6 +68,7 @@ struct OpenRouterKeyPresentationTests {
             OpenRouterKeyPresentation(snapshot: unlimitedSnapshot(daily: nil)))
 
         #expect(presentation.dailyDetail == nil)
+        #expect(presentation.lockScreenCenterText == nil)
     }
 
     @Test("The tier badge is entitlement copy, and absent when unreported")
@@ -84,6 +87,18 @@ struct OpenRouterKeyPresentationTests {
 
         #expect(presentation.isExhausted)
         #expect(presentation.remainingFraction == 0)
+        #expect(presentation.lockScreenCenterText == compactMoney(0))
+    }
+
+    @Test("Lock Screen currency drops cents at ten dollars and keeps them below ten")
+    func lockScreenCurrencyPrecision() throws {
+        let wholeDollars = try #require(OpenRouterKeyPresentation(
+            snapshot: budgetedSnapshot(remaining: 12, used: 88)))
+        let dollarsAndCents = try #require(OpenRouterKeyPresentation(
+            snapshot: budgetedSnapshot(remaining: 3.4, used: 96.6)))
+
+        #expect(wholeDollars.lockScreenCenterText == compactMoney(12))
+        #expect(dollarsAndCents.lockScreenCenterText == compactMoney(3.4))
     }
 
     @Test("Other providers never render as an OpenRouter key")
@@ -180,5 +195,11 @@ struct OpenRouterKeyPresentationTests {
     /// formatter rather than hard-coding one locale's output.
     private func money(_ amount: Double) -> String {
         amount.formatted(.currency(code: "USD").precision(.fractionLength(2)))
+    }
+
+    private func compactMoney(_ amount: Double) -> String {
+        amount.formatted(
+            .currency(code: "USD")
+                .precision(.fractionLength(amount >= 10 ? 0 : 2)))
     }
 }

@@ -181,14 +181,21 @@ struct CircularGaugeView: View {
                     .statusOverlay(symbol: statusSymbol(for: presentation))
             }
         } else if state.hasWidgetMeteredUsage {
-            VStack(spacing: 1) {
-                ProviderLogo(provider: state.account.provider, size: 17)
-                Image(systemName: "dollarsign")
-                    .font(.system(size: 8, weight: .semibold))
+            if let snapshot = state.snapshot,
+               let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
+                openRouterGauge(presentation: presentation)
+                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
+                    .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
+            } else {
+                VStack(spacing: 1) {
+                    ProviderLogo(provider: state.account.provider, size: 17)
+                    Image(systemName: "dollarsign")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(meteredAccessibilityLabel(presentation: nil))
             }
-            .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(meteredAccessibilityLabel)
         } else {
             Gauge(value: 0, in: 0...100) {
                 ProviderLogo(provider: state.account.provider, size: 12)
@@ -218,6 +225,23 @@ struct CircularGaugeView: View {
         .accessibilityLabel(accessibilityLabel(for: presentation))
     }
 
+    private func openRouterGauge(
+        presentation: OpenRouterKeyPresentation
+    ) -> some View {
+        Gauge(value: presentation.remainingFraction ?? 1, in: 0...1) {
+            ProviderLogo(provider: state.account.provider, size: 12)
+        } currentValueLabel: {
+            if let centerText = presentation.lockScreenCenterText {
+                Text(centerText)
+            } else {
+                Image(systemName: "dollarsign")
+            }
+        }
+        .tint(openRouterMeterColor(presentation.remainingFraction ?? 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(meteredAccessibilityLabel(presentation: presentation))
+    }
+
     private func statusSymbol(
         for presentation: LockScreenUsagePresentation
     ) -> String? {
@@ -230,10 +254,31 @@ struct CircularGaugeView: View {
         return nil
     }
 
-    private var meteredAccessibilityLabel: String {
-        var values = [
-            "\(state.account.provider.displayName) reports spending without a percentage limit"
-        ]
+    private func meteredAccessibilityLabel(
+        presentation: OpenRouterKeyPresentation?
+    ) -> String {
+        var values: [String]
+        if let presentation, let fraction = presentation.remainingFraction {
+            let centerText = presentation.lockScreenCenterText ?? "No balance reported"
+            let percent = fraction.formatted(
+                .percent.precision(.fractionLength(0)))
+            values = [
+                "\(state.account.provider.displayName) budget",
+                "\(centerText) remaining",
+                "\(percent) of budget remaining",
+            ]
+        } else if let presentation {
+            values = ["\(state.account.provider.displayName) pay-as-you-go"]
+            if let centerText = presentation.lockScreenCenterText {
+                values.append("Spend today \(centerText)")
+            } else {
+                values.append("No spend today reported")
+            }
+        } else {
+            values = [
+                "\(state.account.provider.displayName) reports spending without a percentage limit"
+            ]
+        }
         if state.activeFailure != nil {
             values.append("Update failed; showing cached data")
         } else if state.widgetStatusSymbol(at: referenceDate) != nil {
@@ -282,6 +327,17 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+/// Shared by OpenRouter's XL bar and Lock Screen marker gauge.
+private func openRouterMeterColor(_ remainingFraction: Double) -> Color {
+    if remainingFraction <= 0.1 {
+        .red
+    } else if remainingFraction <= 0.25 {
+        .orange
+    } else {
+        .blue
     }
 }
 
@@ -786,7 +842,10 @@ private struct OpenRouterCreditsPanel: View {
                     .minimumScaleFactor(0.8)
             }
             if let fraction = presentation.remainingFraction {
-                CapsuleBar(fraction: fraction, color: meterColor(fraction), height: 7)
+                CapsuleBar(
+                    fraction: fraction,
+                    color: openRouterMeterColor(fraction),
+                    height: 7)
             }
             HStack(spacing: 8) {
                 Text(presentation.detail)
@@ -816,11 +875,6 @@ private struct OpenRouterCreditsPanel: View {
         }
     }
 
-    /// Same thresholds as the window meters: amber once a quarter of the budget
-    /// is left, red in the last tenth.
-    private func meterColor(_ fraction: Double) -> Color {
-        if fraction <= 0.1 { .red } else if fraction <= 0.25 { .orange } else { .blue }
-    }
 }
 
 @available(iOS 27.0, *)

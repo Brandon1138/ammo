@@ -34,6 +34,10 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
     /// Remaining budget as 0…1. `nil` for a pay-as-you-go key, which has no
     /// capacity to draw a meter against.
     public let remainingFraction: Double?
+    /// Currency copy sized for the Lock Screen gauge center. Budgeted keys
+    /// show remaining credits; pay-as-you-go keys show today's spend when the
+    /// provider reports it. `nil` means the gauge should use a dollar glyph.
+    public let lockScreenCenterText: String?
     public let cadence: Cadence?
     public let resetsAt: Date?
     public let isExhausted: Bool
@@ -52,6 +56,9 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
 
         if !spending.isUnlimited, let remaining = spending.remainingAmount {
             headline = "\(Self.money(remaining, code: spending.currencyCode)) left"
+            lockScreenCenterText = Self.compactMoney(
+                remaining,
+                code: spending.currencyCode)
             if let used = spending.used, let limit = spending.limit {
                 let period = cadence.map { " \($0.periodPhrase)" } ?? ""
                 detail = "\(Self.money(used, code: spending.currencyCode)) of "
@@ -64,6 +71,9 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
             dailyDetail = nil
         } else {
             headline = "Pay-as-you-go"
+            lockScreenCenterText = daily?.used.map {
+                Self.compactMoney($0, code: daily?.currencyCode ?? "USD")
+            }
             if let used = spending.used {
                 detail = "\(Self.money(used, code: spending.currencyCode)) spent to date"
             } else {
@@ -112,5 +122,13 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
 
     private static func money(_ amount: Double, code: String) -> String {
         amount.formatted(.currency(code: code).precision(.fractionLength(2)))
+    }
+
+    /// Whole currency units remain legible in the tiny gauge center once the
+    /// amount reaches two digits. Smaller amounts retain cents.
+    private static func compactMoney(_ amount: Double, code: String) -> String {
+        amount.formatted(
+            .currency(code: code)
+                .precision(.fractionLength(amount >= 10 ? 0 : 2)))
     }
 }
