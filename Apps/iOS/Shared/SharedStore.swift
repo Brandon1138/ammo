@@ -98,7 +98,11 @@ enum SharedStore {
         try mutate { states in
             states.removeAll { $0.account.id == id }
         }
-        try RawUsagePayloadStore.remove(accountID: id)
+        do {
+            try RawUsagePayloadStore.remove(accountID: id)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to remove raw usage payloads: \(String(describing: error), privacy: .private)")
+        }
         do {
             try UsageHistoryStore.remove(accountID: id)
         } catch {

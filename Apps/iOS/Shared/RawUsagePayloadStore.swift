@@ -54,7 +54,11 @@ enum RawUsagePayloadStore {
     /// response body, escaped only by the outer export document's JSON encoder.
     /// No URLRequest or HTTPURLResponse object is retained or exported.
     static func makeExportFile() throws -> URL {
-        let captures = load()
+        // Deletion prunes the store, but that prune is best effort. Re-check
+        // against the live accounts so a payload for a removed account can
+        // never leave the device even if its prune failed.
+        let live = Set(SharedStore.load().map(\.account.id))
+        let captures = load().filter { live.contains($0.accountID) }
         guard !captures.isEmpty else { throw ExportError.noPayloads }
         let data = try exportData(captures: captures)
         let formatter = DateFormatter()
