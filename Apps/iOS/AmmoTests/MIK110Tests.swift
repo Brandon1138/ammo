@@ -346,6 +346,37 @@ struct MIK110Tests {
         #expect(afterCommit.newestSnapshotAt == fetchedAt)
     }
 
+    @Test("A failed revision publication invalidates the previous marker")
+    func failedRevisionPublicationRemovesStaleMarker() throws {
+        struct PublicationFailure: Error {}
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let previous = SharedStoreRevision(
+            revision: 7,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            accountCount: 1,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        try UsageCacheCodec.encode(previous).write(to: revisionURL, options: .atomic)
+
+        let published = SharedStoreRevisionStore.record(
+            states: [],
+            at: Date(timeIntervalSince1970: 1_800_000_001),
+            fileURL: revisionURL,
+            write: { _, _ in throw PublicationFailure() })
+
+        #expect(published == nil)
+        #expect(SharedStoreRevisionStore.load(from: revisionURL) == nil)
+        #expect(!FileManager.default.fileExists(atPath: revisionURL.path))
+    }
+
     @Test("An interleaved writer cannot split cache bytes from their revision")
     func interleavedWriteReadsConsistentSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory
