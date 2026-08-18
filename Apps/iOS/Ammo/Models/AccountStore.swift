@@ -161,10 +161,15 @@ final class AccountStore {
         for id in uniqueIDs where refreshGenerations[id] == generations[id] {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
-        // Failures mutate shared render state too. Reloading only after a
-        // successful snapshot leaves widgets showing stale loading or cached
-        // entries until WidgetKit's next passive request.
-        if outcomes.contains(where: \.requiresTimelineReload) {
+        // Failures mutate shared render state too. A foreground cache hit also
+        // reloads: newly placed/restored widgets may still hold a placeholder
+        // even though the App Group already contains a usable snapshot.
+        let hasCachedSnapshot = states.contains { state in
+            uniqueIDs.contains(state.id) && state.snapshot != nil
+        }
+        if WidgetReloadPolicy.shouldReload(after: outcomes,
+                                           reason: reason,
+                                           hasCachedSnapshot: hasCachedSnapshot) {
             WidgetCenter.shared.reloadAllTimelines()
         }
         let refreshedAccountIDs = Set(outcomes.compactMap { outcome -> UUID? in
