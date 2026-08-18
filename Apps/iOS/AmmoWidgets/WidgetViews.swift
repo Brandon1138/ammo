@@ -108,19 +108,12 @@ struct SmallAccountView: View {
                 Spacer(minLength: 0)
             }
             if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
-                ForEach(compactGroups(snapshot), id: \.first!.id) { group in
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(group) { window in
-                            UsageWindowRow(window: window,
-                                           font: .subheadline,
-                                           barHeight: 7,
-                                           spacing: 2)
-                        }
-                        ResetStatusLine(snapshot: snapshot,
-                                        group: group,
-                                        referenceDate: referenceDate,
-                                        font: .footnote)
-                    }
+                // Claude's optional model bucket only earns a row where the
+                // family has the height for it. ViewThatFits drops back to the
+                // two-window layout rather than clipping the third bar.
+                ViewThatFits(in: .vertical) {
+                    windows(snapshot: snapshot, limit: 3)
+                    windows(snapshot: snapshot, limit: 2)
                 }
                 Spacer(minLength: 0)
             } else {
@@ -133,17 +126,37 @@ struct SmallAccountView: View {
         }
     }
 
-    /// Three rows preserve Claude's optional model bucket. Plans without that
-    /// provider-reported window collapse naturally and reserve no blank space.
-    private func compactGroups(_ snapshot: UsageSnapshot) -> [[LimitWindow]] {
+    private func windows(snapshot: UsageSnapshot, limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(compactGroups(snapshot, limit: limit), id: \.first!.id) { group in
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(group) { window in
+                        UsageWindowRow(window: window,
+                                       font: .subheadline,
+                                       barHeight: 7,
+                                       spacing: 2)
+                    }
+                    ResetStatusLine(snapshot: snapshot,
+                                    group: group,
+                                    referenceDate: referenceDate,
+                                    font: .footnote)
+                }
+            }
+        }
+    }
+
+    /// Up to `limit` rows, preserving Claude's optional model bucket. Plans
+    /// without that provider-reported window collapse naturally and reserve no
+    /// blank space.
+    private func compactGroups(_ snapshot: UsageSnapshot, limit: Int) -> [[LimitWindow]] {
         // Cursor exposes Composer and API as distinct monthly quotas even
         // though they share a billing-cycle reset. Keep a reset line beneath
         // each row so the small widget stays aligned with the other providers.
         if snapshot.provider == .cursor {
-            return snapshot.windows.prefix(2).map { [$0] }
+            return snapshot.windows.prefix(min(2, limit)).map { [$0] }
         }
 
-        return snapshot.widgetWindowGroups(limitedTo: 3)
+        return snapshot.widgetWindowGroups(limitedTo: limit)
     }
 }
 
@@ -385,7 +398,8 @@ struct MediumAccountView: View {
         if let reset = resetValue(for: hero) {
             rows.append(LedgerItem(id: "resets", label: "Resets", value: reset))
         }
-        for window in snapshot.windows where window.kind == .modelScoped {
+        for window in snapshot.windows
+        where window.kind == .modelScoped && window.id != hero.id {
             rows.append(LedgerItem(
                 id: "model-\(window.id)",
                 label: window.label,
@@ -508,7 +522,7 @@ struct ProviderListView: View {
                                    color: worst.barColor,
                                    height: 6)
                     }
-                    ForEach(state.widgetModelScopedWindows.prefix(1)) { window in
+                    if let window = state.widgetCompactModelWindow {
                         CompactModelWindowRow(window: window, barHeight: 4)
                     }
                 }
@@ -526,7 +540,18 @@ struct MediumAccountsView: View {
     let states: [AccountState]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Four rows already use nearly the whole family; a model bucket only
+        // fits once the rows sit closer together, and the last resort is the
+        // plain four-row layout rather than a clipped fifth line.
+        ViewThatFits(in: .vertical) {
+            rows(spacing: 12, includesModelWindows: true)
+            rows(spacing: 8, includesModelWindows: true)
+            rows(spacing: 12, includesModelWindows: false)
+        }
+    }
+
+    private func rows(spacing: CGFloat, includesModelWindows: Bool) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
             ForEach(states.prefix(4)) { state in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
@@ -550,7 +575,8 @@ struct MediumAccountsView: View {
                             Spacer()
                         }
                     }
-                    ForEach(state.widgetModelScopedWindows.prefix(1)) { window in
+                    if includesModelWindows,
+                       let window = state.widgetCompactModelWindow {
                         CompactModelWindowRow(window: window, leadingInset: 28, barHeight: 4)
                     }
                 }
