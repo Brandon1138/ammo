@@ -292,7 +292,16 @@ struct MIK110Tests {
             .refreshFinished,
         ])
         #expect(scheduled.count == 0)
+
         WidgetInvalidator.shared.resumeAfterSuspension()
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, nowUptime: start)
+
+        #expect(recorder.reasons == [
+            .appForeground,
+            .cacheCommitted,
+            .refreshFinished,
+        ])
+        #expect(scheduled.count == 1)
     }
 
     @Test("A regressed uptime never extends the coalescing delay")
