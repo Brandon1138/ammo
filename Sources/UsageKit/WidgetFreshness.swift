@@ -125,3 +125,12 @@ public enum WidgetTimelinePlan {
         }
     }
 }
+
+public extension UsageSnapshot {
+    /// Every provider boundary that can change locally rendered widget state.
+    /// Monetary/on-demand periods are not percentage windows, but their reset
+    /// countdowns still need an exact timeline entry.
+    var widgetTimelineResetDates: [Date] {
+        windows.compactMap(\.resetsAt) + (onDemand ?? []).compactMap(\.resetsAt)
+    }
+}

@@ -11,7 +11,7 @@ enum AccountRetryState: Equatable {
             self = .ready
         case .cached(_, let nextEligibleAt):
             self = .coolingDown(until: nextEligibleAt)
-        case .failed(_, _, let nextEligibleAt):
+        case .failed(_, _, let nextEligibleAt, _):
             self = nextEligibleAt.map(Self.coolingDown) ?? .ready
         }
     }

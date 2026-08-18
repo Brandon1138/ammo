@@ -306,8 +306,7 @@ enum WidgetTimelineDates {
         WidgetTimelinePlan.dates(
             resetDates: states
                 .compactMap(\.snapshot)
-                .flatMap(\.windows)
-                .compactMap(\.resetsAt),
+                .flatMap(\.widgetTimelineResetDates),
             now: now)
     }
 }

@@ -113,6 +113,36 @@ struct WidgetFreshnessTests {
         #expect(dates.contains(reset))
     }
 
+    @Test("On-demand period resets join percentage-window timeline boundaries")
+    func snapshotResetDatesIncludeOnDemandPeriods() {
+        let windowReset = now.addingTimeInterval(3_600)
+        let onDemandReset = now.addingTimeInterval(2 * 86_400 + 137)
+        let snapshot = UsageSnapshot(
+            provider: .openRouter,
+            plan: nil,
+            windows: [
+                LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 20,
+                            resetsAt: windowReset),
+            ],
+            onDemand: [
+                OnDemandUsage(
+                    id: "spending-period",
+                    label: "API key spending",
+                    kind: .spendingLimit,
+                    scope: .personal,
+                    used: 10,
+                    limit: 100,
+                    remaining: 90,
+                    resetsAt: onDemandReset),
+            ],
+            fetchedAt: now)
+
+        #expect(Set(snapshot.widgetTimelineResetDates) == [windowReset, onDemandReset])
+        #expect(WidgetTimelinePlan.dates(
+            resetDates: snapshot.widgetTimelineResetDates,
+            now: now).contains(onDemandReset))
+    }
+
     @Test("Reset boundaries survive the entry cap before grid density")
     func resetBoundariesSurviveCap() {
         let resets = (1...40).map { offset in

@@ -20,21 +20,22 @@ enum RefreshReason: String, Sendable {
 enum RefreshOutcome: Sendable {
     case refreshed(accountID: UUID)
     case cached(accountID: UUID, nextEligibleAt: Date)
-    case failed(accountID: UUID, message: String, nextEligibleAt: Date?)
+    case failed(accountID: UUID, message: String, nextEligibleAt: Date?, didPersist: Bool)
 
     var accountID: UUID {
         switch self {
         case .refreshed(let accountID),
              .cached(let accountID, _),
-             .failed(let accountID, _, _):
+             .failed(let accountID, _, _, _):
             accountID
         }
     }
 
-    var isCacheOnly: Bool {
+    var didPersistWidgetState: Bool {
         switch self {
-        case .cached: true
-        case .refreshed, .failed: false
+        case .refreshed: true
+        case .cached: false
+        case .failed(_, _, _, let didPersist): didPersist
         }
     }
 }
@@ -55,19 +56,19 @@ enum WidgetReloadPolicy {
         reason: RefreshReason,
         hasCachedSnapshot: Bool
     ) -> Bool {
-        // Fresh snapshots and failures already invalidated through
+        // Fresh snapshots and persisted failures already invalidated through
         // `SharedStore.commit` or `SharedStore.record(failure:)`. Invalidating
         // again here would arm the coalescer's trailing dispatch and spend a
-        // second WidgetKit reload for the same persisted revision. Only a run
-        // made entirely from cache reaches this caller without crossing the
-        // write seam.
-        guard !outcomes.isEmpty, outcomes.allSatisfy(\.isCacheOnly) else { return false }
-        // A user-initiated refresh can be throttled by the shared 60-second
-        // floor and return only `.cached`. Reload anyway when the App Group
-        // already has usable data: a newly placed or restored widget may still
-        // be displaying its placeholder, and a pull-to-refresh that quietly
-        // does nothing to the widget is exactly the MIK-51 report.
-        return isUserInitiated(reason) && hasCachedSnapshot
+        // second WidgetKit reload for the same persisted revision. Cache hits
+        // and failures that never crossed that seam still need the caller's
+        // republish when every outcome in the run was nonpersisting.
+        guard !outcomes.isEmpty,
+              outcomes.allSatisfy({ !$0.didPersistWidgetState }) else { return false }
+        // Foreground activation republishes this same cache before starting the
+        // refresh, so a throttled foreground result must not arm a second reload
+        // for an unchanged revision. Manual and account-add flows have no such
+        // leading republish and keep the cache-only fallback.
+        return reason != .foreground && isUserInitiated(reason) && hasCachedSnapshot
     }
 }
 
@@ -131,17 +132,21 @@ actor UsageRefreshCoordinator {
 
         guard let provider = provider(for: account) else {
             let message = "\(account.provider.displayName) is not supported yet"
+            var didPersist = false
             if isCurrent(account), !Task.isCancelled {
-                try? SharedStore.record(failure: .unavailable, for: accountID)
+                didPersist = (try? SharedStore.record(failure: .unavailable, for: accountID)) == true
             }
-            return .failed(accountID: accountID, message: message, nextEligibleAt: nil)
+            return .failed(accountID: accountID, message: message,
+                           nextEligibleAt: nil, didPersist: didPersist)
         }
         guard var tokens = KeychainStore.load(for: accountID) else {
             let message = "No credentials in Keychain — open Ammo and re-add this account"
+            var didPersist = false
             if isCurrent(account), !Task.isCancelled {
-                try? SharedStore.record(failure: .authentication, for: accountID)
+                didPersist = (try? SharedStore.record(failure: .authentication, for: accountID)) == true
             }
-            return .failed(accountID: accountID, message: message, nextEligibleAt: nil)
+            return .failed(accountID: accountID, message: message,
+                           nextEligibleAt: nil, didPersist: didPersist)
         }
 
         guard !Task.isCancelled else { return cancelled(accountID) }
@@ -234,7 +239,8 @@ actor UsageRefreshCoordinator {
         guard hasSnapshot else {
             return .failed(accountID: accountID,
                            message: "No cached usage is available yet",
-                           nextEligibleAt: nextEligibleAt)
+                           nextEligibleAt: nextEligibleAt,
+                           didPersist: false)
         }
         return .cached(accountID: accountID, nextEligibleAt: nextEligibleAt)
     }
@@ -249,7 +255,7 @@ actor UsageRefreshCoordinator {
         guard !Task.isCancelled, isCurrent(account) else {
             return cancelledOrUnavailable(account)
         }
-        try? SharedStore.record(failure: failure, for: accountID)
+        let didPersist = (try? SharedStore.record(failure: failure, for: accountID)) == true
         guard !Task.isCancelled, isCurrent(account) else {
             return cancelledOrUnavailable(account)
         }
@@ -259,7 +265,8 @@ actor UsageRefreshCoordinator {
         AmmoLog.refresh.error("Usage refresh failed: \(technicalError, privacy: .private)")
         return .failed(accountID: accountID,
                        message: failure.rawValue,
-                       nextEligibleAt: nextEligibleAt)
+                       nextEligibleAt: nextEligibleAt,
+                       didPersist: didPersist)
     }
 
     private nonisolated static func ensureActive(_ account: StoredAccount) throws {
@@ -281,13 +288,15 @@ actor UsageRefreshCoordinator {
     private nonisolated static func cancelled(_ accountID: UUID) -> RefreshOutcome {
         .failed(accountID: accountID,
                 message: "Refresh cancelled",
-                nextEligibleAt: nil)
+                nextEligibleAt: nil,
+                didPersist: false)
     }
 
     private nonisolated static func accountUnavailable(_ accountID: UUID) -> RefreshOutcome {
         .failed(accountID: accountID,
                 message: "Account no longer exists",
-                nextEligibleAt: nil)
+                nextEligibleAt: nil,
+                didPersist: false)
     }
 
     private nonisolated static func provider(for account: StoredAccount) -> (any UsageProvider)? {

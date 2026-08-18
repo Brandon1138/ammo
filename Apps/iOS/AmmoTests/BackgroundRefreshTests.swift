@@ -13,8 +13,8 @@ struct BackgroundRefreshOutcomeTests {
     @Test("A run where every account failed is not a success")
     func allFailuresAreReportedAsFailure() {
         let outcomes: [RefreshOutcome] = [
-            .failed(accountID: first, message: "network", nextEligibleAt: nil),
-            .failed(accountID: second, message: "authentication", nextEligibleAt: nil),
+            .failed(accountID: first, message: "network", nextEligibleAt: nil, didPersist: true),
+            .failed(accountID: second, message: "authentication", nextEligibleAt: nil, didPersist: true),
         ]
 
         #expect(!BackgroundRefresh.didSucceed(outcomes: outcomes))
@@ -24,7 +24,7 @@ struct BackgroundRefreshOutcomeTests {
     func partialSuccessIsASuccess() {
         let outcomes: [RefreshOutcome] = [
             .refreshed(accountID: first),
-            .failed(accountID: second, message: "network", nextEligibleAt: nil),
+            .failed(accountID: second, message: "network", nextEligibleAt: nil, didPersist: true),
         ]
 
         #expect(BackgroundRefresh.didSucceed(outcomes: outcomes))
@@ -47,7 +47,7 @@ struct BackgroundRefreshOutcomeTests {
             nextEligibleAt: nextEligibleAt,
             hasSnapshot: false)
 
-        guard case .failed(let accountID, _, let retryAt) = outcome else {
+        guard case .failed(let accountID, _, let retryAt, _) = outcome else {
             Issue.record("Expected no-cache throttle to fail")
             return
         }
@@ -76,7 +76,7 @@ struct BackgroundRefreshOutcomeTests {
             accountID: accountID,
             nextEligibleAt: retryClaim.nextEligibleAt,
             hasSnapshot: false)
-        guard case .failed(_, _, let nextEligibleAt) = outcome else {
+        guard case .failed(_, _, let nextEligibleAt, _) = outcome else {
             Issue.record("Expected first-failure backoff without a snapshot")
             return
         }
@@ -140,7 +140,8 @@ private actor StructuredCancellationProbe {
         cancelledCount += 1
         return .failed(accountID: accountID,
                        message: "cancelled",
-                       nextEligibleAt: nil)
+                       nextEligibleAt: nil,
+                       didPersist: false)
     }
 }
 

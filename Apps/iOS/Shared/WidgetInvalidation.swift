@@ -250,18 +250,41 @@ enum SharedStoreRevisionStore {
     /// diagnostic, and losing it must not fail the cache write it annotates.
     @discardableResult
     static func record(states: [AccountState], at date: Date = Date()) -> SharedStoreRevision? {
+        record(states: states, at: date, fileURL: fileURL)
+    }
+
+    @discardableResult
+    static func record(
+        states: [AccountState],
+        at date: Date,
+        fileURL: URL,
+        write: (Data, URL) throws -> Void = { data, destination in
+            try data.write(to: destination, options: .atomic)
+        }
+    ) -> SharedStoreRevision? {
         let snapshots = states.compactMap(\.snapshot)
         let revision = SharedStoreRevision.next(
-            after: load(),
+            after: load(from: fileURL),
             writtenAt: date,
             accountCount: states.count,
             snapshotCount: snapshots.count,
             newestSnapshotAt: snapshots.map(\.fetchedAt).max())
         do {
             let data = try UsageCacheCodec.encode(revision)
-            try data.write(to: fileURL, options: .atomic)
+            try write(data, fileURL)
             return revision
         } catch {
+            // The cache bytes were already committed under the shared lock. If
+            // publishing their marker fails, an older marker must not survive
+            // and falsely label those new bytes as its revision.
+            do {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    try FileManager.default.removeItem(at: fileURL)
+                }
+            } catch {
+                AmmoLog.sharedStore.error(
+                    "Unable to invalidate stale shared cache revision: \(String(describing: error), privacy: .private)")
+            }
             AmmoLog.sharedStore.error(
                 "Unable to record shared cache revision: \(String(describing: error), privacy: .private)")
             return nil

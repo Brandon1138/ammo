@@ -13,15 +13,27 @@ struct MIK110Tests {
 
     // MARK: - Reload policy
 
-    @Test("Foreground cache hit reloads a placeholder widget")
-    func foregroundCacheHitReloads() {
+    @Test("Foreground cache hit relies on the activation republish")
+    func foregroundCacheHitDoesNotReloadAgain() {
+        let outcomes: [RefreshOutcome] = [
+            .cached(accountID: accountID, nextEligibleAt: .distantFuture),
+        ]
+
+        #expect(!WidgetReloadPolicy.shouldReload(
+            after: outcomes,
+            reason: .foreground,
+            hasCachedSnapshot: true))
+    }
+
+    @Test("An account-add cache hit still reloads when a snapshot exists")
+    func accountAddedCacheHitReloads() {
         let outcomes: [RefreshOutcome] = [
             .cached(accountID: accountID, nextEligibleAt: .distantFuture),
         ]
 
         #expect(WidgetReloadPolicy.shouldReload(
             after: outcomes,
-            reason: .foreground,
+            reason: .accountAdded,
             hasCachedSnapshot: true))
     }
 
@@ -70,9 +82,36 @@ struct MIK110Tests {
         #expect(!WidgetReloadPolicy.shouldReload(
             after: [.failed(accountID: accountID,
                             message: "network",
-                            nextEligibleAt: nil)],
+                            nextEligibleAt: nil,
+                            didPersist: true)],
             reason: .manual,
             hasCachedSnapshot: false))
+    }
+
+    @Test("A cached manual run republishes when accompanying failures wrote nothing")
+    func cacheAndUnpersistedFailureReloadFromCaller() {
+        #expect(WidgetReloadPolicy.shouldReload(
+            after: [
+                .cached(accountID: accountID, nextEligibleAt: .distantFuture),
+                .failed(accountID: UUID(), message: "cancelled",
+                        nextEligibleAt: nil, didPersist: false),
+            ],
+            reason: .manual,
+            hasCachedSnapshot: true))
+    }
+
+    @Test("Removal cleanup after the shared-cache commit does not reload twice")
+    func removalProgressControlsFallbackReload() {
+        struct LaterCleanupFailure: Error {}
+
+        #expect(!AccountMutationStore.needsCallerInvalidation(after:
+            AccountMutationStore.RemovalError(
+                sharedCacheRemoved: true,
+                underlying: LaterCleanupFailure())))
+        #expect(AccountMutationStore.needsCallerInvalidation(after:
+            AccountMutationStore.RemovalError(
+                sharedCacheRemoved: false,
+                underlying: LaterCleanupFailure())))
     }
 
     @Test("A mixed persisted and cached run still relies on the write seam")
@@ -88,17 +127,40 @@ struct MIK110Tests {
 
     // MARK: - Invalidation dispatch
 
-    @Test("A cache commit dispatches a widget reload")
-    func commitDispatchesReload() throws {
+    @Test("Account insertion dispatches exactly once at the write seam")
+    func accountInsertionDispatchesOnce() throws {
         let recorder = ReloadRecorder()
-        let token = WidgetInvalidator.shared.installDispatchOverride { recorder.record($0) }
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
         defer { _ = token }
 
         let account = StoredAccount(provider: .claude, label: "Reload probe")
         try SharedStore.insert(AccountState(account: account))
         defer { try? SharedStore.remove(id: account.id) }
 
-        #expect(recorder.reasons.contains(.accountAdded))
+        #expect(recorder.reasons == [.accountAdded])
+        #expect(scheduled.count == 0)
+    }
+
+    @Test("Successful account removal dispatches exactly once at the write seam")
+    @MainActor
+    func successfulAccountRemovalDispatchesOnce() throws {
+        let account = StoredAccount(provider: .claude, label: "Removal reload probe")
+        try SharedStore.insert(AccountState(account: account))
+
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        AccountStore.shared.remove(account)
+
+        #expect(recorder.reasons == [.accountRemoved])
+        #expect(scheduled.count == 0)
     }
 
     @Test("A burst of per-account commits collapses into one reload request")
@@ -139,8 +201,8 @@ struct MIK110Tests {
         #expect(scheduled.count == 0)
     }
 
-    @Test("A cache-only refresh dispatches exactly once from the caller")
-    func cacheOnlyRefreshDispatchesOnce() {
+    @Test("A cache-only manual refresh dispatches exactly once from the caller")
+    func cacheOnlyManualRefreshDispatchesOnce() {
         let recorder = ReloadRecorder()
         let scheduled = TrailingWorkRecorder()
         let token = WidgetInvalidator.shared.installDispatchOverride(
@@ -150,7 +212,7 @@ struct MIK110Tests {
 
         if WidgetReloadPolicy.shouldReload(
             after: [.cached(accountID: accountID, nextEligibleAt: .distantFuture)],
-            reason: .foreground,
+            reason: .manual,
             hasCachedSnapshot: true
         ) {
             WidgetInvalidator.shared.invalidate(reason: .refreshFinished)
@@ -209,16 +271,29 @@ struct MIK110Tests {
         #expect(delay == WidgetInvalidator.coalescingWindow)
     }
 
-    @Test("Opening the app publishes the cache without waiting for the network")
+    @Test("Foreground activation dispatches once for an unchanged revision")
     @MainActor
-    func foregroundPublishesCacheImmediately() {
+    func foregroundUnchangedRevisionDispatchesOnce() {
         let recorder = ReloadRecorder()
-        let token = WidgetInvalidator.shared.installDispatchOverride { recorder.record($0) }
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
         defer { _ = token }
 
         AccountStore.shared.invalidateWidgetsFromCache()
+        if WidgetReloadPolicy.shouldReload(
+            after: [.cached(accountID: accountID, nextEligibleAt: .distantFuture)],
+            reason: .foreground,
+            hasCachedSnapshot: true
+        ) {
+            WidgetInvalidator.shared.invalidate(
+                reason: .refreshFinished,
+                revision: SharedStoreRevisionStore.load())
+        }
 
         #expect(recorder.reasons == [.appForeground])
+        #expect(scheduled.count == 0)
     }
 
     // MARK: - Canonical snapshot persistence
@@ -269,6 +344,37 @@ struct MIK110Tests {
         #expect(afterCommit.revision > afterInsert.revision)
         #expect(afterCommit.snapshotCount >= 1)
         #expect(afterCommit.newestSnapshotAt == fetchedAt)
+    }
+
+    @Test("A failed revision publication invalidates the previous marker")
+    func failedRevisionPublicationRemovesStaleMarker() throws {
+        struct PublicationFailure: Error {}
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let previous = SharedStoreRevision(
+            revision: 7,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            accountCount: 1,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        try UsageCacheCodec.encode(previous).write(to: revisionURL, options: .atomic)
+
+        let published = SharedStoreRevisionStore.record(
+            states: [],
+            at: Date(timeIntervalSince1970: 1_800_000_001),
+            fileURL: revisionURL,
+            write: { _, _ in throw PublicationFailure() })
+
+        #expect(published == nil)
+        #expect(SharedStoreRevisionStore.load(from: revisionURL) == nil)
+        #expect(!FileManager.default.fileExists(atPath: revisionURL.path))
     }
 
     @Test("An interleaved writer cannot split cache bytes from their revision")
@@ -360,8 +466,8 @@ struct MIK110Tests {
         #expect(diskSnapshot.revision?.accountCount == decoded.count)
     }
 
-    @Test("A contended cache lock still yields the atomic snapshot")
-    func contendedLockFallsBackToAtomicSnapshot() throws {
+    @Test("A cache read during the cache/revision write gap omits the revision")
+    func contendedWriteGapKeepsCacheButOmitsRevision() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -372,16 +478,19 @@ struct MIK110Tests {
         let cacheURL = directory.appendingPathComponent("usage-states.json")
         let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
         let lock = SharedFileLock(url: directory.appendingPathComponent("usage-states.lock"))
-        let states = [
-            AccountState(account: StoredAccount(provider: .claude, label: "Cached")),
+        let oldStates = [
+            AccountState(account: StoredAccount(provider: .claude, label: "Old")),
+        ]
+        let newStates = oldStates + [
+            AccountState(account: StoredAccount(provider: .codex, label: "New")),
         ]
         let revision = SharedStoreRevision(
             revision: 7,
             writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
-            accountCount: states.count,
+            accountCount: oldStates.count,
             snapshotCount: 0,
             newestSnapshotAt: nil)
-        try UsageCacheCodec.encode(states).write(to: cacheURL, options: .atomic)
+        try UsageCacheCodec.encode(oldStates).write(to: cacheURL, options: .atomic)
         try UsageCacheCodec.encode(revision).write(to: revisionURL, options: .atomic)
 
         let lockHeld = DispatchSemaphore(value: 0)
@@ -392,6 +501,7 @@ struct MIK110Tests {
             defer { holderFinished.signal() }
             holderOutcome.store(Result {
                 try lock.withLock(timeout: 2) {
+                    try UsageCacheCodec.encode(newStates).write(to: cacheURL, options: .atomic)
                     lockHeld.signal()
                     _ = releaseLock.wait(timeout: .now() + 5)
                 }
@@ -411,8 +521,8 @@ struct MIK110Tests {
             [AccountState].self,
             from: diskSnapshot.data)
 
-        #expect(decoded.map(\.account.label) == ["Cached"])
-        #expect(diskSnapshot.revision == revision)
+        #expect(decoded.map(\.account.label) == ["Old", "New"])
+        #expect(diskSnapshot.revision == nil)
 
         releaseLock.signal()
         #expect(holderFinished.wait(timeout: .now() + 2) == .success)

@@ -77,22 +77,28 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
-        WidgetInvalidator.shared.invalidate(reason: .accountAdded)
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
     }
 
     func remove(_ account: StoredAccount) {
+        var needsCallerInvalidation = false
         do {
             try AccountMutationStore.begin(.removing, account: account)
             try AccountMutationStore.finishRemoval(account)
         } catch {
+            needsCallerInvalidation = AccountMutationStore.needsCallerInvalidation(after: error)
             // Durable journal or tombstone preserves intent. Recovery retries
             // any unfinished cleanup; reload now so tombstoned state vanishes.
             AmmoLog.sharedStore.error("Account removal cleanup remains pending: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
-        WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
+        // Successful removal already invalidated after SharedStore committed its
+        // bytes. Only the deferred-cleanup path needs a caller-side reload so a
+        // newly written tombstone hides the stale cached account immediately.
+        if needsCallerInvalidation {
+            WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
+        }
         Task { await self.refresh(ids: []) }
     }
 
@@ -176,8 +182,8 @@ final class AccountStore {
             retryStates[id] = outcomesByID[id].map(AccountRetryState.init(outcome:)) ?? .ready
         }
         // Persisted outcomes already reload through the SharedStore write seam.
-        // A foreground cache hit reloads here because no write occurred and a
-        // newly placed/restored widget may still hold a placeholder.
+        // Cache-only manual/account-add outcomes reload here because no write
+        // occurred. Foreground already republished the cache on activation.
         let hasCachedSnapshot = states.contains { state in
             uniqueIDs.contains(state.id) && state.snapshot != nil
         }
