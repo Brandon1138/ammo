@@ -54,6 +54,33 @@ enum AccountDeletionStore {
         !status(for: accountID).permitsPersistence
     }
 
+    /// The whole tombstone set in one lock acquisition, or nil when it could not
+    /// be read.
+    ///
+    /// `isDeleted` is a *writer's* question — it fails closed, so an unreadable
+    /// tombstone file answers "deleted" for every account. Asking it once per
+    /// account on a read path therefore costs N exclusive locks and can erase an
+    /// otherwise healthy cache; the widget process, which only ever reads, paid
+    /// both costs. Readers use this instead and decide for themselves what an
+    /// unavailable answer means.
+    static func deletedIDs(timeout: TimeInterval = 0.25) -> Set<UUID>? {
+        do {
+            return try lock.withLock(timeout: timeout) {
+                try loadUnlocked().accountIDs
+            }
+        } catch {
+            if let lockError = error as? SharedFileLock.LockError,
+               lockError.isDataProtectionFailure {
+                AmmoLog.sharedStore.notice(
+                    "Account tombstones unavailable while protected data is locked")
+            } else {
+                AmmoLog.sharedStore.error(
+                    "Unable to read account tombstones: \(String(describing: error), privacy: .private)")
+            }
+            return nil
+        }
+    }
+
     static func requireActive(_ accountID: UUID, timeout: TimeInterval = 1) throws {
         switch status(for: accountID, timeout: timeout) {
         case .active:

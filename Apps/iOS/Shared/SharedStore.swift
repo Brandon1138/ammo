@@ -68,12 +68,18 @@ enum SharedStore {
     static func load() -> [AccountState] {
         if DemoModeStore.isEnabled { return DemoData.states() }
         removeLegacyCodexBillingCache()
+        let startedAt = Date()
         do {
             let data = try Data(contentsOf: fileURL)
-            let states = sanitize(
-                try UsageCacheCodec.decode([AccountState].self, from: data))
-                .filter { !AccountDeletionStore.isDeleted($0.id) }
-            AmmoLog.sharedStore.info("Loaded \(states.count, privacy: .public) account states")
+            let decoded = sanitize(try UsageCacheCodec.decode([AccountState].self, from: data))
+            let states = removingDeleted(decoded)
+            AmmoLog.sharedStore.info(
+                """
+                Loaded \(states.count, privacy: .public) account states \
+                (\(data.count, privacy: .public) bytes, \
+                \(Int(Date().timeIntervalSince(startedAt) * 1000), privacy: .public) ms, \
+                \(SharedStoreRevisionStore.load()?.logDescription ?? "rev=unknown", privacy: .public))
+                """)
             return states
         } catch CocoaError.fileReadNoSuchFile {
             AmmoLog.sharedStore.notice("No shared usage cache exists yet")
@@ -84,18 +90,43 @@ enum SharedStore {
         }
     }
 
+    /// Drops tombstoned accounts from a decoded cache.
+    ///
+    /// When the tombstone set cannot be read the cache is returned intact rather
+    /// than emptied. Removal already rewrites this file without the account, so
+    /// the tombstone filter only guards the window of a half-finished removal;
+    /// treating an unreadable tombstone file as "everything is deleted" traded
+    /// that narrow window for blanking every widget whenever the lock was
+    /// contended or protected data was locked. Writers keep failing closed via
+    /// `AccountDeletionStore.isDeleted`, so nothing is re-persisted for an
+    /// account whose status is unknown.
+    static func removingDeleted(
+        _ states: [AccountState],
+        deletedIDs: Set<UUID>? = AccountDeletionStore.deletedIDs()
+            ?? AccountDeletionStore.deletedIDs(timeout: 1)
+    ) -> [AccountState] {
+        guard let deletedIDs else {
+            AmmoLog.sharedStore.notice(
+                "Tombstones unreadable; rendering \(states.count, privacy: .public) cached account states unfiltered")
+            return states
+        }
+        return states.filter { !deletedIDs.contains($0.id) }
+    }
+
     static func insert(_ state: AccountState) throws {
         guard !AccountDeletionStore.isDeleted(state.id) else { throw CancellationError() }
-        try mutate { states in
+        let revision = try mutate { states in
             guard !AccountDeletionStore.isDeleted(state.id) else { return }
             states.append(state)
         }
+        WidgetInvalidator.shared.invalidate(reason: .accountAdded, revision: revision)
     }
 
     static func remove(id: UUID) throws {
-        try mutate { states in
+        let revision = try mutate { states in
             states.removeAll { $0.account.id == id }
         }
+        defer { WidgetInvalidator.shared.invalidate(reason: .accountRemoved, revision: revision) }
         do {
             try RawUsagePayloadStore.remove(accountID: id)
         } catch {
@@ -122,7 +153,7 @@ enum SharedStore {
     static func commit(snapshot: UsageSnapshot, for id: UUID) throws -> SnapshotTransition? {
         guard !AccountDeletionStore.isDeleted(id) else { return nil }
         var transition: SnapshotTransition?
-        try mutate { states in
+        let revision = try mutate { states in
             guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
             let previous = states[index].snapshot
@@ -141,24 +172,30 @@ enum SharedStore {
                 AmmoLog.sharedStore.error("Unable to record usage history: \(String(describing: error), privacy: .private)")
             }
         }
+        // Invalidation happens here rather than at the caller so no future write
+        // path can commit a snapshot and forget to tell WidgetKit, and only once
+        // the cache *and* the history the Activity widget reads are both on disk.
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, revision: revision)
         return transition
     }
 
     static func record(failure: UsageFailureKind, for id: UUID) throws {
         guard !AccountDeletionStore.isDeleted(id) else { return }
-        try mutate { states in
+        let revision = try mutate { states in
             guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
             states[index].lastError = nil
             states[index].lastFailure = failure
         }
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, revision: revision)
     }
 
-    private static func mutate(_ body: (inout [AccountState]) -> Void) throws {
+    @discardableResult
+    private static func mutate(_ body: (inout [AccountState]) -> Void) throws -> SharedStoreRevision? {
         try lock.withLock {
             var states = loadUnlocked()
             body(&states)
-            try saveUnlocked(states)
+            return try saveUnlocked(states)
         }
     }
 
@@ -167,10 +204,22 @@ enum SharedStore {
         return sanitize((try? UsageCacheCodec.decode([AccountState].self, from: data)) ?? [])
     }
 
-    private static func saveUnlocked(_ states: [AccountState]) throws {
+    /// Commits `states` and publishes the revision describing them. The revision
+    /// is written after the cache so a reader that sees revision N can rely on
+    /// the bytes for N already being readable.
+    private static func saveUnlocked(_ states: [AccountState]) throws -> SharedStoreRevision? {
+        let startedAt = Date()
         let data = try UsageCacheCodec.encode(states)
         try data.write(to: fileURL, options: .atomic)
-        AmmoLog.sharedStore.info("Saved \(states.count, privacy: .public) account states")
+        let revision = SharedStoreRevisionStore.record(states: states)
+        AmmoLog.sharedStore.info(
+            """
+            Saved \(states.count, privacy: .public) account states \
+            (\(data.count, privacy: .public) bytes, \
+            \(Int(Date().timeIntervalSince(startedAt) * 1000), privacy: .public) ms, \
+            \(revision?.logDescription ?? "rev=unwritten", privacy: .public))
+            """)
+        return revision
     }
 
     private static func sanitize(_ states: [AccountState]) -> [AccountState] {

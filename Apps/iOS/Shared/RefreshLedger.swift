@@ -125,13 +125,22 @@ enum RefreshLedgerStore {
     /// The earliest passive refresh due across the supplied accounts. WidgetKit
     /// uses this for cache timeline requests while BGTaskScheduler uses it for
     /// provider work, keeping both on the same persistent activity schedule.
-    static func nextRefreshDate(states: [AccountState], now: Date = Date()) -> Date {
+    ///
+    /// The default timeout is short because this runs inside widget timeline
+    /// generation, which WidgetKit is willing to abandon. A contended ledger has
+    /// a correct fallback below; spending a second waiting for it would risk the
+    /// whole timeline, and a widget with no timeline stays on its placeholder.
+    static func nextRefreshDate(
+        states: [AccountState],
+        now: Date = Date(),
+        timeout: TimeInterval = 0.25
+    ) -> Date {
         guard !states.isEmpty else {
             return UsageRefreshSchedule.nextRefreshDate(snapshots: [], now: now)
         }
 
         do {
-            return try lock.withLock {
+            return try lock.withLock(timeout: timeout) {
                 let ledger = load()
                 return states.map { state in
                     let record = ledger.accounts[state.account.id.uuidString]
