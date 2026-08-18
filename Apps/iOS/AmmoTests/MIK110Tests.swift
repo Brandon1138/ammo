@@ -408,8 +408,8 @@ struct MIK110Tests {
         #expect(diskSnapshot.revision?.accountCount == decoded.count)
     }
 
-    @Test("A contended cache lock still yields the atomic snapshot")
-    func contendedLockFallsBackToAtomicSnapshot() throws {
+    @Test("A cache read during the cache/revision write gap omits the revision")
+    func contendedWriteGapKeepsCacheButOmitsRevision() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -420,16 +420,19 @@ struct MIK110Tests {
         let cacheURL = directory.appendingPathComponent("usage-states.json")
         let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
         let lock = SharedFileLock(url: directory.appendingPathComponent("usage-states.lock"))
-        let states = [
-            AccountState(account: StoredAccount(provider: .claude, label: "Cached")),
+        let oldStates = [
+            AccountState(account: StoredAccount(provider: .claude, label: "Old")),
+        ]
+        let newStates = oldStates + [
+            AccountState(account: StoredAccount(provider: .codex, label: "New")),
         ]
         let revision = SharedStoreRevision(
             revision: 7,
             writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
-            accountCount: states.count,
+            accountCount: oldStates.count,
             snapshotCount: 0,
             newestSnapshotAt: nil)
-        try UsageCacheCodec.encode(states).write(to: cacheURL, options: .atomic)
+        try UsageCacheCodec.encode(oldStates).write(to: cacheURL, options: .atomic)
         try UsageCacheCodec.encode(revision).write(to: revisionURL, options: .atomic)
 
         let lockHeld = DispatchSemaphore(value: 0)
@@ -440,6 +443,7 @@ struct MIK110Tests {
             defer { holderFinished.signal() }
             holderOutcome.store(Result {
                 try lock.withLock(timeout: 2) {
+                    try UsageCacheCodec.encode(newStates).write(to: cacheURL, options: .atomic)
                     lockHeld.signal()
                     _ = releaseLock.wait(timeout: .now() + 5)
                 }
@@ -459,8 +463,8 @@ struct MIK110Tests {
             [AccountState].self,
             from: diskSnapshot.data)
 
-        #expect(decoded.map(\.account.label) == ["Cached"])
-        #expect(diskSnapshot.revision == revision)
+        #expect(decoded.map(\.account.label) == ["Old", "New"])
+        #expect(diskSnapshot.revision == nil)
 
         releaseLock.signal()
         #expect(holderFinished.wait(timeout: .now() + 2) == .success)

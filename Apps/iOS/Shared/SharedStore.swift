@@ -127,23 +127,13 @@ enum SharedStore {
                     revision: SharedStoreRevisionStore.load(from: revisionURL))
             }
         } catch let lockError as SharedFileLock.LockError {
-            // Both files are written atomically, so a lock-free read still sees
-            // a complete previous or current file — contention must never blank
-            // the cache. A revision that is stable on both sides of the data
-            // read proves the pair belongs together; a torn read keeps the
-            // bytes and drops only the revision claim.
-            for _ in 0..<3 {
-                let before = SharedStoreRevisionStore.load(from: revisionURL)
-                let data = try Data(contentsOf: fileURL)
-                let after = SharedStoreRevisionStore.load(from: revisionURL)
-                if before == after {
-                    AmmoLog.sharedStore.notice(
-                        "Cache lock unavailable (\(String(describing: lockError), privacy: .public)); using atomic snapshot")
-                    return SharedStoreDiskSnapshot(data: data, revision: after)
-                }
-            }
+            // The cache file itself is atomically replaced, so contention must
+            // not blank otherwise usable states. It does mean a writer can be
+            // between replacing the cache and publishing the matching revision,
+            // though, and two equal lock-free revision reads cannot detect that
+            // gap. Preserve the bytes but make no diagnostic revision claim.
             AmmoLog.sharedStore.notice(
-                "Cache lock unavailable and revision unstable; rendering cache with unknown revision")
+                "Cache lock unavailable (\(String(describing: lockError), privacy: .public)); rendering atomic cache with unknown revision")
             return SharedStoreDiskSnapshot(
                 data: try Data(contentsOf: fileURL),
                 revision: nil)
