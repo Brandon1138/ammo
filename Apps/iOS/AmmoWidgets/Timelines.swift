@@ -29,13 +29,14 @@ enum WidgetTimelineDiagnostics {
         entryCount: Int?,
         newestSnapshot: Date?,
         refreshDate: Date?,
+        revision: SharedStoreRevision?,
         startedAt: Date
     ) {
         let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
         let formatter = ISO8601DateFormatter()
         let newest = newestSnapshot.map(formatter.string(from:)) ?? "none"
         let refresh = refreshDate.map(formatter.string(from:)) ?? "none"
-        let revision = SharedStoreRevisionStore.load()?.logDescription ?? "rev=unknown"
+        let revisionDescription = revision?.logDescription ?? "rev=unknown"
         AmmoLog.widgetTimeline.info(
             """
             \(kind, privacy: .public).\(phase, privacy: .public) \
@@ -45,7 +46,7 @@ enum WidgetTimelineDiagnostics {
             newestSnapshot=\(newest, privacy: .public) \
             nextRefresh=\(refresh, privacy: .public) \
             elapsed=\(elapsed, privacy: .public)ms \
-            \(revision, privacy: .public)
+            \(revisionDescription, privacy: .public)
             """)
     }
 
@@ -57,12 +58,13 @@ enum WidgetTimelineDiagnostics {
 struct UsageEntry: TimelineEntry {
     let date: Date
     let state: AccountState?
+    let revision: SharedStoreRevision?
 }
 
 struct AccountTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> UsageEntry {
         AmmoLog.widgetTimeline.debug("AmmoAccount.placeholder requested")
-        return UsageEntry(date: .now, state: .placeholder)
+        return UsageEntry(date: .now, state: .placeholder, revision: nil)
     }
 
     func snapshot(for configuration: SelectAccountIntent, in context: Context) async -> UsageEntry {
@@ -73,7 +75,7 @@ struct AccountTimelineProvider: AppIntentTimelineProvider {
             kind: "AmmoAccount", phase: "snapshot", family: context.family,
             stateCount: states.count, entryCount: 1,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
-            refreshDate: nil, startedAt: startedAt)
+            refreshDate: nil, revision: entry.revision, startedAt: startedAt)
         return entry
     }
 
@@ -82,32 +84,36 @@ struct AccountTimelineProvider: AppIntentTimelineProvider {
         let entry = entry(for: configuration)
         let states = entry.state.map { [$0] } ?? []
         let refreshDate = RefreshLedgerStore.nextRefreshDate(states: states)
-        let entries = timelineEntries(state: entry.state)
+        let entries = timelineEntries(state: entry.state, revision: entry.revision)
         WidgetTimelineDiagnostics.log(
             kind: "AmmoAccount", phase: "timeline", family: context.family,
             stateCount: states.count, entryCount: entries.count,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
-            refreshDate: refreshDate, startedAt: startedAt)
+            refreshDate: refreshDate, revision: entry.revision, startedAt: startedAt)
         return Timeline(entries: entries, policy: .after(refreshDate))
     }
 
     private func entry(for configuration: SelectAccountIntent) -> UsageEntry {
-        let states = SharedStore.load()
+        let snapshot = SharedStore.loadSnapshot()
         let state = configuration.account
-            .flatMap { chosen in states.first { $0.account.id == chosen.id } }
-            ?? WidgetAccountOrder.defaultOrder(states).first
-        return UsageEntry(date: .now, state: state)
+            .flatMap { chosen in snapshot.states.first { $0.account.id == chosen.id } }
+            ?? WidgetAccountOrder.defaultOrder(snapshot.states).first
+        return UsageEntry(date: .now, state: state, revision: snapshot.revision)
     }
 
-    private func timelineEntries(state: AccountState?) -> [UsageEntry] {
+    private func timelineEntries(
+        state: AccountState?,
+        revision: SharedStoreRevision?
+    ) -> [UsageEntry] {
         WidgetTimelineDates.make(states: state.map { [$0] } ?? [])
-            .map { UsageEntry(date: $0, state: state) }
+            .map { UsageEntry(date: $0, state: state, revision: revision) }
     }
 }
 
 struct AllAccountsEntry: TimelineEntry {
     let date: Date
     let states: [AccountState]
+    let revision: SharedStoreRevision?
 }
 
 struct AllAccountsProvider: AppIntentTimelineProvider {
@@ -120,7 +126,8 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
             : AccountState.galleryPlaceholders
         return AllAccountsEntry(
             date: .now,
-            states: WidgetAccountOrder.defaultOrder(states))
+            states: WidgetAccountOrder.defaultOrder(states),
+            revision: nil)
     }
 
     func snapshot(for configuration: SelectAccountsIntent, in context: Context) async -> AllAccountsEntry {
@@ -133,13 +140,14 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
            WidgetProviderPanels.isProviderBoard(context.family) {
             return AllAccountsEntry(
                 date: entry.date,
-                states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))
+                states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders),
+                revision: entry.revision)
         }
         WidgetTimelineDiagnostics.log(
             kind: "AmmoAllAccounts", phase: "snapshot", family: context.family,
             stateCount: entry.states.count, entryCount: 1,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: entry.states),
-            refreshDate: nil, startedAt: startedAt)
+            refreshDate: nil, revision: entry.revision, startedAt: startedAt)
         return entry
     }
 
@@ -148,27 +156,30 @@ struct AllAccountsProvider: AppIntentTimelineProvider {
         let entry = entry(for: configuration)
         let refreshDate = RefreshLedgerStore.nextRefreshDate(states: entry.states)
         let entries = WidgetTimelineDates.make(states: entry.states)
-            .map { AllAccountsEntry(date: $0, states: entry.states) }
+            .map { AllAccountsEntry(date: $0, states: entry.states, revision: entry.revision) }
         WidgetTimelineDiagnostics.log(
             kind: "AmmoAllAccounts", phase: "timeline", family: context.family,
             stateCount: entry.states.count, entryCount: entries.count,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: entry.states),
-            refreshDate: refreshDate, startedAt: startedAt)
+            refreshDate: refreshDate, revision: entry.revision, startedAt: startedAt)
         return Timeline(entries: entries, policy: .after(refreshDate))
     }
 
     private func entry(for configuration: SelectAccountsIntent) -> AllAccountsEntry {
-        let states = SharedStore.load()
+        let snapshot = SharedStore.loadSnapshot()
         let selectedIDs = configuration.orderedAccountIDs
         let visibleStates: [AccountState]
         if selectedIDs.isEmpty {
-            visibleStates = WidgetAccountOrder.defaultOrder(states)
+            visibleStates = WidgetAccountOrder.defaultOrder(snapshot.states)
         } else {
             visibleStates = selectedIDs.compactMap { id in
-                states.first { $0.id == id }
+                snapshot.states.first { $0.id == id }
             }
         }
-        return AllAccountsEntry(date: .now, states: visibleStates)
+        return AllAccountsEntry(
+            date: .now,
+            states: visibleStates,
+            revision: snapshot.revision)
     }
 }
 
@@ -177,6 +188,7 @@ struct ActivityEntry: TimelineEntry {
     let state: AccountState?
     let windowID: String?
     let samples: [UsageHistorySample]
+    let revision: SharedStoreRevision?
 }
 
 struct ActivityTimelineProvider: AppIntentTimelineProvider {
@@ -187,7 +199,8 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
             date: .now,
             state: state,
             windowID: windowID,
-            samples: Self.placeholderSamples(state: state, windowID: windowID)
+            samples: Self.placeholderSamples(state: state, windowID: windowID),
+            revision: nil
         )
     }
 
@@ -199,7 +212,7 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
             kind: "AmmoActivity", phase: "snapshot", family: context.family,
             stateCount: states.count, entryCount: 1,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
-            refreshDate: nil, startedAt: startedAt)
+            refreshDate: nil, revision: entry.revision, startedAt: startedAt)
         return entry
     }
 
@@ -216,7 +229,7 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
             kind: "AmmoActivity", phase: "timeline", family: context.family,
             stateCount: states.count, entryCount: 1,
             newestSnapshot: WidgetTimelineDiagnostics.newestSnapshot(in: states),
-            refreshDate: policyDate, startedAt: startedAt)
+            refreshDate: policyDate, revision: entry.revision, startedAt: startedAt)
         return Timeline(entries: [entry], policy: .after(policyDate))
     }
 
@@ -229,24 +242,27 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
             date: .now,
             state: selection.state,
             windowID: selection.windowID,
-            samples: samples
+            samples: samples,
+            revision: selection.revision
         )
     }
 
-    private func selectedLimit(for configuration: SelectLimitIntent) -> (state: AccountState?, windowID: String?) {
-        let states = SharedStore.load()
+    private func selectedLimit(
+        for configuration: SelectLimitIntent
+    ) -> (state: AccountState?, windowID: String?, revision: SharedStoreRevision?) {
+        let snapshot = SharedStore.loadSnapshot()
         if let chosen = configuration.limit,
-           let state = states.first(where: { $0.id == chosen.accountID }),
+           let state = snapshot.states.first(where: { $0.id == chosen.accountID }),
            state.snapshot?.windows.contains(where: { $0.id == chosen.windowID }) == true {
-            return (state, chosen.windowID)
+            return (state, chosen.windowID, snapshot.revision)
         }
 
-        let orderedStates = WidgetAccountOrder.defaultOrder(states)
+        let orderedStates = WidgetAccountOrder.defaultOrder(snapshot.states)
         guard let state = orderedStates.first,
               let window = LimitQuery.preferredWindow(in: state.snapshot?.windows ?? []) else {
-            return (orderedStates.first, nil)
+            return (orderedStates.first, nil, snapshot.revision)
         }
-        return (state, window.id)
+        return (state, window.id, snapshot.revision)
     }
 
     private static func placeholderSamples(state: AccountState, windowID: String?) -> [UsageHistorySample] {

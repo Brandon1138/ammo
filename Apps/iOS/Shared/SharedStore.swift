@@ -56,6 +56,18 @@ struct AccountState: Codable, Identifiable, Sendable {
     }
 }
 
+/// Cache payload and diagnostic revision observed during one locked read.
+struct SharedStoreSnapshot: Sendable {
+    let states: [AccountState]
+    let revision: SharedStoreRevision?
+}
+
+/// Raw disk pair used by the production decoder and focused lock tests.
+struct SharedStoreDiskSnapshot: Sendable {
+    let data: Data
+    let revision: SharedStoreRevision?
+}
+
 enum SharedStore {
     static var fileURL: URL {
         AppGroup.containerURL.appendingPathComponent("usage-states.json")
@@ -66,27 +78,52 @@ enum SharedStore {
     }
 
     static func load() -> [AccountState] {
-        if DemoModeStore.isEnabled { return DemoData.states() }
+        loadSnapshot().states
+    }
+
+    /// Reads cache bytes and their revision while holding the writer's lock.
+    /// The decoded states may outlive the lock, but both source files always
+    /// come from the same committed write.
+    static func loadSnapshot() -> SharedStoreSnapshot {
+        if DemoModeStore.isEnabled {
+            return SharedStoreSnapshot(states: DemoData.states(), revision: nil)
+        }
         removeLegacyCodexBillingCache()
         let startedAt = Date()
         do {
-            let data = try Data(contentsOf: fileURL)
-            let decoded = sanitize(try UsageCacheCodec.decode([AccountState].self, from: data))
+            let diskSnapshot = try readCacheSnapshot(
+                fileURL: fileURL,
+                revisionURL: SharedStoreRevisionStore.fileURL,
+                lock: lock)
+            let decoded = sanitize(
+                try UsageCacheCodec.decode([AccountState].self, from: diskSnapshot.data))
             let states = removingDeleted(decoded)
             AmmoLog.sharedStore.info(
                 """
                 Loaded \(states.count, privacy: .public) account states \
-                (\(data.count, privacy: .public) bytes, \
+                (\(diskSnapshot.data.count, privacy: .public) bytes, \
                 \(Int(Date().timeIntervalSince(startedAt) * 1000), privacy: .public) ms, \
-                \(SharedStoreRevisionStore.load()?.logDescription ?? "rev=unknown", privacy: .public))
+                \(diskSnapshot.revision?.logDescription ?? "rev=unknown", privacy: .public))
                 """)
-            return states
+            return SharedStoreSnapshot(states: states, revision: diskSnapshot.revision)
         } catch CocoaError.fileReadNoSuchFile {
             AmmoLog.sharedStore.notice("No shared usage cache exists yet")
-            return []
+            return SharedStoreSnapshot(states: [], revision: nil)
         } catch {
             AmmoLog.sharedStore.error("Unable to load shared usage cache: \(String(describing: error), privacy: .private)")
-            return []
+            return SharedStoreSnapshot(states: [], revision: nil)
+        }
+    }
+
+    static func readCacheSnapshot(
+        fileURL: URL,
+        revisionURL: URL,
+        lock: SharedFileLock
+    ) throws -> SharedStoreDiskSnapshot {
+        try lock.withLock {
+            SharedStoreDiskSnapshot(
+                data: try Data(contentsOf: fileURL),
+                revision: SharedStoreRevisionStore.load(from: revisionURL))
         }
     }
 

@@ -123,6 +123,29 @@ struct MIK110Tests {
         #expect(recorder.reasons == [.appForeground, .refreshFinished])
     }
 
+    @Test("An immediate dispatch retires an armed trailing generation")
+    func staleTrailingGenerationDoesNotDispatch() {
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        let beyondWindow = UInt64(
+            (WidgetInvalidator.coalescingWindow + 1) * 1_000_000_000)
+        WidgetInvalidator.shared.invalidate(reason: .appForeground, nowUptime: start)
+        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, nowUptime: start)
+        WidgetInvalidator.shared.invalidate(
+            reason: .refreshFinished,
+            nowUptime: start + beyondWindow)
+
+        #expect(scheduled.count == 1)
+        scheduled.runAll()
+        #expect(recorder.reasons == [.appForeground, .refreshFinished])
+    }
+
     @Test("A regressed uptime never extends the coalescing delay")
     func regressedUptimeIsClamped() {
         let delay = WidgetInvalidator.coalescingDelay(
@@ -192,6 +215,84 @@ struct MIK110Tests {
         #expect(afterCommit.revision > afterInsert.revision)
         #expect(afterCommit.snapshotCount >= 1)
         #expect(afterCommit.newestSnapshotAt == fetchedAt)
+    }
+
+    @Test("An interleaved writer cannot split cache bytes from their revision")
+    func interleavedWriteReadsConsistentSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let cacheURL = directory.appendingPathComponent("usage-states.json")
+        let revisionURL = directory.appendingPathComponent("usage-states-revision.json")
+        let lock = SharedFileLock(url: directory.appendingPathComponent("usage-states.lock"))
+        let oldStates = [
+            AccountState(account: StoredAccount(provider: .claude, label: "Old")),
+        ]
+        let newStates = oldStates + [
+            AccountState(account: StoredAccount(provider: .codex, label: "New")),
+        ]
+        let oldRevision = SharedStoreRevision(
+            revision: 1,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_000),
+            accountCount: oldStates.count,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        let newRevision = SharedStoreRevision(
+            revision: 2,
+            writtenAt: Date(timeIntervalSince1970: 1_800_000_001),
+            accountCount: newStates.count,
+            snapshotCount: 0,
+            newestSnapshotAt: nil)
+        try UsageCacheCodec.encode(oldStates).write(to: cacheURL, options: .atomic)
+        try UsageCacheCodec.encode(oldRevision).write(to: revisionURL, options: .atomic)
+
+        let cacheWasWritten = DispatchSemaphore(value: 0)
+        let allowRevisionWrite = DispatchSemaphore(value: 0)
+        let writer = Task.detached {
+            try lock.withLock(timeout: 2) {
+                try UsageCacheCodec.encode(newStates).write(to: cacheURL, options: .atomic)
+                cacheWasWritten.signal()
+                _ = allowRevisionWrite.wait(timeout: .now() + 2)
+                try UsageCacheCodec.encode(newRevision).write(to: revisionURL, options: .atomic)
+            }
+        }
+
+        let writerReachedGap = cacheWasWritten.wait(timeout: .now() + 2) == .success
+        #expect(writerReachedGap)
+        guard writerReachedGap else {
+            allowRevisionWrite.signal()
+            try await writer.value
+            return
+        }
+
+        let readStarted = DispatchSemaphore(value: 0)
+        let readFinished = DispatchSemaphore(value: 0)
+        let reader = Task.detached {
+            readStarted.signal()
+            defer { readFinished.signal() }
+            return try SharedStore.readCacheSnapshot(
+                fileURL: cacheURL,
+                revisionURL: revisionURL,
+                lock: lock)
+        }
+        #expect(readStarted.wait(timeout: .now() + 2) == .success)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(readFinished.wait(timeout: .now()) == .timedOut)
+
+        allowRevisionWrite.signal()
+        try await writer.value
+        let diskSnapshot = try await reader.value
+        let decoded = try UsageCacheCodec.decode(
+            [AccountState].self,
+            from: diskSnapshot.data)
+
+        #expect(decoded.map(\.account.label) == ["Old", "New"])
+        #expect(diskSnapshot.revision == newRevision)
+        #expect(diskSnapshot.revision?.accountCount == decoded.count)
     }
 
     // MARK: - Tombstone filtering on the read path
@@ -265,4 +366,30 @@ private final class ReloadRecorder: @unchecked Sendable {
     }
 
     var count: Int { reasons.count }
+}
+
+/// Retains scheduled work so tests can run it after invalidating its generation.
+private final class TrailingWorkRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var workItems: [DispatchWorkItem] = []
+
+    func record(_ workItem: DispatchWorkItem) {
+        lock.lock()
+        workItems.append(workItem)
+        lock.unlock()
+    }
+
+    func runAll() {
+        lock.lock()
+        let pending = workItems
+        workItems.removeAll()
+        lock.unlock()
+        pending.forEach { $0.perform() }
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return workItems.count
+    }
 }
