@@ -98,6 +98,7 @@ enum SharedStore {
         try mutate { states in
             states.removeAll { $0.account.id == id }
         }
+        try RawUsagePayloadStore.remove(accountID: id)
         do {
             try UsageHistoryStore.remove(accountID: id)
         } catch {

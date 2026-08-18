@@ -91,7 +91,7 @@ struct ActivityWidgetView: View {
     }
 }
 
-/// systemSmall: logo + bold name header, then up to two windows as
+/// systemSmall: logo + bold name header, then up to three windows as
 /// label / percent / thick bar / reset countdown.
 struct SmallAccountView: View {
     let state: AccountState
@@ -133,7 +133,8 @@ struct SmallAccountView: View {
         }
     }
 
-    /// The small family fits two windows; keep their reset-footer grouping.
+    /// Three rows preserve Claude's optional model bucket. Plans without that
+    /// provider-reported window collapse naturally and reserve no blank space.
     private func compactGroups(_ snapshot: UsageSnapshot) -> [[LimitWindow]] {
         // Cursor exposes Composer and API as distinct monthly quotas even
         // though they share a billing-cycle reset. Keep a reset line beneath
@@ -142,14 +143,7 @@ struct SmallAccountView: View {
             return snapshot.windows.prefix(2).map { [$0] }
         }
 
-        var remaining = 2
-        var groups: [[LimitWindow]] = []
-        for group in snapshot.windowGroups {
-            guard remaining > 0 else { break }
-            groups.append(Array(group.prefix(remaining)))
-            remaining -= min(group.count, remaining)
-        }
-        return groups
+        return snapshot.widgetWindowGroups(limitedTo: 3)
     }
 }
 
@@ -391,6 +385,13 @@ struct MediumAccountView: View {
         if let reset = resetValue(for: hero) {
             rows.append(LedgerItem(id: "resets", label: "Resets", value: reset))
         }
+        for window in snapshot.windows where window.kind == .modelScoped {
+            rows.append(LedgerItem(
+                id: "model-\(window.id)",
+                label: window.label,
+                value: window.remainingPercentText,
+                tint: window.isRunningLow ? window.barColor : .primary))
+        }
         if let banked = snapshot.resetCreditsAvailable, banked > 0 {
             rows.append(LedgerItem(id: "banked", label: "Banked",
                                    value: "\(banked) reset\(banked == 1 ? "" : "s")"))
@@ -507,6 +508,9 @@ struct ProviderListView: View {
                                    color: worst.barColor,
                                    height: 6)
                     }
+                    ForEach(state.widgetModelScopedWindows.prefix(1)) { window in
+                        CompactModelWindowRow(window: window, barHeight: 4)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -524,29 +528,59 @@ struct MediumAccountsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(states.prefix(4)) { state in
-                HStack(spacing: 8) {
-                    ProviderLogo(provider: state.account.provider, size: 20)
-                    Text(state.account.label)
-                        .font(.body)
-                        .lineLimit(1)
-                        .frame(width: 76, alignment: .leading)
-                    if let worst = state.widgetPercentageWindow {
-                        CapsuleBar(fraction: worst.remainingPercent / 100,
-                                   color: worst.barColor, height: 7)
-                        Text(worst.remainingPercentText)
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(worst.isRunningLow ? worst.barColor : .primary)
-                            .widgetAccentable()
-                            .frame(width: 48, alignment: .trailing)
-                    } else {
-                        Text(state.widgetCompactAvailabilityText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        ProviderLogo(provider: state.account.provider, size: 20)
+                        Text(state.account.label)
+                            .font(.body)
+                            .lineLimit(1)
+                            .frame(width: 76, alignment: .leading)
+                        if let worst = state.widgetPercentageWindow {
+                            CapsuleBar(fraction: worst.remainingPercent / 100,
+                                       color: worst.barColor, height: 7)
+                            Text(worst.remainingPercentText)
+                                .font(.headline.monospacedDigit())
+                                .foregroundStyle(worst.isRunningLow ? worst.barColor : .primary)
+                                .widgetAccentable()
+                                .frame(width: 48, alignment: .trailing)
+                        } else {
+                            Text(state.widgetCompactAvailabilityText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    }
+                    ForEach(state.widgetModelScopedWindows.prefix(1)) { window in
+                        CompactModelWindowRow(window: window, leadingInset: 28, barHeight: 4)
                     }
                 }
             }
         }
+    }
+}
+
+private struct CompactModelWindowRow: View {
+    let window: LimitWindow
+    var leadingInset: CGFloat = 0
+    var barHeight: CGFloat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(window.label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: 44, alignment: .leading)
+            CapsuleBar(fraction: window.remainingPercent / 100,
+                       color: window.barColor,
+                       height: barHeight)
+            Text(window.remainingPercentText)
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(window.isRunningLow ? window.barColor : .secondary)
+                .widgetAccentable()
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.leading, leadingInset)
     }
 }
 
@@ -577,20 +611,36 @@ struct LargeAccountsView: View {
 }
 
 private struct LargeProviderSection: View {
-    let state: AccountState
+    let provider: ProviderID
+    let state: AccountState?
     let referenceDate: Date
+    var windowLimit = 3
+
+    init(state: AccountState, referenceDate: Date, windowLimit: Int = 3) {
+        provider = state.account.provider
+        self.state = state
+        self.referenceDate = referenceDate
+        self.windowLimit = windowLimit
+    }
+
+    init(slot: WidgetProviderSlot, referenceDate: Date, windowLimit: Int = 3) {
+        provider = slot.provider
+        state = slot.state
+        self.referenceDate = referenceDate
+        self.windowLimit = windowLimit
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
-                ProviderLogo(provider: state.account.provider, size: 20)
-                Text(state.account.label)
+                ProviderLogo(provider: provider, size: 20)
+                Text(state?.account.label ?? provider.displayName)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
-                ForEach(detailGroups(snapshot), id: \.first!.id) { group in
+            if let state, let snapshot = state.snapshot, !snapshot.windows.isEmpty {
+                ForEach(snapshot.widgetWindowGroups(limitedTo: windowLimit), id: \.first!.id) { group in
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(group) { window in
                             UsageWindowRow(window: window,
@@ -604,184 +654,66 @@ private struct LargeProviderSection: View {
                                         font: .footnote)
                     }
                 }
-            } else {
+                if let balance = snapshot.verifiedMonetaryOnDemandBalance,
+                   let remaining = balance.remainingAmount {
+                    Text("\(remaining.formatted(.currency(code: balance.currencyCode).precision(.fractionLength(2)))) on-demand")
+                        .font(.footnote)
+                        .foregroundStyle(balance.isExhausted ? .red : .secondary)
+                        .lineLimit(1)
+                }
+            } else if let state, let snapshot = state.snapshot,
+                      let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
+                OpenRouterCreditsPanel(
+                    presentation: presentation,
+                    referenceDate: referenceDate,
+                    statusNotice: statusNotice(for: state))
+            } else if let state {
                 Text(state.widgetAvailabilityText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            } else {
+                Text("Not configured. Add or select \(provider.displayName) in Ammo.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
-    private func detailGroups(_ snapshot: UsageSnapshot) -> [[LimitWindow]] {
-        snapshot.windowGroups(limitedTo: 3)
+    private func statusNotice(for state: AccountState) -> String? {
+        if state.activeFailure != nil { return "Update failed; showing cached data" }
+        return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
     }
 }
 
 // MARK: - All accounts (systemExtraLargePortrait)
 
-/// systemExtraLargePortrait: one panel per shipping provider, stacked. The
-/// family is one grid column wide and six rows tall, so the panels are full
-/// width and share the height four ways — a stack keeps each panel as wide as a
-/// systemMedium widget, where a 2×2 grid would halve the width the meters read
-/// at without buying enough height back. Unlike the smaller families, which show
-/// only what is configured, this layout is a fixed board: a provider without an
-/// account keeps its panel and says why it is empty, so the board never reads as
-/// a failed render.
+/// systemExtraLargePortrait: systemLarge's typography, bars, spacing, and
+/// divider-separated sections extended to four providers. No nested card chrome.
 struct ProviderBoardView: View {
     let states: [AccountState]
     let referenceDate: Date
 
     var body: some View {
-        VStack(spacing: 8) {
-            ForEach(WidgetProviderPanels.slots(states: states)) { slot in
-                ProviderBoardPanel(slot: slot, referenceDate: referenceDate)
+        let slots = WidgetProviderPanels.slots(states: states)
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
+                if index > 0 { Divider() }
+                LargeProviderSection(
+                    slot: slot,
+                    referenceDate: referenceDate,
+                    windowLimit: WidgetProviderPanels.boardWindowLimit)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct ProviderBoardPanel: View {
-    let slot: WidgetProviderSlot
-    let referenceDate: Date
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            header
-            content
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.quaternary,
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    /// Same phrasing the Lock Screen metered label uses, so the header marker is
-    /// never a glyph without a spoken meaning.
-    private var statusNotice: String? {
-        guard let state = slot.state else { return nil }
-        if state.activeFailure != nil { return "Update failed; showing cached data" }
-        return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            ProviderLogo(provider: slot.provider, size: 20)
-            Text(slot.state?.account.label ?? slot.provider.displayName)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .layoutPriority(1)
-            if let plan = slot.state?.snapshot?.displayPlan {
-                Text(plan)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
-            }
-            Spacer(minLength: 0)
-            if let symbol = slot.state?.widgetStatusSymbol(at: referenceDate),
-               let statusNotice {
-                Image(systemName: symbol)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(statusNotice)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let state = slot.state {
-            if let snapshot = state.snapshot, !snapshot.windows.isEmpty {
-                windows(state: state, snapshot: snapshot)
-            } else if let snapshot = state.snapshot,
-                      let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
-                OpenRouterCreditsPanel(presentation: presentation,
-                                       referenceDate: referenceDate,
-                                       statusNotice: statusNotice)
-            } else {
-                unavailable(state: state)
-            }
-        } else {
-            missingAccount
-        }
-    }
-
-    private func windows(state: AccountState, snapshot: UsageSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Grouped by position: a group is identified by where it sits in the
-            // truncated list, so no window id has to be unwrapped or unique.
-            let groups = Array(
-                snapshot.windowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
-                    .enumerated())
-            ForEach(groups, id: \.offset) { _, group in
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(group) { window in
-                        UsageWindowRow(window: window,
-                                       font: .subheadline,
-                                       barHeight: 7,
-                                       spacing: 3)
-                    }
-                    ResetStatusLine(snapshot: snapshot,
-                                    group: group,
-                                    referenceDate: referenceDate,
-                                    font: .caption)
-                }
-            }
-            if let balance = snapshot.verifiedMonetaryOnDemandBalance,
-               let remaining = balance.remainingAmount {
-                Text("\(remaining.formatted(.currency(code: balance.currencyCode).precision(.fractionLength(2)))) on-demand")
-                    .font(.footnote)
-                    .foregroundStyle(balance.isExhausted ? .red : .secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    /// A configured account that has no usable meter yet still states its
-    /// condition — waiting for a first update, paused after a failure, or
-    /// reporting money Ammo will not redraw as a percentage.
-    private func unavailable(state: AccountState) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(state.widgetAvailabilityText,
-                  systemImage: state.activeFailure == nil
-                      ? "clock.arrow.circlepath"
-                      : "exclamationmark.circle")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            if let balance = state.snapshot?.verifiedMonetaryOnDemandBalance,
-               let remaining = balance.remainingAmount {
-                Text("\(remaining.formatted(.currency(code: balance.currencyCode).precision(.fractionLength(2)))) remaining")
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(balance.isExhausted ? .red : .primary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    private var missingAccount: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Not configured")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("Add or select \(slot.provider.displayName) in Ammo.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
     }
 }
 
 /// OpenRouter reports money and one static entitlement, never a percentage
-/// window, so its panel meters credits and labels the free-model request cap
+/// window, so its section meters credits and labels the free-model request cap
 /// the key is subject to. The cap is not a counter and is omitted entirely when
 /// the key endpoint does not report a tier.
 private struct OpenRouterCreditsPanel: View {
@@ -793,7 +725,7 @@ private struct OpenRouterCreditsPanel: View {
     var statusNotice: String?
 
     var body: some View {
-        // A board panel is about a grid row and a half tall, so the money, the
+        // A provider section is compact, so the money, the
         // entitlement badge, and the reset all share lines with something else
         // rather than each claiming one.
         VStack(alignment: .leading, spacing: 5) {
@@ -863,4 +795,22 @@ private struct OpenRouterCreditsPanel: View {
     private func meterColor(_ fraction: Double) -> Color {
         if fraction <= 0.1 { .red } else if fraction <= 0.25 { .orange } else { .blue }
     }
+}
+
+@available(iOS 27.0, *)
+#Preview("XL with Fable", as: .systemExtraLargePortrait) {
+    AmmoAllAccountsWidget()
+} timeline: {
+    AllAccountsEntry(
+        date: .now,
+        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholders))
+}
+
+@available(iOS 27.0, *)
+#Preview("XL without Fable", as: .systemExtraLargePortrait) {
+    AmmoAllAccountsWidget()
+} timeline: {
+    AllAccountsEntry(
+        date: .now,
+        states: WidgetAccountOrder.defaultOrder(AccountState.providerBoardPlaceholdersWithoutFable))
 }

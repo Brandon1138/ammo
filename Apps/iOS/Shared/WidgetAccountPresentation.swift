@@ -78,10 +78,10 @@ enum WidgetProviderPanels {
         return family == .systemExtraLargePortrait
     }
 
-    /// Windows one stacked panel shows. The board splits its height four ways, so
-    /// a panel is about a grid row and a half tall — two windows plus the shared
-    /// reset footer is what fits without the rows compressing into each other.
-    static let boardWindowLimit = 2
+    /// Three windows preserve Claude's Session, Weekly, and provider-reported
+    /// model bucket (currently Fable) without manufacturing a row on plans that
+    /// omit it. Other providers naturally collapse to their shorter lists.
+    static let boardWindowLimit = 3
 
     /// One slot per shipping provider. Where several accounts share a provider,
     /// the default ordering picks the one with the most complete usage data.
@@ -97,6 +97,18 @@ enum WidgetProviderPanels {
 
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
+
+    /// Optional provider-reported model buckets. Empty means payload omitted
+    /// them; compact widgets reserve no row and invent no placeholder.
+    var widgetModelScopedWindows: [LimitWindow] {
+        let windows = snapshot?.windows.filter { $0.kind == .modelScoped } ?? []
+        return windows.sorted { lhs, rhs in
+            let lhsIsFable = lhs.label.localizedCaseInsensitiveCompare("Fable") == .orderedSame
+            let rhsIsFable = rhs.label.localizedCaseInsensitiveCompare("Fable") == .orderedSame
+            if lhsIsFable != rhsIsFable { return lhsIsFable }
+            return false
+        }
+    }
 
     var hasWidgetMeteredUsage: Bool {
         snapshot?.onDemand?.contains { $0.isEnabled != false && $0.used != nil } == true

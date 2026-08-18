@@ -265,6 +265,8 @@ extension AccountState {
                                 resetsAt: Date(timeIntervalSinceNow: 4.5 * 3600)),
                     LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 12,
                                 resetsAt: Date(timeIntervalSinceNow: 6.5 * 86400)),
+                    LimitWindow(kind: .modelScoped, label: "Fable", usedPercent: 48,
+                                resetsAt: Date(timeIntervalSinceNow: 6.5 * 86400)),
                 ]),
             lastError: nil,
             updatedAt: .now)
@@ -292,7 +294,44 @@ extension AccountState {
     /// each provider's own shape: percentage windows for Codex, Claude, and
     /// Cursor, and amount-only key spending for OpenRouter.
     static var providerBoardPlaceholders: [AccountState] {
-        galleryPlaceholders + [
+        providerBoardPlaceholders(includesFable: true)
+    }
+
+    static var providerBoardPlaceholdersWithoutFable: [AccountState] {
+        providerBoardPlaceholders(includesFable: false)
+    }
+
+    private static func providerBoardPlaceholders(includesFable: Bool) -> [AccountState] {
+        let claudeWindows = [
+            LimitWindow(kind: .session, label: "Session", usedPercent: 36,
+                        resetsAt: Date(timeIntervalSinceNow: 4.5 * 3600)),
+            LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 12,
+                        resetsAt: Date(timeIntervalSinceNow: 6.5 * 86400)),
+        ] + (includesFable ? [
+            LimitWindow(kind: .modelScoped, label: "Fable", usedPercent: 48,
+                        resetsAt: Date(timeIntervalSinceNow: 6.5 * 86400)),
+        ] : [])
+
+        return [
+            AccountState(
+                account: StoredAccount(provider: .codex, label: "Codex"),
+                snapshot: UsageSnapshot(
+                    provider: .codex,
+                    plan: nil,
+                    windows: [
+                        LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 30,
+                                    resetsAt: Date(timeIntervalSinceNow: 5.9 * 86400)),
+                    ]),
+                lastError: nil,
+                updatedAt: .now),
+            AccountState(
+                account: StoredAccount(provider: .claude, label: "Claude"),
+                snapshot: UsageSnapshot(
+                    provider: .claude,
+                    plan: "max",
+                    windows: claudeWindows),
+                lastError: nil,
+                updatedAt: .now),
             AccountState(
                 account: StoredAccount(provider: .cursor, label: "Cursor"),
                 snapshot: UsageSnapshot(

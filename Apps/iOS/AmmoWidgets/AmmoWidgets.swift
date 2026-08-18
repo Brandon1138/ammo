@@ -48,8 +48,8 @@ struct AmmoAccountWidget: Widget {
 
 /// Ordered configured accounts. Small: percent list. Medium: bar per account.
 /// Large: full details for the first two accounts. Extra large portrait
-/// (iPhone, iOS 27+): one stacked panel per shipping provider, including
-/// providers without an account.
+/// (iPhone, iOS 27+): four divider-separated provider sections using the same
+/// detail language as Large, including providers without an account.
 struct AmmoAllAccountsWidget: Widget {
     let kind = "AmmoAllAccounts"
 
@@ -63,7 +63,7 @@ struct AmmoAllAccountsWidget: Widget {
         .configurationDisplayName("Accounts")
         .description(
             "Usage left across your accounts. Small, medium, and large follow your "
-                + "selected order; the tall size shows a fixed panel per provider.")
+                + "selected order; the tall size shows a fixed section per provider.")
         .supportedFamilies(WidgetProviderPanels.accountsFamilies)
     }
 }
