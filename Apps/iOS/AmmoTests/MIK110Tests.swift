@@ -218,7 +218,7 @@ struct MIK110Tests {
     }
 
     @Test("An interleaved writer cannot split cache bytes from their revision")
-    func interleavedWriteReadsConsistentSnapshot() async throws {
+    func interleavedWriteReadsConsistentSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MIK110-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -252,40 +252,51 @@ struct MIK110Tests {
 
         let cacheWasWritten = DispatchSemaphore(value: 0)
         let allowRevisionWrite = DispatchSemaphore(value: 0)
-        let writer = Task.detached {
-            try lock.withLock(timeout: 2) {
-                try UsageCacheCodec.encode(newStates).write(to: cacheURL, options: .atomic)
-                cacheWasWritten.signal()
-                _ = allowRevisionWrite.wait(timeout: .now() + 2)
-                try UsageCacheCodec.encode(newRevision).write(to: revisionURL, options: .atomic)
-            }
+        let writerFinished = DispatchSemaphore(value: 0)
+        let writerOutcome = OutcomeBox<Void>()
+        DispatchQueue.global().async {
+            defer { writerFinished.signal() }
+            writerOutcome.store(Result {
+                try lock.withLock(timeout: 2) {
+                    try UsageCacheCodec.encode(newStates).write(to: cacheURL, options: .atomic)
+                    cacheWasWritten.signal()
+                    _ = allowRevisionWrite.wait(timeout: .now() + 2)
+                    try UsageCacheCodec.encode(newRevision).write(to: revisionURL, options: .atomic)
+                }
+            })
         }
 
         let writerReachedGap = cacheWasWritten.wait(timeout: .now() + 2) == .success
         #expect(writerReachedGap)
         guard writerReachedGap else {
             allowRevisionWrite.signal()
-            try await writer.value
+            #expect(writerFinished.wait(timeout: .now() + 2) == .success)
+            try writerOutcome.take()?.get()
             return
         }
 
         let readStarted = DispatchSemaphore(value: 0)
         let readFinished = DispatchSemaphore(value: 0)
-        let reader = Task.detached {
+        let readerOutcome = OutcomeBox<SharedStoreDiskSnapshot>()
+        DispatchQueue.global().async {
             readStarted.signal()
             defer { readFinished.signal() }
-            return try SharedStore.readCacheSnapshot(
-                fileURL: cacheURL,
-                revisionURL: revisionURL,
-                lock: lock)
+            readerOutcome.store(Result {
+                try SharedStore.readCacheSnapshot(
+                    fileURL: cacheURL,
+                    revisionURL: revisionURL,
+                    lock: lock)
+            })
         }
         #expect(readStarted.wait(timeout: .now() + 2) == .success)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        Thread.sleep(forTimeInterval: 0.1)
         #expect(readFinished.wait(timeout: .now()) == .timedOut)
 
         allowRevisionWrite.signal()
-        try await writer.value
-        let diskSnapshot = try await reader.value
+        #expect(writerFinished.wait(timeout: .now() + 2) == .success)
+        try writerOutcome.take()?.get()
+        #expect(readFinished.wait(timeout: .now() + 2) == .success)
+        let diskSnapshot = try #require(readerOutcome.take()).get()
         let decoded = try UsageCacheCodec.decode(
             [AccountState].self,
             from: diskSnapshot.data)
@@ -345,6 +356,24 @@ struct MIK110Tests {
             states,
             deletedIDs: [],
             knownDeletedIDs: []).count == 1)
+    }
+}
+
+/// Carries a background thread's throwing result back to the test thread.
+private final class OutcomeBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcome: Result<Value, Error>?
+
+    func store(_ result: Result<Value, Error>) {
+        lock.lock()
+        outcome = result
+        lock.unlock()
+    }
+
+    func take() -> Result<Value, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome
     }
 }
 
