@@ -98,16 +98,23 @@ enum WidgetProviderPanels {
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
 
-    /// Optional provider-reported model buckets. Empty means payload omitted
-    /// them; compact widgets reserve no row and invent no placeholder.
+    /// Optional provider-reported model buckets, Fable first and otherwise in
+    /// payload order. Empty means the payload omitted them; compact widgets
+    /// reserve no row and invent no placeholder.
     var widgetModelScopedWindows: [LimitWindow] {
         let windows = snapshot?.windows.filter { $0.kind == .modelScoped } ?? []
-        return windows.sorted { lhs, rhs in
-            let lhsIsFable = lhs.label.localizedCaseInsensitiveCompare("Fable") == .orderedSame
-            let rhsIsFable = rhs.label.localizedCaseInsensitiveCompare("Fable") == .orderedSame
-            if lhsIsFable != rhsIsFable { return lhsIsFable }
-            return false
-        }
+        // A partition keeps the provider's own ordering intact behind Fable;
+        // `sorted` would be free to shuffle the equally-ranked remainder.
+        return windows.filter(\.isFableModelWindow)
+            + windows.filter { !$0.isFableModelWindow }
+    }
+
+    /// The one model bucket a compact surface prints beside its headline meter.
+    /// Nil when the payload has no bucket, or when the headline meter already
+    /// is that bucket — the same window must never be drawn twice.
+    var widgetCompactModelWindow: LimitWindow? {
+        guard let window = widgetModelScopedWindows.first else { return nil }
+        return window.id == widgetPercentageWindow?.id ? nil : window
     }
 
     var hasWidgetMeteredUsage: Bool {
