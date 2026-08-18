@@ -117,6 +117,25 @@ struct MIK110Tests {
         #expect(scheduled.count == 0)
     }
 
+    @Test("Successful account removal dispatches exactly once at the write seam")
+    @MainActor
+    func successfulAccountRemovalDispatchesOnce() throws {
+        let account = StoredAccount(provider: .claude, label: "Removal reload probe")
+        try SharedStore.insert(AccountState(account: account))
+
+        let recorder = ReloadRecorder()
+        let scheduled = TrailingWorkRecorder()
+        let token = WidgetInvalidator.shared.installDispatchOverride(
+            { recorder.record($0) },
+            schedulingOverride: { scheduled.record($0) })
+        defer { _ = token }
+
+        AccountStore.shared.remove(account)
+
+        #expect(recorder.reasons == [.accountRemoved])
+        #expect(scheduled.count == 0)
+    }
+
     @Test("A burst of per-account commits collapses into one reload request")
     func burstIsCoalesced() throws {
         let recorder = ReloadRecorder()

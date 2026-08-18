@@ -81,17 +81,24 @@ final class AccountStore {
     }
 
     func remove(_ account: StoredAccount) {
+        var cleanupDeferred = false
         do {
             try AccountMutationStore.begin(.removing, account: account)
             try AccountMutationStore.finishRemoval(account)
         } catch {
+            cleanupDeferred = true
             // Durable journal or tombstone preserves intent. Recovery retries
             // any unfinished cleanup; reload now so tombstoned state vanishes.
             AmmoLog.sharedStore.error("Account removal cleanup remains pending: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
         historySamples = UsageHistoryStore.load()
-        WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
+        // Successful removal already invalidated after SharedStore committed its
+        // bytes. Only the deferred-cleanup path needs a caller-side reload so a
+        // newly written tombstone hides the stale cached account immediately.
+        if cleanupDeferred {
+            WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
+        }
         Task { await self.refresh(ids: []) }
     }
 
