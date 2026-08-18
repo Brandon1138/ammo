@@ -160,9 +160,9 @@ struct SmallAccountView: View {
     }
 }
 
-/// accessoryCircular: provider-reported window drives native capacity
-/// indicator and, when another window exists, its remaining percent becomes
-/// numeric value. Single-window providers show only their real window.
+/// accessoryCircular: provider-reported window drives open gauge chrome and,
+/// when another window exists, its remaining percent becomes numeric value.
+/// Single-window providers show a marker for their real window.
 struct CircularGaugeView: View {
     let state: AccountState
     let referenceDate: Date
@@ -173,11 +173,11 @@ struct CircularGaugeView: View {
            let presentation = LockScreenUsagePresentation(snapshot: snapshot) {
             if presentation.numericWindow != nil {
                 usageGauge(presentation: presentation)
-                    .gaugeStyle(.accessoryCircularCapacity)
+                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .fill))
                     .statusOverlay(symbol: statusSymbol(for: presentation))
             } else {
                 usageGauge(presentation: presentation)
-                    .gaugeStyle(.accessoryCircular)
+                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
                     .statusOverlay(symbol: statusSymbol(for: presentation))
             }
         } else if state.hasWidgetMeteredUsage {
@@ -199,7 +199,7 @@ struct CircularGaugeView: View {
                     Text("…")
                 }
             }
-            .gaugeStyle(.accessoryCircular)
+            .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
             .accessibilityLabel(emptyAccessibilityLabel)
         }
     }
