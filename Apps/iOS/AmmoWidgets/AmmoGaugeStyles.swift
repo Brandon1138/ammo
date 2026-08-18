@@ -28,7 +28,7 @@ struct AmmoAccessoryCircularGaugeStyle: GaugeStyle {
             ZStack {
                 gaugeArc
                     .stroke(
-                        variant == .fill ? .tertiary : .primary,
+                        .tertiary,
                         style: StrokeStyle(
                             lineWidth: lineWidth,
                             lineCap: .round
