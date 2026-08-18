@@ -82,9 +82,36 @@ struct MIK110Tests {
         #expect(!WidgetReloadPolicy.shouldReload(
             after: [.failed(accountID: accountID,
                             message: "network",
-                            nextEligibleAt: nil)],
+                            nextEligibleAt: nil,
+                            didPersist: true)],
             reason: .manual,
             hasCachedSnapshot: false))
+    }
+
+    @Test("A cached manual run republishes when accompanying failures wrote nothing")
+    func cacheAndUnpersistedFailureReloadFromCaller() {
+        #expect(WidgetReloadPolicy.shouldReload(
+            after: [
+                .cached(accountID: accountID, nextEligibleAt: .distantFuture),
+                .failed(accountID: UUID(), message: "cancelled",
+                        nextEligibleAt: nil, didPersist: false),
+            ],
+            reason: .manual,
+            hasCachedSnapshot: true))
+    }
+
+    @Test("Removal cleanup after the shared-cache commit does not reload twice")
+    func removalProgressControlsFallbackReload() {
+        struct LaterCleanupFailure: Error {}
+
+        #expect(!AccountMutationStore.needsCallerInvalidation(after:
+            AccountMutationStore.RemovalError(
+                sharedCacheRemoved: true,
+                underlying: LaterCleanupFailure())))
+        #expect(AccountMutationStore.needsCallerInvalidation(after:
+            AccountMutationStore.RemovalError(
+                sharedCacheRemoved: false,
+                underlying: LaterCleanupFailure())))
     }
 
     @Test("A mixed persisted and cached run still relies on the write seam")

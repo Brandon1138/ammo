@@ -227,15 +227,21 @@ enum SharedStore {
         return transition
     }
 
-    static func record(failure: UsageFailureKind, for id: UUID) throws {
-        guard !AccountDeletionStore.isDeleted(id) else { return }
+    @discardableResult
+    static func record(failure: UsageFailureKind, for id: UUID) throws -> Bool {
+        guard !AccountDeletionStore.isDeleted(id) else { return false }
+        var didRecord = false
         let revision = try mutate { states in
             guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
             states[index].lastError = nil
             states[index].lastFailure = failure
+            didRecord = true
         }
-        WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, revision: revision)
+        if didRecord {
+            WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, revision: revision)
+        }
+        return didRecord
     }
 
     @discardableResult
