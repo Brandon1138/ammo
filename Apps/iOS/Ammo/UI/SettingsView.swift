@@ -7,7 +7,10 @@ struct SettingsView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AccountStore.self) private var store
-    let model: NotificationSettingsModel
+    /// Owned by the sheet so presentation never waits on model preparation.
+    /// Loading preferences is a synchronous UserDefaults read; the authorization
+    /// status arrives from `.task` below and only gates the master toggle.
+    @State private var model = NotificationSettingsModel()
     @State private var payloadExport: PayloadExport?
     @State private var payloadExportError: String?
 
