@@ -223,8 +223,43 @@ public struct CodexProvider: UsageProvider {
             let individualLimit: SpendControl?
         }
         struct ResetCredits: Decodable { let availableCount: Int? }
+        /// One model-specific bucket from `additional_rate_limits`. Every field
+        /// is optional and decoded defensively so a bucket Ammo does not
+        /// recognize — or one that arrives in an unexpected shape — degrades to
+        /// absence instead of failing the whole usage response.
+        struct AdditionalRateLimit: Decodable {
+            let limitName: String?
+            let meteredFeature: String?
+            let rateLimit: RateLimit?
+
+            enum CodingKeys: String, CodingKey {
+                case limitName, meteredFeature, rateLimit
+            }
+
+            init(from decoder: Decoder) throws {
+                guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+                    limitName = nil
+                    meteredFeature = nil
+                    rateLimit = nil
+                    return
+                }
+                limitName = try? container.decodeIfPresent(String.self, forKey: .limitName)
+                meteredFeature = try? container.decodeIfPresent(String.self, forKey: .meteredFeature)
+                rateLimit = try? container.decodeIfPresent(RateLimit.self, forKey: .rateLimit)
+            }
+        }
+        /// `AdditionalRateLimit` never throws, so this only absorbs the case
+        /// where the key holds something other than an array.
+        struct AdditionalRateLimits: Decodable {
+            let entries: [AdditionalRateLimit]
+
+            init(from decoder: Decoder) throws {
+                entries = (try? [AdditionalRateLimit](from: decoder)) ?? []
+            }
+        }
         let planType: String?
         let rateLimit: RateLimit?
+        let additionalRateLimits: AdditionalRateLimits?
         let credits: Credits?
         let individualLimit: SpendControl?
         let spendControl: SpendControlContainer?
@@ -239,14 +274,78 @@ public struct CodexProvider: UsageProvider {
     }
 
     static func windows(from response: Response) -> [LimitWindow] {
-        [response.rateLimit?.primaryWindow, response.rateLimit?.secondaryWindow]
-            .compactMap { $0 }
-            .compactMap { window in
+        let reported: [Response.Window] =
+            [response.rateLimit?.primaryWindow, response.rateLimit?.secondaryWindow]
+                .compactMap { $0 }
+        let included = reported
+            .compactMap { window -> LimitWindow? in
                 guard let used = window.usedPercent else { return nil }
                 let (kind, label) = classify(windowSeconds: window.limitWindowSeconds)
                 return LimitWindow(kind: kind, label: label, usedPercent: used,
                                    resetsAt: window.resetAt.map { Date(timeIntervalSince1970: $0) })
             }
+        return included + sparkWindows(from: response)
+    }
+
+    // MARK: - Spark buckets
+
+    /// The upstream names for the Spark bucket. They live here, at the Codex
+    /// integration boundary, so nothing downstream matches on a vendor string
+    /// or a model version that a rename would invalidate.
+    private static let sparkLimitNameFragment = "spark"
+    private static let sparkMeteredFeature = "codex_bengalfox"
+
+    static func isSparkBucket(_ bucket: Response.AdditionalRateLimit) -> Bool {
+        if let feature = bucket.meteredFeature,
+           feature.caseInsensitiveCompare(sparkMeteredFeature) == .orderedSame {
+            return true
+        }
+        guard let name = bucket.limitName else { return false }
+        return name.range(of: sparkLimitNameFragment, options: .caseInsensitive) != nil
+    }
+
+    /// Spark's own short and weekly meters, as ordinary model-scoped windows on
+    /// the Codex snapshot. Absent or unrecognized buckets produce nothing: no
+    /// synthetic row, no error.
+    static func sparkWindows(from response: Response) -> [LimitWindow] {
+        guard let buckets = response.additionalRateLimits?.entries, !buckets.isEmpty else {
+            return []
+        }
+        let reported = buckets
+            .filter(isSparkBucket)
+            .flatMap { bucket -> [Response.Window] in
+                [bucket.rateLimit?.primaryWindow, bucket.rateLimit?.secondaryWindow]
+                    .compactMap { $0 }
+            }
+        // Position carries no meaning — a bucket is free to report its weekly
+        // window first — so the advertised length, not the payload slot, both
+        // labels each meter and fixes the order the bars are drawn in.
+        let ordered = reported.sorted { lhs, rhs in
+            (lhs.limitWindowSeconds ?? .greatestFiniteMagnitude)
+                < (rhs.limitWindowSeconds ?? .greatestFiniteMagnitude)
+        }
+        var seenIDs = Set<String>()
+        return ordered.compactMap { window in
+            guard let used = window.usedPercent else { return nil }
+            let limitWindow = LimitWindow(
+                kind: .modelScoped,
+                label: sparkLabel(windowSeconds: window.limitWindowSeconds),
+                usedPercent: used,
+                resetsAt: window.resetAt.map { Date(timeIntervalSince1970: $0) })
+            // `LimitWindow.id` is kind + label, and duplicate ids break the
+            // ForEach identity every window list is built on.
+            return seenIDs.insert(limitWindow.id).inserted ? limitWindow : nil
+        }
+    }
+
+    /// Distinct labels per duration class keep `LimitWindow.id` unique while
+    /// naming the meter the way the product does.
+    static func sparkLabel(windowSeconds: Double?) -> String {
+        switch classify(windowSeconds: windowSeconds).0 {
+        case .weekly: "Spark weekly"
+        case .monthly: "Spark monthly"
+        default: "Spark"
+        }
     }
 
     static func onDemand(from response: Response) -> [OnDemandUsage]? {

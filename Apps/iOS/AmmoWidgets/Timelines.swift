@@ -360,7 +360,22 @@ extension AccountState {
         providerBoardPlaceholders(includesFable: false)
     }
 
-    private static func providerBoardPlaceholders(includesFable: Bool) -> [AccountState] {
+    private static func providerBoardPlaceholders(
+        includesFable: Bool,
+        includesCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark
+    ) -> [AccountState] {
+        // The sample follows the same display preference the real board does,
+        // so the gallery never advertises meters the person switched off.
+        let codexWindows = [
+            LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 30,
+                        resetsAt: Date(timeIntervalSinceNow: 5.9 * 86400)),
+        ] + (includesCodexSpark ? [
+            LimitWindow(kind: .modelScoped, label: "Spark", usedPercent: 12,
+                        resetsAt: Date(timeIntervalSinceNow: 3.2 * 3600)),
+            LimitWindow(kind: .modelScoped, label: "Spark weekly", usedPercent: 34,
+                        resetsAt: Date(timeIntervalSinceNow: 6.8 * 86400)),
+        ] : [])
+
         let claudeWindows = [
             LimitWindow(kind: .session, label: "Session", usedPercent: 36,
                         resetsAt: Date(timeIntervalSinceNow: 4.5 * 3600)),
@@ -377,10 +392,7 @@ extension AccountState {
                 snapshot: UsageSnapshot(
                     provider: .codex,
                     plan: nil,
-                    windows: [
-                        LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 30,
-                                    resetsAt: Date(timeIntervalSinceNow: 5.9 * 86400)),
-                    ]),
+                    windows: codexWindows),
                 lastError: nil,
                 updatedAt: .now),
             AccountState(

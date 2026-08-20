@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(AccountStore.self) private var store
     let model: NotificationSettingsModel
     @State private var payloadExport: PayloadExport?
     @State private var payloadExportError: String?
@@ -60,6 +61,14 @@ struct SettingsView: View {
                 .disabled(!model.preferences.masterEnabled)
 
                 Section {
+                    Toggle("Show Codex Spark meters", isOn: codexSparkBinding)
+                } header: {
+                    Text("Display")
+                } footer: {
+                    Text("Adds Spark's 5-hour and weekly meters to Codex wherever usage is shown. On the tall Home Screen widget, Codex expands and OpenRouter's section makes room for it.")
+                }
+
+                Section {
                     Button {
                         exportRawUsagePayloads()
                     } label: {
@@ -111,6 +120,13 @@ struct SettingsView: View {
         } catch {
             payloadExportError = error.localizedDescription
         }
+    }
+
+    private var codexSparkBinding: Binding<Bool> {
+        Binding(
+            get: { store.showsCodexSpark },
+            set: { store.setShowsCodexSpark($0) }
+        )
     }
 
     private var masterBinding: Binding<Bool> {

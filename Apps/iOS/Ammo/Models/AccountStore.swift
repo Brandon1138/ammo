@@ -19,6 +19,22 @@ final class AccountStore {
 
     var isDemoMode: Bool { DemoModeStore.isEnabled }
 
+    /// Display preferences change what is drawn, not what is fetched, so the
+    /// setter republishes the cache the app already holds and tells WidgetKit
+    /// to redraw. Nothing here triggers a network round trip.
+    var showsCodexSpark: Bool { UsageDisplayPreferences.showsCodexSpark }
+
+    func setShowsCodexSpark(_ enabled: Bool) {
+        do {
+            try UsageDisplayPreferences.setShowsCodexSpark(enabled)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to store Codex Spark display preference: \(String(describing: error), privacy: .private)")
+            return
+        }
+        states = SharedStore.load()
+        WidgetInvalidator.shared.invalidate(reason: .displayPreferenceChanged)
+    }
+
     private init() {
 #if targetEnvironment(simulator)
         if Self.usesHistoryPreview {
@@ -105,7 +121,7 @@ final class AccountStore {
     func enableDemoMode() {
         do {
             try DemoModeStore.setEnabled(true)
-            states = DemoData.states()
+            states = UsageDisplayPreferences.presented(DemoData.states())
             historySamples = DemoData.historySamples()
             retryStates = [:]
             WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
