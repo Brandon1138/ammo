@@ -52,7 +52,23 @@ struct WidgetProviderSlot: Identifiable {
 enum WidgetProviderPanels {
     /// Fixed panel order, matching the provider ranking used by the default
     /// account ordering so the board does not move between refreshes.
-    static let providers: [ProviderID] = [.codex, .claude, .cursor, .openRouter]
+    static let allProviders: [ProviderID] = [.codex, .claude, .cursor, .openRouter]
+
+    /// With Codex Spark metering on, Codex claims three meters instead of one
+    /// and the board runs out of height. OpenRouter is the panel that yields:
+    /// it draws money rather than a percentage window, so it is the one section
+    /// whose absence costs no rate-limit information.
+    static let sparkProviders: [ProviderID] = [.codex, .claude, .cursor]
+
+    static func providers(showingCodexSpark: Bool) -> [ProviderID] {
+        showingCodexSpark ? sparkProviders : allProviders
+    }
+
+    /// The board as currently configured. Off — the default — is the existing
+    /// four-provider board, unchanged.
+    static var providers: [ProviderID] {
+        providers(showingCodexSpark: UsageDisplayPreferences.showsCodexSpark)
+    }
 
     /// Families the Accounts widget offers. The board is drawn in
     /// `systemExtraLargePortrait`, the tall portrait family iOS 27 added to the
@@ -80,13 +96,19 @@ enum WidgetProviderPanels {
 
     /// Three windows preserve Claude's Session, Weekly, and provider-reported
     /// model bucket (currently Fable) without manufacturing a row on plans that
-    /// omit it. Other providers naturally collapse to their shorter lists.
+    /// omit it. It is also exactly what an expanded Codex needs — its Weekly
+    /// window plus the two Spark meters — as verified against the live
+    /// `wham/usage` payload, which reports one included window for Codex. Other
+    /// providers naturally collapse to their shorter lists.
     static let boardWindowLimit = 3
 
     /// One slot per shipping provider. Where several accounts share a provider,
     /// the default ordering picks the one with the most complete usage data.
-    static func slots(states: [AccountState]) -> [WidgetProviderSlot] {
-        providers.map { provider in
+    static func slots(
+        states: [AccountState],
+        showingCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark
+    ) -> [WidgetProviderSlot] {
+        providers(showingCodexSpark: showingCodexSpark).map { provider in
             let candidates = states.filter { $0.account.provider == provider }
             return WidgetProviderSlot(
                 provider: provider,

@@ -747,8 +747,7 @@ private struct LargeProviderSection: View {
                       let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
                 OpenRouterCreditsPanel(
                     presentation: presentation,
-                    referenceDate: referenceDate,
-                    statusNotice: statusNotice(for: state))
+                    referenceDate: referenceDate)
             } else if let state {
                 Text(state.widgetAvailabilityText)
                     .font(.footnote)
@@ -762,11 +761,6 @@ private struct LargeProviderSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-    }
-
-    private func statusNotice(for state: AccountState) -> String? {
-        if state.activeFailure != nil { return "Update failed; showing cached data" }
-        return state.widgetStatusSymbol(at: referenceDate) != nil ? "Update is stale" : nil
     }
 }
 
@@ -801,10 +795,6 @@ struct ProviderBoardView: View {
 private struct OpenRouterCreditsPanel: View {
     let presentation: OpenRouterKeyPresentation
     let referenceDate: Date
-    /// Set when the panel is drawing a cached snapshot. Money is stated as a
-    /// present-tense fact, so a failed or stale fetch has to say so visibly and
-    /// not only through the header glyph.
-    var statusNotice: String?
 
     var body: some View {
         // A provider section is compact, so the money, the
@@ -830,16 +820,6 @@ private struct OpenRouterCreditsPanel: View {
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
                 }
-            }
-            // Kept directly under the money it qualifies: a panel that runs out
-            // of height clips from the bottom, and a cached balance must not be
-            // the line that goes missing.
-            if let statusNotice {
-                Label(statusNotice, systemImage: "exclamationmark.circle")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.orange)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
             if let fraction = presentation.remainingFraction {
                 CapsuleBar(

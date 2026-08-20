@@ -271,7 +271,18 @@ Response (fields Ammo consumes):
                           "reset_after_seconds": 590909, "reset_at": 1784797038 },
     "secondary_window": null
   },
-  "additional_rate_limits": null,          // shape unverified (null in the wild)
+  "additional_rate_limits": [              // VERIFIED 2026-08-20; null on plans without it
+    {
+      "limit_name": "GPT-5.3-Codex-Spark",
+      "metered_feature": "codex_bengalfox",
+      "rate_limit": {
+        "primary_window":   { "used_percent": 0, "limit_window_seconds": 18000,
+                              "reset_after_seconds": 18000, "reset_at": 1787254942 },
+        "secondary_window": { "used_percent": 0, "limit_window_seconds": 604800,
+                              "reset_after_seconds": 604800, "reset_at": 1787841742 }
+      }
+    }
+  ],
   "credits": {
     "has_credits": true, "unlimited": false, "balance": null,
     "overage_limit_reached": false
@@ -291,6 +302,17 @@ position** — OpenAI removed the 5-hour Codex session limit, so plans currently
 a weekly window only, and windows may reshuffle again (<24 h → Session, <8 d → Weekly,
 else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
 "N resets available".
+
+Each `additional_rate_limits[]` entry is a model-specific bucket carrying its own
+`rate_limit` with the same two window slots. Ammo recognizes the Spark bucket by
+`metered_feature == "codex_bengalfox"` or a `limit_name` containing "spark", and
+maps its windows onto the ordinary Codex snapshot as `modelScoped` windows labeled
+**Spark** and **Spark weekly** — classified by `limit_window_seconds`, never by
+slot, exactly like the included windows. The upstream `limit_name` /
+`metered_feature` strings stay inside `CodexProvider`. Absent, unrecognized, or
+malformed buckets yield no windows and no error. Presentation of the Spark meters
+is behind an app-group display preference (Settings → Display); ingestion always
+parses them, so the switch never triggers a refetch.
 
 Map `self_serve_business_usage_based` to the user-facing badge **Business**; unknown
 raw tags get word-wise formatting instead of exposing underscores. `credits` is a
@@ -453,8 +475,6 @@ require a Management key and are out of scope.
   the direct-iOS OAuth and quota-fidelity questions in that document are validated.
 - **Claude refresh grant** — implemented per standard OAuth but not yet exercised
   live (see §Claude).
-- **Codex `additional_rate_limits[]`** — always `null` in observed responses; decode
-  is tolerant but the populated shape is unverified.
 - **Codex token lifetime** — access-token JWT expiry not pinned down; the CLI
   refreshes when `last_refresh` > 8 days. Ammo refreshes reactively on HTTP 401.
 
