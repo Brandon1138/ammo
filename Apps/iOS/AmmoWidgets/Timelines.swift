@@ -370,7 +370,7 @@ extension AccountState {
             LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 30,
                         resetsAt: Date(timeIntervalSinceNow: 5.9 * 86400)),
         ] + (includesCodexSpark ? [
-            LimitWindow(kind: .modelScoped, label: "Spark", usedPercent: 12,
+            LimitWindow(kind: .modelScoped, label: "Spark session", usedPercent: 12,
                         resetsAt: Date(timeIntervalSinceNow: 3.2 * 3600)),
             LimitWindow(kind: .modelScoped, label: "Spark weekly", usedPercent: 34,
                         resetsAt: Date(timeIntervalSinceNow: 6.8 * 86400)),

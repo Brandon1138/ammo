@@ -16,7 +16,7 @@ struct MIK145Tests {
             windows: [
                 LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 100,
                             resetsAt: now.addingTimeInterval(4.8 * 86_400)),
-                LimitWindow(kind: .modelScoped, label: "Spark", usedPercent: 12,
+                LimitWindow(kind: .modelScoped, label: "Spark session", usedPercent: 12,
                             resetsAt: now.addingTimeInterval(3 * 3_600)),
                 LimitWindow(kind: .modelScoped, label: "Spark weekly", usedPercent: 34,
                             resetsAt: now.addingTimeInterval(6.9 * 86_400)),
@@ -59,6 +59,9 @@ struct MIK145Tests {
 
     @Test("Spark windows are matched by label only under the model-scoped kind")
     func sparkWindowIdentification() {
+        #expect(LimitWindow(kind: .modelScoped, label: "Spark session", usedPercent: 0,
+                            resetsAt: nil).isCodexSparkWindow)
+        // Snapshots cached before the rename still carry the bare label.
         #expect(LimitWindow(kind: .modelScoped, label: "Spark", usedPercent: 0,
                             resetsAt: nil).isCodexSparkWindow)
         #expect(LimitWindow(kind: .modelScoped, label: "Spark weekly", usedPercent: 0,
@@ -74,7 +77,7 @@ struct MIK145Tests {
         let snapshot = codexSnapshot()
 
         let shown = UsageDisplayPreferences.presented(snapshot, showingCodexSpark: true)
-        #expect(shown.windows.map(\.label) == ["Weekly", "Spark", "Spark weekly"])
+        #expect(shown.windows.map(\.label) == ["Weekly", "Spark session", "Spark weekly"])
 
         let hidden = UsageDisplayPreferences.presented(snapshot, showingCodexSpark: false)
         #expect(hidden.windows.map(\.label) == ["Weekly"])
@@ -132,7 +135,7 @@ struct MIK145Tests {
         let groups = codexSnapshot()
             .widgetWindowGroups(limitedTo: WidgetProviderPanels.boardWindowLimit)
 
-        #expect(groups.flatMap { $0 }.map(\.label) == ["Weekly", "Spark", "Spark weekly"])
+        #expect(groups.flatMap { $0 }.map(\.label) == ["Weekly", "Spark session", "Spark weekly"])
         // Three distinct reset moments, so no two meters share a footer.
         #expect(groups.map(\.count) == [1, 1, 1])
     }
@@ -140,7 +143,7 @@ struct MIK145Tests {
     @Test("In-app rows render Spark through the ordinary multi-window grouping")
     func accountRowsUseTheSharedWindowGrouping() {
         #expect(codexSnapshot().windowGroups.flatMap { $0 }.map(\.label)
-            == ["Weekly", "Spark", "Spark weekly"])
+            == ["Weekly", "Spark session", "Spark weekly"])
         let hidden = UsageDisplayPreferences.presented(codexSnapshot(), showingCodexSpark: false)
         #expect(hidden.windowGroups.flatMap { $0 }.map(\.label) == ["Weekly"])
     }

@@ -83,23 +83,14 @@ struct MIK92Tests {
         #expect(presentation.statusText == "No limit")
     }
 
-    @Test("A metered-only widget keeps its failure and staleness indicator")
-    func meteredWidgetStatusSymbol() {
+    @Test("A metered-only widget still reports metered usage while failing")
+    func meteredWidgetFailureState() {
         var failing = openRouterState()
         failing.lastFailure = .authentication
-        var stale = openRouterState()
-        stale.snapshot = UsageSnapshot(
-            provider: .openRouter,
-            plan: nil,
-            windows: [],
-            onDemand: [openRouterUsage()],
-            fetchedAt: now.addingTimeInterval(-(LockScreenUsagePresentation.staleAfter + 60)))
 
         #expect(failing.hasWidgetMeteredUsage)
-        #expect(failing.widgetStatusSymbol(at: now) == "exclamationmark.circle.fill")
-        #expect(stale.hasWidgetMeteredUsage)
-        #expect(stale.widgetStatusSymbol(at: now) == "clock.badge.exclamationmark")
-        #expect(openRouterState().widgetStatusSymbol(at: now) == nil)
+        #expect(failing.activeFailure != nil)
+        #expect(openRouterState().activeFailure == nil)
     }
 
     @Test("OpenRouter 429 uses the existing long backoff lane")

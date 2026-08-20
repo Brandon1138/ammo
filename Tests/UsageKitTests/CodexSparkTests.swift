@@ -91,7 +91,7 @@ private func windows(_ additionalRateLimits: String) throws -> [LimitWindow] {
         #expect(parsed[0].label == "Weekly")
 
         #expect(parsed[1].kind == .modelScoped)
-        #expect(parsed[1].label == "Spark")
+        #expect(parsed[1].label == "Spark session")
         #expect(parsed[1].usedPercent == 12)
         #expect(parsed[1].resetsAt == Date(timeIntervalSince1970: 1_787_254_942))
 
@@ -108,17 +108,17 @@ private func windows(_ additionalRateLimits: String) throws -> [LimitWindow] {
 
     @Test func labelsSparkWindowsByDurationNotPosition() throws {
         #expect(try windows(sparkBucketReversed).map(\.label)
-            == ["Weekly", "Spark", "Spark weekly"])
+            == ["Weekly", "Spark session", "Spark weekly"])
         // Ordering and labeling are identical whichever slot each window landed in.
         #expect(try windows(sparkBucketReversed).map(\.usedPercent)
             == windows(sparkBucket).map(\.usedPercent))
     }
 
     @Test func classifiesSparkLabelsByAdvertisedLength() {
-        #expect(CodexProvider.sparkLabel(windowSeconds: 18000) == "Spark")
+        #expect(CodexProvider.sparkLabel(windowSeconds: 18000) == "Spark session")
         #expect(CodexProvider.sparkLabel(windowSeconds: 604800) == "Spark weekly")
         #expect(CodexProvider.sparkLabel(windowSeconds: 2_592_000) == "Spark monthly")
-        #expect(CodexProvider.sparkLabel(windowSeconds: nil) == "Spark")
+        #expect(CodexProvider.sparkLabel(windowSeconds: nil) == "Spark session")
     }
 
     @Test func absentSparkBucketAddsNothing() throws {
@@ -180,6 +180,6 @@ private func windows(_ additionalRateLimits: String) throws -> [LimitWindow] {
               }
             ]
             """
-        #expect(try windows(renamed).map(\.label) == ["Weekly", "Spark"])
+        #expect(try windows(renamed).map(\.label) == ["Weekly", "Spark session"])
     }
 }

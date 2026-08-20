@@ -266,6 +266,14 @@ private struct FixtureTransport: HTTPTransport {
         #expect(snapshot.displayPlan == "Business")
     }
 
+    @Test func mapsBothPaidIndividualCodexTiersToPro() {
+        // "prolite" is ChatGPT's internal name for the 5x tier; nobody
+        // subscribes under it, so both individual tiers read as Pro.
+        #expect(UsageSnapshot(provider: .codex, plan: "prolite", windows: []).displayPlan == "Pro")
+        #expect(UsageSnapshot(provider: .codex, plan: "pro", windows: []).displayPlan == "Pro")
+        #expect(UsageSnapshot(provider: .codex, plan: "plus", windows: []).displayPlan == "Plus")
+    }
+
     @Test func preservesExactBalanceOnlyFromProviderUsageResponse() throws {
         let fixture = codexFixture.replacingOccurrences(
             of: "\"balance\": null",

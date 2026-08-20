@@ -61,8 +61,16 @@ enum UsageDisplayPreferences {
 extension LimitWindow {
     /// Codex names its Spark bucket; Ammo never invents one. This is the single
     /// place the presented label is matched, mirroring `isFableModelWindow`.
+    /// The bare "Spark" match survives for snapshots cached before the meter
+    /// was renamed to "Spark session".
     var isCodexSparkWindow: Bool {
         guard kind == .modelScoped else { return false }
         return label == "Spark" || label.hasPrefix("Spark ")
+    }
+
+    /// Spark's short (5-hour) meter — the ring candidate for the Pro-plan
+    /// lock gauge, as opposed to its weekly and monthly companions.
+    var isCodexSparkSessionWindow: Bool {
+        isCodexSparkWindow && (label == "Spark session" || label == "Spark")
     }
 }

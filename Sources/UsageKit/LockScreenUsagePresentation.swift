@@ -11,15 +11,29 @@ public struct LockScreenUsagePresentation: Sendable, Equatable {
     public let fetchedAt: Date
 
     public init?(snapshot: UsageSnapshot) {
-        guard let firstWindow = snapshot.windows.first else { return nil }
+        // Model-scoped buckets (Claude's Fable, Codex's Spark) are extra
+        // meters, not the account's headline limits. Left in the pool they
+        // would claim the numeric slot whenever a provider reports a single
+        // included window — which is exactly Codex on a Pro plan.
+        let headline = snapshot.windows.filter { $0.kind != .modelScoped }
+        let pool = headline.isEmpty ? snapshot.windows : headline
+        guard let firstWindow = pool.first else { return nil }
 
-        let indicator = snapshot.windows.first { $0.kind == .session } ?? firstWindow
-        let remaining = snapshot.windows.filter { $0.id != indicator.id }
+        let indicator = pool.first { $0.kind == .session } ?? firstWindow
+        let remaining = pool.filter { $0.id != indicator.id }
         let numeric = remaining.first { $0.kind == .weekly } ?? remaining.first
 
         indicatorWindow = indicator
         numericWindow = numeric
         fetchedAt = snapshot.fetchedAt
+    }
+
+    /// Explicit window choice for surfaces that deliberately override the
+    /// neutral selection — the Codex Pro + Spark ring is the one caller.
+    public init(indicatorWindow: LimitWindow, numericWindow: LimitWindow?, fetchedAt: Date) {
+        self.indicatorWindow = indicatorWindow
+        self.numericWindow = numericWindow
+        self.fetchedAt = fetchedAt
     }
 
     public func isStale(

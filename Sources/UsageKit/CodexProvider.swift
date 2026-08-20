@@ -344,7 +344,7 @@ public struct CodexProvider: UsageProvider {
         switch classify(windowSeconds: windowSeconds).0 {
         case .weekly: "Spark weekly"
         case .monthly: "Spark monthly"
-        default: "Spark"
+        default: "Spark session"
         }
     }
 
