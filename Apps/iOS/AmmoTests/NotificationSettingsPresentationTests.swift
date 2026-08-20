@@ -7,32 +7,35 @@ import UsageKit
 @MainActor
 @Suite("Notification settings presentation")
 struct NotificationSettingsPresentationTests {
-    @Test("A prepared model does not reload preferences during sheet construction")
-    func preparedModelUsesStableSnapshot() throws {
+    @Test("Constructing the model loads persisted preferences synchronously")
+    func modelLoadsPreferencesWithoutAwaiting() throws {
         let suiteName = "NotificationSettingsPresentationTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let storage = NotificationPreferencesStorage(userDefaults: defaults)
         var persisted = NotificationPreferences.default
-        persisted.masterEnabled = false
+        persisted.masterEnabled = true
         persisted.cursorMonthlyReset = false
         try storage.save(persisted)
 
-        var prepared = NotificationPreferences.default
-        prepared.masterEnabled = true
-        prepared.cursorMonthlyReset = true
+        let model = NotificationSettingsModel(storage: storage)
 
-        let model = NotificationSettingsModel(
-            preparation: NotificationSettingsPreparation(
-                preferences: prepared,
-                authorizationStatus: .authorized
-            ),
-            storage: storage
-        )
+        #expect(model.preferences == persisted)
+    }
 
-        #expect(model.preferences == prepared)
-        #expect(model.preferences != persisted)
-        #expect(model.authorizationStatus == .authorized)
+    @Test("Authorization status stays unresolved until it is refreshed")
+    func authorizationStatusIsResolvedOutOfBand() throws {
+        let suiteName = "NotificationSettingsPresentationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let storage = NotificationPreferencesStorage(userDefaults: defaults)
+        let model = NotificationSettingsModel(storage: storage)
+
+        // Sheet presentation must never wait on the notification center, so the
+        // status is nil at construction and only the master toggle is gated.
+        #expect(model.authorizationStatus == nil)
+        #expect(model.permissionDenied == false)
     }
 }
