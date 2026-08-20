@@ -15,7 +15,7 @@ struct AmmoApp: App {
                 ContentView()
                     .environment(AccountStore.shared)
 
-                if scenePhase != .active {
+                if SnapshotPrivacyPolicy.shieldsContent(in: scenePhase) {
                     SnapshotPrivacyShield()
                 }
             }
@@ -41,6 +41,20 @@ struct AmmoApp: App {
                 break
             }
         }
+    }
+}
+
+/// Decides when rendered credentials have to be covered.
+///
+/// iOS takes the app-switcher snapshot *after* the scene reaches `.background`,
+/// so that is the only phase the shield has to cover. `.inactive` merely means a
+/// system gesture is in flight — a Notification Centre or Control Centre pull, an
+/// alert, a call banner — while the app is still on screen and no snapshot is
+/// pending. Shielding there blanked Ammo from the first pixel of the pull and
+/// through the whole cancel/restore (MIK-146).
+enum SnapshotPrivacyPolicy {
+    static func shieldsContent(in phase: ScenePhase) -> Bool {
+        phase == .background
     }
 }
 
