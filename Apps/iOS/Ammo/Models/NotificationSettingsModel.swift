@@ -3,11 +3,6 @@ import Observation
 import UserNotifications
 import UsageKit
 
-struct NotificationSettingsPreparation: Sendable {
-    let preferences: NotificationPreferences
-    let authorizationStatus: UNAuthorizationStatus
-}
-
 @MainActor
 @Observable
 final class NotificationSettingsModel {
@@ -31,35 +26,6 @@ final class NotificationSettingsModel {
         self.storage = storage
         self.notificationService = notificationService
         preferences = storage.load()
-    }
-
-    init(
-        preparation: NotificationSettingsPreparation,
-        center: UNUserNotificationCenter = .current(),
-        storage: NotificationPreferencesStorage = NotificationPreferencesStorage(
-            suiteName: AppGroup.id
-        ),
-        notificationService: UsageNotificationService = .shared
-    ) {
-        self.center = center
-        self.storage = storage
-        self.notificationService = notificationService
-        preferences = preparation.preferences
-        authorizationStatus = preparation.authorizationStatus
-    }
-
-    nonisolated static func prepareForPresentation() async -> NotificationSettingsPreparation {
-        await Task.detached(priority: .userInitiated) {
-            let storage = NotificationPreferencesStorage(suiteName: AppGroup.id)
-            let preferences = storage.load()
-            let authorizationStatus = await UNUserNotificationCenter.current()
-                .notificationSettings().authorizationStatus
-
-            return NotificationSettingsPreparation(
-                preferences: preferences,
-                authorizationStatus: authorizationStatus
-            )
-        }.value
     }
 
     var permissionDenied: Bool {
