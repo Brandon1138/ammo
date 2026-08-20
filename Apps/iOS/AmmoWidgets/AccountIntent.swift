@@ -26,13 +26,34 @@ struct AccountEntity: AppEntity {
             state.account.provider.displayName
         }
     }
+
+    /// Placeholder for a configured account that no longer exists. Keeping the
+    /// stored identifier resolvable is what keeps the widget alive; the copy
+    /// only appears in the widget's edit sheet.
+    init(unresolvedID: UUID) {
+        id = unresolvedID
+        label = "Account removed"
+        detail = "Edit this widget to choose an account"
+    }
 }
 
 struct AccountQuery: EntityQuery {
     func entities(for identifiers: [UUID]) async throws -> [AccountEntity] {
-        SharedStore.load()
-            .filter { identifiers.contains($0.account.id) }
-            .map(AccountEntity.init)
+        Self.resolve(identifiers: identifiers, states: SharedStore.load())
+    }
+
+    /// Never returns fewer entities than asked for. Returning [] for a stored
+    /// identifier makes WidgetKit treat that widget's configuration as
+    /// unresolvable: it stops asking the timeline provider and the widget
+    /// freezes on its archived render for good — the observed fate of a Lock
+    /// Screen gauge configured with a since-removed account. An unresolved
+    /// identifier maps to a placeholder entity instead; the timeline provider
+    /// then runs and falls back to the default account order.
+    static func resolve(identifiers: [UUID], states: [AccountState]) -> [AccountEntity] {
+        identifiers.map { id in
+            states.first { $0.account.id == id }.map(AccountEntity.init)
+                ?? AccountEntity(unresolvedID: id)
+        }
     }
 
     func suggestedEntities() async throws -> [AccountEntity] {

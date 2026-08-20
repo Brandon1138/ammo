@@ -117,8 +117,36 @@ enum WidgetProviderPanels {
     }
 }
 
+extension UsageSnapshot {
+    /// The individual paid Codex tiers — "pro" (20x) and "prolite" (5x), both
+    /// presented as Pro. Business and unknown plans keep the neutral gauge.
+    var isCodexProFamilyPlan: Bool {
+        guard provider == .codex, let plan = plan?.lowercased() else { return false }
+        return plan == "pro" || plan == "prolite"
+    }
+}
+
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
+
+    /// Lock Screen gauge selection. The neutral rule everywhere, plus one
+    /// Codex refinement: a Pro plan reports no included session window, so
+    /// when Spark meters are shown, Spark's own session meter drives the ring
+    /// — the numeric slot keeps reading the plan's Weekly window, exactly as
+    /// the marker gauge did. With Spark hidden the snapshot carries no Spark
+    /// windows and this is the neutral selection unchanged.
+    var lockScreenUsagePresentation: LockScreenUsagePresentation? {
+        guard let snapshot,
+              let base = LockScreenUsagePresentation(snapshot: snapshot) else { return nil }
+        guard snapshot.isCodexProFamilyPlan,
+              base.indicatorWindow.kind != .session,
+              let sparkSession = snapshot.windows.first(where: \.isCodexSparkSessionWindow)
+        else { return base }
+        return LockScreenUsagePresentation(
+            indicatorWindow: sparkSession,
+            numericWindow: base.indicatorWindow,
+            fetchedAt: snapshot.fetchedAt)
+    }
 
     /// Optional provider-reported model buckets, Fable first and otherwise in
     /// payload order. Empty means the payload omitted them; compact widgets
@@ -141,17 +169,6 @@ extension AccountState {
 
     var hasWidgetMeteredUsage: Bool {
         snapshot?.onDemand?.contains { $0.isEnabled != false && $0.used != nil } == true
-    }
-
-    /// Failure and staleness marker for widget surfaces that draw no percentage
-    /// gauge. Metered-only accounts must not silently present cached spending as
-    /// if it were current.
-    func widgetStatusSymbol(at referenceDate: Date) -> String? {
-        if activeFailure != nil { return "exclamationmark.circle.fill" }
-        guard let fetchedAt = snapshot?.fetchedAt else { return nil }
-        let isStale = referenceDate.timeIntervalSince(fetchedAt)
-            > LockScreenUsagePresentation.staleAfter
-        return isStale ? "clock.badge.exclamationmark" : nil
     }
 
     var widgetAvailabilityText: String {

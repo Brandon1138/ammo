@@ -236,6 +236,10 @@ public extension UsageSnapshot {
         switch (provider, plan.lowercased()) {
         case (.codex, "self_serve_business_usage_based"):
             return "Business"
+        // ChatGPT's 5x tier reports "prolite", which is not a name anyone
+        // subscribes under. Both paid individual tiers read as Pro.
+        case (.codex, "prolite"), (.codex, "pro"):
+            return "Pro"
         default:
             return plan
                 .replacingOccurrences(of: "_", with: " ")

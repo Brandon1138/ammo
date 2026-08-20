@@ -53,6 +53,49 @@ import Testing
             .contains { $0.kind == .session })
     }
 
+    @Test func modelScopedWindowsNeverClaimEitherSlot() throws {
+        // Codex on Pro with Spark shown: one included window plus two Spark
+        // buckets. The gauge must read exactly as it does without Spark.
+        let snapshot = UsageSnapshot(
+            provider: .codex,
+            plan: "prolite",
+            windows: [
+                window(.weekly, "Weekly", used: 100),
+                window(.modelScoped, "Spark session", used: 5),
+                window(.modelScoped, "Spark weekly", used: 2),
+            ],
+            fetchedAt: now)
+
+        let presentation = try #require(LockScreenUsagePresentation(snapshot: snapshot))
+
+        #expect(presentation.indicatorWindow.label == "Weekly")
+        #expect(presentation.numericWindow == nil)
+    }
+
+    @Test func allModelScopedSnapshotStillPresentsSomething() throws {
+        let snapshot = UsageSnapshot(
+            provider: .claude,
+            plan: nil,
+            windows: [window(.modelScoped, "Fable", used: 48)],
+            fetchedAt: now)
+
+        let presentation = try #require(LockScreenUsagePresentation(snapshot: snapshot))
+
+        #expect(presentation.indicatorWindow.label == "Fable")
+        #expect(presentation.numericWindow == nil)
+    }
+
+    @Test func explicitWindowChoiceIsPreservedVerbatim() {
+        let spark = window(.modelScoped, "Spark session", used: 5)
+        let weekly = window(.weekly, "Weekly", used: 100)
+
+        let presentation = LockScreenUsagePresentation(
+            indicatorWindow: spark, numericWindow: weekly, fetchedAt: now)
+
+        #expect(presentation.indicatorWindow == spark)
+        #expect(presentation.numericWindow == weekly)
+    }
+
     @Test func freshnessBecomesStaleAfterTwoQuietIntervals() throws {
         let snapshot = UsageSnapshot(
             provider: .codex,

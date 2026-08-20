@@ -169,30 +169,29 @@ struct CircularGaugeView: View {
 
     @ViewBuilder
     var body: some View {
-        if let snapshot = state.snapshot,
-           let presentation = LockScreenUsagePresentation(snapshot: snapshot) {
+        if let presentation = state.lockScreenUsagePresentation {
             if presentation.numericWindow != nil {
                 usageGauge(presentation: presentation)
                     .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .fill))
-                    .statusOverlay(symbol: statusSymbol(for: presentation))
+                    .statusOverlay(symbol: failureSymbol)
             } else {
                 usageGauge(presentation: presentation)
                     .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
-                    .statusOverlay(symbol: statusSymbol(for: presentation))
+                    .statusOverlay(symbol: failureSymbol)
             }
         } else if state.hasWidgetMeteredUsage {
             if let snapshot = state.snapshot,
                let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
                 openRouterGauge(presentation: presentation)
                     .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
-                    .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
+                    .statusOverlay(symbol: failureSymbol)
             } else {
                 VStack(spacing: 1) {
                     ProviderLogo(provider: state.account.provider, size: 17)
                     Image(systemName: "dollarsign")
                         .font(.system(size: 8, weight: .semibold))
                 }
-                .statusOverlay(symbol: state.widgetStatusSymbol(at: referenceDate))
+                .statusOverlay(symbol: failureSymbol)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(meteredAccessibilityLabel(presentation: nil))
             }
@@ -242,16 +241,12 @@ struct CircularGaugeView: View {
         .accessibilityLabel(meteredAccessibilityLabel(presentation: presentation))
     }
 
-    private func statusSymbol(
-        for presentation: LockScreenUsagePresentation
-    ) -> String? {
-        if state.activeFailure != nil {
-            return "exclamationmark.circle.fill"
-        }
-        if presentation.isStale(at: referenceDate) {
-            return "clock.badge.exclamationmark"
-        }
-        return nil
+    /// Failure is the only overlay the Lock Screen shows. Staleness needs no
+    /// marker there: gauges refresh with the app and with background refresh,
+    /// so a stale badge was a relic of the era when the widget fetched for
+    /// itself.
+    private var failureSymbol: String? {
+        state.activeFailure != nil ? "exclamationmark.circle.fill" : nil
     }
 
     private func meteredAccessibilityLabel(
@@ -281,8 +276,6 @@ struct CircularGaugeView: View {
         }
         if state.activeFailure != nil {
             values.append("Update failed; showing cached data")
-        } else if state.widgetStatusSymbol(at: referenceDate) != nil {
-            values.append("Update is stale")
         }
         return values.joined(separator: ", ")
     }
@@ -298,8 +291,6 @@ struct CircularGaugeView: View {
         }
         if state.activeFailure != nil {
             values.append("Update failed; showing cached data")
-        } else if presentation.isStale(at: referenceDate) {
-            values.append("Update is stale")
         }
         return values.joined(separator: ", ")
     }
