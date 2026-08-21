@@ -45,7 +45,7 @@ from `state.vscdb` (zero-onboarding, macOS-only).
 Open items before shipping: confirm the `usage-summary` JSON against a live
 authenticated response from real personal and enterprise plans, confirm the
 access-token lifetime, and confirm the refresh response/rotation behavior. Ammo now
-shows Composer/API included usage plus every reported personal, team, and pooled
+shows Cursor Models / Other Models included usage plus every reported personal, team, and pooled
 on-demand structure without merging their scopes.
 
 ## Terminology
@@ -243,8 +243,8 @@ Map `numRequestsTotal / maxRequestUsage` → a percent window.
 | UsageSnapshot field             | Source                                                      |
 |---------------------------------|-------------------------------------------------------------|
 | `plan`                          | `membershipType` (`pro` / `hobby` / `team` / `enterprise`) |
-| `windows[]` "Composer"          | `plan.autoPercentUsed` (first-party models in current UI)   |
-| `windows[]` "API"               | `plan.apiPercentUsed` (included API allowance)              |
+| `windows[]` "Cursor Models"     | `plan.autoPercentUsed` (shared first-party pool: Grok, Composer, …) |
+| `windows[]` "Other Models"      | `plan.apiPercentUsed` (third-party, API-priced models)      |
 | both windows' `kind`            | `.monthly`                                                  |
 | both windows' `resetsAt`        | `billingCycleEnd`                                           |
 | `onDemand[]` personal           | `individualUsage.onDemand` (cents → USD)                    |
@@ -255,7 +255,7 @@ Map `numRequestsTotal / maxRequestUsage` → a percent window.
 `totalPercentUsed`, monetary plan fields, and legacy request counts remain outside
 the On-demand surface. Every present on-demand block is mapped independently,
 including disabled blocks, and uses `billingCycleStart` / `billingCycleEnd` as its
-period boundary. Compact widgets continue to show included Composer/API usage; the
+period boundary. Compact widgets continue to show included Cursor Models / Other Models usage; the
 app's dedicated On-demand tab owns monetary presentation.
 
 **Gotchas to encode as tests/fixtures:**
@@ -278,7 +278,7 @@ A `CursorProvider: UsageProvider` would mirror the Codex adapter closely, since
 both use bearer/cookie auth + JWT-claim extraction + a token-refresh POST:
 
 - `fetchUsage(tokens:)` — build the cookie from `tokens.accessToken` + `sub`,
-  `GET /api/usage-summary`, parse Composer/API and every on-demand scope in the
+  `GET /api/usage-summary`, parse both included pools and every on-demand scope in the
   table above.
 - `refresh(tokens:)` — `POST …/oauth/token` with the refresh-token JSON grant,
   persist rotation.

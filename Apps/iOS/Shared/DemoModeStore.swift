@@ -50,9 +50,9 @@ enum DemoData {
                 ]
             case .cursor:
                 windows = [
-                    LimitWindow(kind: .monthly, label: "Composer", usedPercent: 42,
+                    LimitWindow(kind: .monthly, label: "Cursor Models", usedPercent: 42,
                                 resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
-                    LimitWindow(kind: .monthly, label: "API", usedPercent: 18,
+                    LimitWindow(kind: .monthly, label: "Other Models", usedPercent: 18,
                                 resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
                 ]
             case .openRouter, .antigravity:

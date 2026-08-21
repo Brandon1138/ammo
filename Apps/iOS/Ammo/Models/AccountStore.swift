@@ -304,7 +304,7 @@ private extension AccountStore {
                     plan: "pro",
                     windows: [
                         LimitWindow(kind: .monthly,
-                                    label: "Composer",
+                                    label: "Cursor Models",
                                     usedPercent: 0,
                                     resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
                     ],
@@ -409,11 +409,11 @@ private extension AccountStore {
                     plan: "enterprise",
                     windows: [
                         LimitWindow(kind: .monthly,
-                                    label: "Composer",
+                                    label: "Cursor Models",
                                     usedPercent: 42,
                                     resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
                         LimitWindow(kind: .monthly,
-                                    label: "API",
+                                    label: "Other Models",
                                     usedPercent: 18,
                                     resetsAt: now.addingTimeInterval(12 * 24 * 60 * 60)),
                     ],

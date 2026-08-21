@@ -373,10 +373,17 @@ Accept: application/json
 ```
 
 For included usage, `individualUsage.plan.autoPercentUsed` (the dashboard's current
-"First-party models" lane) maps to a monthly **Composer** window and
-`apiPercentUsed` maps to a monthly **API** window. Both use `billingCycleEnd` as
-their reset. Percent fields are already percentages, including fractional values
-below one; do not multiply by 100.
+"First-party models" lane) maps to a monthly **Cursor Models** window and
+`apiPercentUsed` maps to a monthly **Other Models** window. Cursor Models is one
+shared pool covering every Cursor-priced model (Grok, Composer, …); the models
+inside it are not separately metered, so none of them gets its own bar. Other
+Models is the third-party, API-priced pool (Claude, GPT, Gemini, …). Both use
+`billingCycleEnd` as their reset. Percent fields are already percentages,
+including fractional values below one; do not multiply by 100. Cursor exposes no
+dollar or token denominator for either pool, and an absent percentage is
+unavailable — never 0% used. Snapshots persisted under the pre-MIK-152 labels
+("Composer", "API") are renamed on decode so window identity, and therefore
+history continuity, survives the rename.
 
 Cursor's monetary structures are all decoded independently and converted from cents
 to major USD units:
@@ -389,7 +396,7 @@ to major USD units:
 Each present block remains a distinct `OnDemandUsage` entry, including an explicitly
 disabled block. Do not collapse personal and shared money into one preferred balance.
 `billingCycleStart` and `billingCycleEnd` provide the period boundaries. If an
-enterprise payload contains monetary data but no Composer/API percentages, the
+enterprise payload contains monetary data but no included percentages, the
 snapshot remains valid so its On-demand tab can still render.
 An enabled block with omitted `used`/`limit`/`remaining` is **amount unavailable**,
 not implicitly unlimited; only an explicit `isUnlimited` value can claim unlimited.

@@ -40,15 +40,15 @@ import Testing
             provider: .cursor,
             plan: "pro",
             windows: [
-                window(.monthly, "Composer", used: 25),
-                window(.monthly, "API", used: 10),
+                window(.monthly, "Cursor Models", used: 25),
+                window(.monthly, "Other Models", used: 10),
             ],
             fetchedAt: now)
 
         let presentation = try #require(LockScreenUsagePresentation(snapshot: snapshot))
 
-        #expect(presentation.indicatorWindow.label == "Composer")
-        #expect(presentation.numericWindow?.label == "API")
+        #expect(presentation.indicatorWindow.label == "Cursor Models")
+        #expect(presentation.numericWindow?.label == "Other Models")
         #expect(![presentation.indicatorWindow, presentation.numericWindow].compactMap(\.self)
             .contains { $0.kind == .session })
     }

@@ -326,7 +326,7 @@ private struct FixtureTransport: HTTPTransport {
 }
 
 @Suite struct CursorDecodeTests {
-    @Test func mapsOnlyIncludedComposerAndAPIUsage() throws {
+    @Test func mapsOnlyIncludedCursorAndOtherModelUsage() throws {
         let response = try CursorProvider.decoder.decode(
             CursorProvider.Response.self, from: Data(cursorFixture.utf8))
         let windows = CursorProvider.windows(from: response)
@@ -334,10 +334,10 @@ private struct FixtureTransport: HTTPTransport {
         #expect(response.membershipType == "pro")
         #expect(windows.count == 2)
         #expect(windows[0].kind == .monthly)
-        #expect(windows[0].label == "Composer")
+        #expect(windows[0].label == "Cursor Models")
         #expect(windows[0].usedPercent == 1)
         #expect(windows[1].kind == .monthly)
-        #expect(windows[1].label == "API")
+        #expect(windows[1].label == "Other Models")
         #expect(windows[1].usedPercent == 0)
         #expect(windows[0].resetsAt == windows[1].resetsAt)
         #expect(windows[0].resetsAt == ISO8601.parse("2026-08-10T00:00:00.000Z"))
@@ -378,7 +378,7 @@ private struct FixtureTransport: HTTPTransport {
             accountID: "user-test"))
 
         #expect(snapshot.windows.count == 1)
-        #expect(snapshot.windows.first?.label == "Composer")
+        #expect(snapshot.windows.first?.label == "Cursor Models")
         #expect(snapshot.windows.first?.usedPercent == 25)
     }
 
@@ -463,6 +463,85 @@ private struct FixtureTransport: HTTPTransport {
         #expect(usage.isEnabled == true)
         #expect(usage.isUnlimited == false)
         #expect(usage.remainingAmount == nil)
+    }
+
+    @Test func mapsEachIncludedPoolToItsOwnLabel() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"autoPercentUsed": 12.5, "apiPercentUsed": 40}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        // The shared first-party pool and the API-priced pool stay two
+        // independent percentages behind one billing-cycle reset.
+        #expect(windows.map(\.label) == ["Cursor Models", "Other Models"])
+        #expect(windows.map(\.usedPercent) == [12.5, 40])
+        #expect(windows.allSatisfy { $0.kind == .monthly })
+        #expect(windows[0].resetsAt == windows[1].resetsAt)
+    }
+
+    @Test func absentFirstPartyPoolOmitsCursorModelsRatherThanReportingZero() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"apiPercentUsed": 40}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Other Models"])
+        #expect(windows[0].usedPercent == 40)
+    }
+
+    @Test func persistedLegacyLabelsDecodeAsRenamedCursorWindows() throws {
+        let cached = """
+        {
+          "provider": "cursor",
+          "fetchedAt": "2026-08-01T00:00:00Z",
+          "windows": [
+            {"kind": "monthly", "label": "Composer", "usedPercent": 42,
+             "resetsAt": "2026-08-10T00:00:00Z"},
+            {"kind": "monthly", "label": "API", "usedPercent": 18,
+             "resetsAt": "2026-08-10T00:00:00Z"}
+          ]
+        }
+        """
+        let snapshot = try UsageCacheCodec.decode(
+            UsageSnapshot.self, from: Data(cached.utf8))
+
+        // Window identity is `kind:label`, so history and trend lookups only
+        // stay continuous across the rename if cached samples migrate too.
+        #expect(snapshot.windows.map(\.label) == ["Cursor Models", "Other Models"])
+        #expect(snapshot.windows.map(\.id) == ["monthly:Cursor Models", "monthly:Other Models"])
+        #expect(snapshot.windows.map(\.usedPercent) == [42, 18])
+    }
+
+    @Test func legacyLabelMigrationIsScopedToCursorMonthlyWindows() throws {
+        let cached = """
+        {
+          "provider": "openrouter",
+          "fetchedAt": "2026-08-01T00:00:00Z",
+          "windows": [
+            {"kind": "monthly", "label": "API", "usedPercent": 18}
+          ]
+        }
+        """
+        let snapshot = try UsageCacheCodec.decode(
+            UsageSnapshot.self, from: Data(cached.utf8))
+
+        #expect(snapshot.windows.map(\.label) == ["API"])
     }
 }
 

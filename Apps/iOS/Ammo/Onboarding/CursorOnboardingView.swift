@@ -30,7 +30,7 @@ struct CursorOnboardingView: View {
                 } header: {
                     Text("Sign in on this device")
                 } footer: {
-                    Text("Ammo reads your included Composer and API usage plus any personal, team, or shared on-demand budgets Cursor reports.")
+                    Text("Ammo reads your included Cursor Models and Other Models usage plus any personal, team, or shared on-demand budgets Cursor reports.")
                 }
 
                 if let failure {
