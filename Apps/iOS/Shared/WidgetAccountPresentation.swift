@@ -148,6 +148,16 @@ extension AccountState {
             fetchedAt: snapshot.fetchedAt)
     }
 
+    /// Lock Screen gauge for an account whose provider reported spend but no
+    /// percentage window. Cursor reaches this whenever `usage-summary` omits the
+    /// `individualUsage.plan` block — team and enterprise members, and
+    /// usage-based plans — and OpenRouter reaches it always. Percentage windows
+    /// still win: this is only consulted when `lockScreenUsagePresentation` is
+    /// nil.
+    var lockScreenMeteredPresentation: MeteredLockScreenPresentation? {
+        snapshot.flatMap(MeteredLockScreenPresentation.init(snapshot:))
+    }
+
     /// Optional provider-reported model buckets, Fable first and otherwise in
     /// payload order. Empty means the payload omitted them; compact widgets
     /// reserve no row and invent no placeholder.

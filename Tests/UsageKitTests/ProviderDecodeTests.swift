@@ -360,6 +360,40 @@ private struct FixtureTransport: HTTPTransport {
         #expect(windows.map(\.usedPercent) == [100, 0])
     }
 
+    /// The shape behind MIK-154: a team or enterprise member gets no `plan`
+    /// block at all, so the snapshot carries pools and no percentage window and
+    /// the Lock Screen has to draw its gauge from the pool.
+    @Test func teamMemberWithoutAPlanBlockYieldsPoolsAndNoWindows() throws {
+        let fixture = """
+        {
+          "billingCycleStart": "2026-07-10T00:00:00Z",
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "enterprise",
+          "individualUsage": {
+            "overall": {"enabled": true, "used": 3000, "limit": 12000, "remaining": 9000}
+          },
+          "teamUsage": {
+            "onDemand": {"enabled": true, "used": 45000, "limit": 100000, "remaining": 55000}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let snapshot = UsageSnapshot(
+            provider: .cursor,
+            plan: response.membershipType,
+            windows: CursorProvider.windows(from: response),
+            onDemand: CursorProvider.onDemand(from: response))
+
+        #expect(snapshot.windows.isEmpty)
+        #expect(LockScreenUsagePresentation(snapshot: snapshot) == nil)
+
+        let metered = try #require(MeteredLockScreenPresentation(snapshot: snapshot))
+        #expect(metered.pool.id == "cursor-personal-allocation")
+        #expect(metered.remainingFraction == 0.75)
+        #expect(metered.centerText == AmountFormat.compactMoney(90, code: "USD"))
+    }
+
     @Test func fetchAcceptsOneAvailableIncludedWindow() async throws {
         let fixture = """
         {
