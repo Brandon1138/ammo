@@ -15,6 +15,33 @@ public struct CursorProvider: UsageProvider {
     /// Public client id embedded in Cursor 3.7.27.
     public static let clientID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
 
+    /// Cursor's shared first-party pool (Grok, Composer, and whichever other
+    /// Cursor-priced models the plan currently includes). It is one quota; the
+    /// individual models inside it are not separately metered.
+    public static let cursorModelsLabel = "Cursor Models"
+    /// Cursor's third-party, API-priced pool (Claude, GPT, Gemini, …).
+    public static let otherModelsLabel = "Other Models"
+    /// Labels shipped before MIK-152. Persisted snapshots still carry them, and
+    /// window identity is `kind:label`, so history continuity depends on
+    /// rewriting them on the way in rather than only relabelling new fetches.
+    static let legacyWindowLabels = [
+        "Composer": cursorModelsLabel,
+        "API": otherModelsLabel,
+    ]
+
+    /// Rewrites pre-MIK-152 Cursor window labels. Windows Cursor never emitted
+    /// under those names are returned untouched.
+    public static func migratingLegacyWindowLabels(_ windows: [LimitWindow]) -> [LimitWindow] {
+        windows.map { window in
+            guard window.kind == .monthly,
+                  let renamed = legacyWindowLabels[window.label] else { return window }
+            return LimitWindow(kind: window.kind,
+                               label: renamed,
+                               usedPercent: window.usedPercent,
+                               resetsAt: window.resetsAt)
+        }
+    }
+
     let transport: HTTPTransport
 
     public init(transport: HTTPTransport = URLSessionTransport()) {
@@ -150,7 +177,10 @@ public struct CursorProvider: UsageProvider {
                 let apiPercentUsed: Double?
                 let totalPercentUsed: Double?
 
-                var composerUsedPercent: Double? {
+                /// Cursor's shared first-party pool. The field has been renamed
+                /// upstream twice already, so every observed spelling is tried
+                /// and an unknown shape stays nil (unavailable) rather than 0.
+                var cursorModelsUsedPercent: Double? {
                     firstPartyPercentUsed ?? composerPercentUsed ?? autoPercentUsed
                 }
             }
@@ -193,16 +223,16 @@ public struct CursorProvider: UsageProvider {
         let reset = ISO8601.parse(response.billingCycleEnd)
         let plan = response.individualUsage?.plan
         var windows: [LimitWindow] = []
-        if let composer = plan?.composerUsedPercent {
+        if let cursorModels = plan?.cursorModelsUsedPercent {
             windows.append(LimitWindow(kind: .monthly,
-                                       label: "Composer",
-                                       usedPercent: clampPercent(composer),
+                                       label: cursorModelsLabel,
+                                       usedPercent: clampPercent(cursorModels),
                                        resetsAt: reset))
         }
-        if let api = plan?.apiPercentUsed {
+        if let otherModels = plan?.apiPercentUsed {
             windows.append(LimitWindow(kind: .monthly,
-                                       label: "API",
-                                       usedPercent: clampPercent(api),
+                                       label: otherModelsLabel,
+                                       usedPercent: clampPercent(otherModels),
                                        resetsAt: reset))
         }
         return windows

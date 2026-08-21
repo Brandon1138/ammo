@@ -149,9 +149,10 @@ struct SmallAccountView: View {
     /// without that provider-reported window collapse naturally and reserve no
     /// blank space.
     private func compactGroups(_ snapshot: UsageSnapshot, limit: Int) -> [[LimitWindow]] {
-        // Cursor exposes Composer and API as distinct monthly quotas even
-        // though they share a billing-cycle reset. Keep a reset line beneath
-        // each row so the small widget stays aligned with the other providers.
+        // Cursor exposes Cursor Models and Other Models as distinct monthly
+        // quotas even though they share a billing-cycle reset. Keep a reset
+        // line beneath each row so the small widget stays aligned with the
+        // other providers.
         if snapshot.provider == .cursor {
             return snapshot.windows.prefix(min(2, limit)).map { [$0] }
         }

@@ -409,9 +409,9 @@ extension AccountState {
                     provider: .cursor,
                     plan: nil,
                     windows: [
-                        LimitWindow(kind: .monthly, label: "Composer", usedPercent: 54,
+                        LimitWindow(kind: .monthly, label: "Cursor Models", usedPercent: 54,
                                     resetsAt: Date(timeIntervalSinceNow: 11 * 86400)),
-                        LimitWindow(kind: .monthly, label: "API", usedPercent: 18,
+                        LimitWindow(kind: .monthly, label: "Other Models", usedPercent: 18,
                                     resetsAt: Date(timeIntervalSinceNow: 11 * 86400)),
                     ]),
                 lastError: nil,
