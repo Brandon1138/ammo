@@ -10,17 +10,30 @@ struct CodexOnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Set when this is the existing account's "Sign in again" action rather
+    /// than an add. Same flow, same view; only the destination differs.
+    var reconnecting: StoredAccount?
+
     @State private var label = ""
     @State private var pastedJSON = ""
     @State private var failure: UsageFailureKind?
+    @State private var mismatch: String?
     @State private var busy = false
     @State private var authFlow = CodexAuthFlow()
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Label") {
-                    TextField("Codex", text: $label)
+                if let reconnecting {
+                    Section {
+                        Text(SignInCopy.reconnectFooter(reconnecting))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section("Label") {
+                        TextField("Codex", text: $label)
+                    }
                 }
 
                 Section {
@@ -52,13 +65,20 @@ struct CodexOnboardingView: View {
                     Text("Paste the contents of ~/.codex/auth.json (or just its \"tokens\" object). Imported tokens are never refreshed by Ammo — that could log out your desktop CLI — so you'll need to re-import when they expire.")
                 }
 
+                if let mismatch {
+                    Section {
+                        SignInAccountMismatchNotice(message: mismatch)
+                    }
+                }
+
                 if let failure {
                     Section {
                         SignInIssueNotice(providerName: "Codex", failure: failure)
                     }
                 }
             }
-            .navigationTitle("Add Codex")
+            .navigationTitle(SignInCopy.navigationTitle(provider: .codex,
+                                                        isReconnecting: reconnecting != nil))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -80,12 +100,20 @@ struct CodexOnboardingView: View {
     private func signIn() {
         busy = true
         failure = nil
+        mismatch = nil
         Task {
             do {
                 let tokens = try await authFlow.signIn()
-                try store.add(provider: .codex, label: label, tokens: tokens, imported: false)
+                try store.completeSignIn(provider: .codex,
+                                         label: label,
+                                         tokens: tokens,
+                                         imported: false,
+                                         reconnecting: reconnecting)
                 dismiss()
             } catch is CodexAuthFlow.CancelledError {
+                busy = false
+            } catch let error as AccountReconnection.IdentityMismatchError {
+                mismatch = error.description
                 busy = false
             } catch {
                 AmmoLog.refresh.error("Codex onboarding failed: \(String(describing: error), privacy: .private)")
@@ -98,10 +126,17 @@ struct CodexOnboardingView: View {
     private func importJSON() {
         defer { pastedJSON = "" }
         failure = nil
+        mismatch = nil
         do {
             let tokens = try Self.parseAuthJSON(pastedJSON)
-            try store.add(provider: .codex, label: label, tokens: tokens, imported: true)
+            try store.completeSignIn(provider: .codex,
+                                     label: label,
+                                     tokens: tokens,
+                                     imported: true,
+                                     reconnecting: reconnecting)
             dismiss()
+        } catch let error as AccountReconnection.IdentityMismatchError {
+            mismatch = error.description
         } catch {
             AmmoLog.refresh.error("Codex token import failed: \(String(describing: error), privacy: .private)")
             failure = UsageFailureClassifier.classify(error)

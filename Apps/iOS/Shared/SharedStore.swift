@@ -29,12 +29,21 @@ struct StoredAccount: Codable, Identifiable, Hashable, Sendable {
     /// Refreshing could rotate the CLI's refresh token and log it out, so
     /// refresh is forbidden for imported accounts.
     var tokensImported: Bool
+    /// Natural key for the provider-side account behind this entry.
+    ///
+    /// `nil` for entries added before natural keys existed and for providers
+    /// that expose no usable subject. It is only ever read to recognize a later
+    /// sign-in as *this* account; `id` remains the sole identity every other
+    /// store keys on.
+    var identity: AccountIdentity?
 
-    init(id: UUID = UUID(), provider: ProviderID, label: String, tokensImported: Bool = false) {
+    init(id: UUID = UUID(), provider: ProviderID, label: String,
+         tokensImported: Bool = false, identity: AccountIdentity? = nil) {
         self.id = id
         self.provider = provider
         self.label = label
         self.tokensImported = tokensImported
+        self.identity = identity
     }
 }
 
@@ -269,6 +278,42 @@ enum SharedStore {
         // the cache *and* the history the Activity widget reads are both on disk.
         WidgetInvalidator.shared.invalidate(reason: .cacheCommitted, revision: revision)
         return transition
+    }
+
+    /// Edits one stored account in place.
+    ///
+    /// The closure mutates the persisted value rather than replacing it, so
+    /// every field this call site does not know about — including ordering
+    /// metadata owned elsewhere — survives untouched. The account id is never
+    /// among the things a caller can change, which is what keeps usage history
+    /// and widget bindings attached across a credential replacement.
+    @discardableResult
+    static func updateAccount(
+        id: UUID,
+        clearingFailure: Bool = false,
+        _ body: (inout StoredAccount) -> Void
+    ) throws -> Bool {
+        guard !AccountDeletionStore.isDeleted(id) else { return false }
+        var didUpdate = false
+        let revision = try mutate { states in
+            guard !AccountDeletionStore.isDeleted(id) else { return }
+            guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
+            let preservedID = states[index].account.id
+            body(&states[index].account)
+            // Defensive: a closure that reassigns the whole struct would
+            // otherwise be able to orphan history and widget bindings.
+            precondition(states[index].account.id == preservedID,
+                         "An account update must not change the account id")
+            if clearingFailure {
+                states[index].lastError = nil
+                states[index].lastFailure = nil
+            }
+            didUpdate = true
+        }
+        if didUpdate {
+            WidgetInvalidator.shared.invalidate(reason: .accountAdded, revision: revision)
+        }
+        return didUpdate
     }
 
     @discardableResult

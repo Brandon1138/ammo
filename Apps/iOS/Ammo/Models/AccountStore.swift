@@ -11,6 +11,9 @@ final class AccountStore {
     private(set) var states: [AccountState]
     private(set) var historySamples: [UsageHistorySample]
     private(set) var retryStates: [UUID: AccountRetryState] = [:]
+    /// Transient confirmation that a sign-in landed on an account that already
+    /// existed. Shown once, then cleared; nothing about it is persisted.
+    private(set) var signInNotice: String?
     private var refreshGenerations: [UUID: UInt] = [:]
 
     var isRefreshing: Bool {
@@ -64,15 +67,47 @@ final class AccountStore {
                 AmmoLog.refresh.error("Unable to migrate credentials for \(state.account.provider.displayName, privacy: .public): \(String(describing: error), privacy: .private)")
             }
         }
+        backfillMissingIdentities()
     }
 
     // MARK: - Account management
 
-    func add(provider: ProviderID, label: String, tokens: OAuthTokens, imported: Bool) throws {
+    /// Completes any sign-in the onboarding flows produce.
+    ///
+    /// `reconnecting` is the same provider flow re-run from an existing account's
+    /// menu, so it always repairs that entry. Without it this is an ordinary add,
+    /// which still lands on an existing entry when the credential's natural key
+    /// matches one — that is the dedupe path, and it is what stops an expired
+    /// session from being "fixed" by creating a second account.
+    @discardableResult
+    func completeSignIn(provider: ProviderID,
+                        label: String,
+                        tokens: OAuthTokens,
+                        imported: Bool,
+                        reconnecting: StoredAccount? = nil) throws -> AccountSignInOutcome {
+        if let reconnecting {
+            try reconnect(reconnecting, tokens: tokens, imported: imported, label: label,
+                          notice: nil)
+            return .reconnected(reconnecting.id)
+        }
+        return try add(provider: provider, label: label, tokens: tokens, imported: imported)
+    }
+
+    @discardableResult
+    func add(provider: ProviderID, label: String, tokens: OAuthTokens, imported: Bool) throws -> AccountSignInOutcome {
+        let identity = AccountIdentityResolver.identity(provider: provider, tokens: tokens)
+        if let existing = AccountReconnection.existingAccount(matching: identity, in: states) {
+            // Same person, new credential: keep the id so this account's history,
+            // its place in the list, and any widget bound to it all survive.
+            try reconnect(existing, tokens: tokens, imported: imported, label: label,
+                          notice: "Reconnected \(existing.label) — its history and widgets were kept.")
+            return .reconnected(existing.id)
+        }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = StoredAccount(provider: provider,
                                     label: trimmed.isEmpty ? provider.displayName : trimmed,
-                                    tokensImported: imported)
+                                    tokensImported: imported,
+                                    identity: identity)
         try AccountMutationStore.begin(.adding, account: account)
         do {
             try KeychainStore.save(tokens, for: account.id)
@@ -93,7 +128,52 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
         states = SharedStore.load()
+        signInNotice = nil
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
+        return .added(account.id)
+    }
+
+    /// Re-runs the provider's own auth outcome against an account that already
+    /// exists. Nothing is created and nothing is deleted, so there is no add or
+    /// remove transaction to journal here.
+    private func reconnect(_ account: StoredAccount,
+                           tokens: OAuthTokens,
+                           imported: Bool,
+                           label: String?,
+                           notice: String?) throws {
+        let updated = try AccountReconnection.apply(to: account,
+                                                    tokens: tokens,
+                                                    imported: imported,
+                                                    label: label)
+        states = SharedStore.load()
+        retryStates[updated.id] = .ready
+        signInNotice = notice
+        Task { await self.refresh(ids: [updated.id], reason: .accountAdded) }
+    }
+
+    func clearSignInNotice() {
+        signInNotice = nil
+    }
+
+    /// Entries created before natural keys existed carry none, so no later
+    /// sign-in could ever recognize them. Deriving the key from credentials the
+    /// device already holds fixes that without a single network call.
+    private func backfillMissingIdentities() {
+        var didUpdate = false
+        for state in states where state.account.identity == nil {
+            guard let tokens = KeychainStore.load(for: state.account.id),
+                  let identity = AccountIdentityResolver.identity(
+                    provider: state.account.provider, tokens: tokens)
+            else { continue }
+            do {
+                if try SharedStore.updateAccount(id: state.account.id, { $0.identity = identity }) {
+                    didUpdate = true
+                }
+            } catch {
+                AmmoLog.sharedStore.error("Unable to record account identity: \(String(describing: error), privacy: .private)")
+            }
+        }
+        if didUpdate { states = SharedStore.load() }
     }
 
     func remove(_ account: StoredAccount) {
