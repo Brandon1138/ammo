@@ -58,13 +58,14 @@ public struct CursorProvider: UsageProvider {
         do {
             response = try Self.decoder.decode(Response.self, from: data)
         } catch {
-            throw UsageError.malformedResponse("cursor usage: \(error)")
+            throw UsageError.malformedResponse(
+                "cursor usage: \(error); \(Self.shapeDiagnostics(from: data))")
         }
         let windows = Self.windows(from: response)
         let onDemand = Self.onDemand(from: response)
         guard !windows.isEmpty || onDemand != nil else {
             throw UsageError.malformedResponse(
-                "cursor usage: response contained no included or on-demand usage")
+                "cursor usage: response contained no included or on-demand usage; \(Self.shapeDiagnostics(from: data))")
         }
         return UsageSnapshot(provider: .cursor,
                              plan: response.membershipType,
@@ -222,20 +223,46 @@ public struct CursorProvider: UsageProvider {
     static func windows(from response: Response) -> [LimitWindow] {
         let reset = ISO8601.parse(response.billingCycleEnd)
         let plan = response.individualUsage?.plan
+        // Numeric plan fields always win. Display-message percents fill only
+        // the windows those fields did not supply. `totalPercentUsed` is a
+        // last-resort single Cursor Models window, never a third pool and
+        // never a replacement for a specific field or a parsed message.
+        var cursorModels = plan?.cursorModelsUsedPercent
+        var otherModels = plan?.apiPercentUsed
+        if cursorModels == nil {
+            cursorModels = percent(fromDisplayMessage: response.autoModelSelectedDisplayMessage)
+        }
+        if otherModels == nil {
+            otherModels = percent(fromDisplayMessage: response.namedModelSelectedDisplayMessage)
+        }
+        if cursorModels == nil, otherModels == nil {
+            cursorModels = plan?.totalPercentUsed
+        }
+
         var windows: [LimitWindow] = []
-        if let cursorModels = plan?.cursorModelsUsedPercent {
+        if let cursorModels {
             windows.append(LimitWindow(kind: .monthly,
                                        label: cursorModelsLabel,
                                        usedPercent: clampPercent(cursorModels),
                                        resetsAt: reset))
         }
-        if let otherModels = plan?.apiPercentUsed {
+        if let otherModels {
             windows.append(LimitWindow(kind: .monthly,
                                        label: otherModelsLabel,
                                        usedPercent: clampPercent(otherModels),
                                        resetsAt: reset))
         }
         return windows
+    }
+
+    /// Team and token-based seats often ship included usage only as copy such
+    /// as "You've used 42% of your included total usage". A message must yield
+    /// exactly one `%` figure; anything else is ignored rather than guessed.
+    static func percent(fromDisplayMessage message: String?) -> Double? {
+        guard let message else { return nil }
+        let matches = message.matches(of: /(\d+(?:\.\d+)?)\s*%/)
+        guard matches.count == 1, let value = Double(matches[0].output.1) else { return nil }
+        return clampPercent(value)
     }
 
     static func onDemand(from response: Response) -> [OnDemandUsage]? {
@@ -334,5 +361,124 @@ public struct CursorProvider: UsageProvider {
 
     private static func majorCurrencyUnits(_ cents: Int) -> Double {
         max(0, Double(cents)) / 100
+    }
+
+    /// Shape crumbs for a usage-summary body that decoded as empty or invalid.
+    /// Cookies and tokens are stripped; the snippet is capped so it can sit
+    /// next to the recorded `malformedResponse` without becoming a dump.
+    static func shapeDiagnostics(from data: Data) -> String {
+        "\(planKeyPaths(in: data)); body: \(sanitizedBodySnippet(data))"
+    }
+
+    static func planKeyPaths(in data: Data) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "individualUsage.plan: (not JSON)"
+        }
+        let individual = json["individualUsage"] ?? json["individual_usage"]
+        guard let individualDict = individual as? [String: Any] else {
+            return "individualUsage.plan: absent"
+        }
+        guard let plan = individualDict["plan"] else {
+            return "individualUsage.plan: absent"
+        }
+        guard let planDict = plan as? [String: Any] else {
+            return "individualUsage.plan: (not object)"
+        }
+        if planDict.isEmpty {
+            return "individualUsage.plan keys: (empty)"
+        }
+        let paths = flattenKeys(planDict, prefix: "individualUsage.plan").sorted()
+        return "individualUsage.plan keys: \(paths.joined(separator: ", "))"
+    }
+
+    static func sanitizedBodySnippet(_ data: Data, maxBytes: Int = 2048) -> String {
+        let text: String
+        if let json = try? JSONSerialization.jsonObject(with: data) {
+            let sanitized = sanitizeJSON(json)
+            if JSONSerialization.isValidJSONObject(sanitized),
+               let encoded = try? JSONSerialization.data(
+                    withJSONObject: sanitized, options: [.sortedKeys]),
+               let string = String(data: encoded, encoding: .utf8) {
+                text = string
+            } else {
+                text = redactSecretText(String(decoding: data, as: UTF8.self))
+            }
+        } else {
+            text = redactSecretText(String(decoding: data, as: UTF8.self))
+        }
+        return truncatingUTF8(text, maxBytes: maxBytes)
+    }
+
+    private static let sensitiveKeyFragments = [
+        "cookie", "token", "authorization", "password", "secret", "session", "bearer",
+    ]
+
+    private static func sanitizeJSON(_ value: Any) -> Any {
+        if let dict = value as? [String: Any] {
+            var out: [String: Any] = [:]
+            out.reserveCapacity(dict.count)
+            for (key, nested) in dict {
+                if isSensitiveKey(key) {
+                    out[key] = "<redacted>"
+                } else {
+                    out[key] = sanitizeJSON(nested)
+                }
+            }
+            return out
+        }
+        if let array = value as? [Any] {
+            return array.map(sanitizeJSON)
+        }
+        if let string = value as? String, looksLikeSecret(string) {
+            return "<redacted>"
+        }
+        return value
+    }
+
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        let lowered = key.lowercased()
+        return sensitiveKeyFragments.contains { lowered.contains($0) }
+    }
+
+    private static func looksLikeSecret(_ string: String) -> Bool {
+        if string.localizedCaseInsensitiveContains("WorkosCursorSessionToken") { return true }
+        let parts = string.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 3 && parts.allSatisfy { $0.count >= 8 }
+    }
+
+    private static func redactSecretText(_ text: String) -> String {
+        var result = text
+        result = result.replacingOccurrences(
+            of: #"WorkosCursorSessionToken=[^\s\"\\,]+"#,
+            with: "WorkosCursorSessionToken=<redacted>",
+            options: .regularExpression)
+        result = result.replacingOccurrences(
+            of: #"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"#,
+            with: "<redacted>",
+            options: .regularExpression)
+        return result
+    }
+
+    private static func flattenKeys(_ dict: [String: Any], prefix: String) -> [String] {
+        dict.flatMap { key, value -> [String] in
+            let path = "\(prefix).\(key)"
+            if let nested = value as? [String: Any], !nested.isEmpty {
+                return flattenKeys(nested, prefix: path)
+            }
+            return [path]
+        }
+    }
+
+    private static func truncatingUTF8(_ string: String, maxBytes: Int) -> String {
+        var count = 0
+        var end = string.startIndex
+        for index in string.indices {
+            let charBytes = string[index].utf8.count
+            if count + charBytes > maxBytes { break }
+            count += charBytes
+            end = string.index(after: index)
+        }
+        if end == string.endIndex { return string }
+        return String(string[..<end]) + "…"
     }
 }

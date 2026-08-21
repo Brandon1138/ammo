@@ -228,8 +228,13 @@ struct CircularGaugeView: View {
         } currentValueLabel: {
             if let centerText = presentation.centerText {
                 Text(centerText)
-            } else {
+            } else if state.account.provider == .openRouter {
                 Image(systemName: presentation.centerFallbackSymbol)
+            } else {
+                // Cursor used to draw an unbound dollarsign here when the
+                // pool had used == 0. That glyph is no longer reachable:
+                // MeteredLockScreenPresentation binds "$0" or declines.
+                Image(systemName: "exclamationmark")
             }
         }
         .tint(meterColor(presentation.remainingFraction ?? 1))
