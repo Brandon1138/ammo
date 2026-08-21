@@ -162,7 +162,10 @@ struct SmallAccountView: View {
 
 /// accessoryCircular: provider-reported window drives open gauge chrome and,
 /// when another window exists, its remaining percent becomes numeric value.
-/// Single-window providers show a marker for their real window.
+/// Single-window providers show a marker for their real window. Providers that
+/// report spend instead of a window draw the same chrome from their on-demand
+/// pool, so every account on the Lock Screen carries live value and the logo in
+/// the six o'clock gap.
 struct CircularGaugeView: View {
     let state: AccountState
     let referenceDate: Date
@@ -179,22 +182,14 @@ struct CircularGaugeView: View {
                     .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
                     .statusOverlay(symbol: failureSymbol)
             }
-        } else if state.hasWidgetMeteredUsage {
-            if let snapshot = state.snapshot,
-               let presentation = OpenRouterKeyPresentation(snapshot: snapshot) {
-                openRouterGauge(presentation: presentation)
-                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
-                    .statusOverlay(symbol: failureSymbol)
-            } else {
-                VStack(spacing: 1) {
-                    ProviderLogo(provider: state.account.provider, size: 17)
-                    Image(systemName: "dollarsign")
-                        .font(.system(size: 8, weight: .semibold))
-                }
+        } else if let metered = state.lockScreenMeteredPresentation {
+            // A pool with capacity can deplete the arc; an amount-only pool has
+            // nothing to deplete, so it keeps the full track and the dot.
+            let variant: AmmoAccessoryCircularGaugeStyle.Variant =
+                metered.remainingFraction == nil ? .marker : .fill
+            meteredGauge(presentation: metered)
+                .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: variant))
                 .statusOverlay(symbol: failureSymbol)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(meteredAccessibilityLabel(presentation: nil))
-            }
         } else {
             Gauge(value: 0, in: 0...100) {
                 ProviderLogo(provider: state.account.provider, size: 12)
@@ -224,19 +219,19 @@ struct CircularGaugeView: View {
         .accessibilityLabel(accessibilityLabel(for: presentation))
     }
 
-    private func openRouterGauge(
-        presentation: OpenRouterKeyPresentation
+    private func meteredGauge(
+        presentation: MeteredLockScreenPresentation
     ) -> some View {
         Gauge(value: presentation.remainingFraction ?? 1, in: 0...1) {
             ProviderLogo(provider: state.account.provider, size: 12)
         } currentValueLabel: {
-            if let centerText = presentation.lockScreenCenterText {
+            if let centerText = presentation.centerText {
                 Text(centerText)
             } else {
-                Image(systemName: "dollarsign")
+                Image(systemName: presentation.centerFallbackSymbol)
             }
         }
-        .tint(openRouterMeterColor(presentation.remainingFraction ?? 1))
+        .tint(meterColor(presentation.remainingFraction ?? 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(meteredAccessibilityLabel(presentation: presentation))
     }
@@ -250,30 +245,11 @@ struct CircularGaugeView: View {
     }
 
     private func meteredAccessibilityLabel(
-        presentation: OpenRouterKeyPresentation?
+        presentation: MeteredLockScreenPresentation
     ) -> String {
-        var values: [String]
-        if let presentation, let fraction = presentation.remainingFraction {
-            let centerText = presentation.lockScreenCenterText ?? "No balance reported"
-            let percent = fraction.formatted(
-                .percent.precision(.fractionLength(0)))
-            values = [
-                "\(state.account.provider.displayName) budget",
-                "\(centerText) remaining",
-                "\(percent) of budget remaining",
-            ]
-        } else if let presentation {
-            values = ["\(state.account.provider.displayName) pay-as-you-go"]
-            if let centerText = presentation.lockScreenCenterText {
-                values.append("Spend today \(centerText)")
-            } else {
-                values.append("No spend today reported")
-            }
-        } else {
-            values = [
-                "\(state.account.provider.displayName) reports spending without a percentage limit"
-            ]
-        }
+        var values = [
+            "\(state.account.provider.displayName) \(presentation.accessibilityDescription)"
+        ]
         if state.activeFailure != nil {
             values.append("Update failed; showing cached data")
         }
@@ -321,8 +297,8 @@ private extension View {
     }
 }
 
-/// Shared by OpenRouter's XL bar and Lock Screen marker gauge.
-private func openRouterMeterColor(_ remainingFraction: Double) -> Color {
+/// Shared by OpenRouter's XL bar and every Lock Screen spend gauge.
+private func meterColor(_ remainingFraction: Double) -> Color {
     if remainingFraction <= 0.1 {
         .red
     } else if remainingFraction <= 0.25 {
@@ -815,7 +791,7 @@ private struct OpenRouterCreditsPanel: View {
             if let fraction = presentation.remainingFraction {
                 CapsuleBar(
                     fraction: fraction,
-                    color: openRouterMeterColor(fraction),
+                    color: meterColor(fraction),
                     height: 7)
             }
             HStack(spacing: 8) {

@@ -123,16 +123,12 @@ public struct OpenRouterKeyPresentation: Sendable, Equatable {
     }
 
     private static func money(_ amount: Double, code: String) -> String {
-        amount.formatted(.currency(code: code).precision(.fractionLength(2)))
+        AmountFormat.money(amount, code: code)
     }
 
     /// Whole currency units remain legible in the tiny gauge center once the
     /// amount reaches two digits. Smaller amounts retain cents.
     private static func compactMoney(_ amount: Double, code: String) -> String {
-        amount.formatted(
-            .currency(code: code)
-                .presentation(.narrow)
-                .precision(.fractionLength(amount >= 10 ? 0 : 2))
-                .locale(Locale(identifier: "en_US")))
+        AmountFormat.compactMoney(amount, code: code)
     }
 }
