@@ -545,6 +545,37 @@ prepaid balances and personal/team/organization spend controls, and **History** 
 local rate-limit observations. A compact row in each Usage account section links to
 On-demand when that provider reports monetary capacity.
 
+### Account order
+
+The order accounts appear in belongs to the person, not to the cache.
+`AccountOrderStore` keeps a list of account UUIDs in the App Group
+(`account-order.json`, its own file so reordering never rewrites the account cache),
+and `AccountOrder` is the value type that applies it. On-device only: nothing about
+the order is synchronized anywhere.
+
+- **Where it is set.** *Reorder Accounts* in an account section's overflow menu opens
+  a drag-to-reorder list with edit mode pinned on. The Usage list draws one `Section`
+  per account and a `List` reorders rows rather than sections, so the drag lives on a
+  dedicated screen instead. A drag writes the whole visible list, so every account
+  the person can see ends up with an explicit position.
+- **How it is applied.** An explicit position is the primary sort key everywhere
+  accounts are ranked — `WidgetAccountOrder.defaultOrder`, the app's own list, and
+  `WidgetProviderPanels.slots`. Accounts with a position come first, in that order;
+  accounts without one follow. The pre-existing heuristic (quota windows first,
+  metered-only next, unavailable last, then provider rank, then label) survives only
+  as the tiebreak *between* unplaced accounts, so an install that has never reordered
+  behaves exactly as it did before.
+- **Provider board slots.** Where several accounts share a provider, that provider's
+  panel takes the person's top-ranked account of that provider; completeness of usage
+  data decides only when they have placed none of them.
+- **New accounts append.** An account with no stored position sorts after every
+  placed one and is recorded at the end, never in the middle: adding an account
+  cannot reshuffle positions that already exist. Removing one closes its gap.
+- **Keyed to the account ID.** Positions reference `StoredAccount.id` and nothing
+  else, so they survive app restarts, credential refreshes, and relabelling. An
+  unreadable order file reads as "never ordered" and falls back to the heuristic
+  rather than blanking a board.
+
 ### Storage & trust boundaries
 
 - **Keychain** (`KeychainStore`, service `com.brandon.ammo.tokens`): one generic
@@ -588,8 +619,9 @@ state, then request widget reloads after app-owned changes.
 - **Accounts widget** (`AmmoAllAccounts`): systemSmall shows the first two configured
   accounts as compact cards; systemMedium shows the first four as rows; systemLarge
   shows full details for the first two. Each instance exposes ordered First–Fourth
-  account slots. With no explicit configuration, accounts with quota windows sort
-  first, metered-only accounts follow, and unavailable accounts are last.
+  account slots. With no explicit configuration, accounts follow the order set in the
+  app (see **Account order**); accounts the person never placed fall back to the older
+  heuristic — quota windows first, metered-only next, unavailable last.
 - **Accounts widget, systemExtraLargePortrait** (iPhone, iOS 27+): a fixed board
   of four stacked full-width panels, one per shipping provider — Codex, Claude,
   Cursor, OpenRouter, always in that order. The family is one grid column wide and
