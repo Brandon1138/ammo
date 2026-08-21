@@ -184,13 +184,9 @@ private struct UsageView: View {
                 case .settings:
                     SettingsView()
                 case .addProvider(let provider):
-                    switch provider {
-                    case .claude: ClaudeOnboardingView()
-                    case .codex: CodexOnboardingView()
-                    case .cursor: CursorOnboardingView()
-                    case .openRouter: OpenRouterOnboardingView()
-                    case .antigravity: EmptyView() // deferred, see SPEC.md
-                    }
+                    ProviderSignInSheet(provider: provider)
+                case .reconnect(let account):
+                    ProviderSignInSheet(provider: account.provider, reconnecting: account)
                 }
             }
         }
@@ -214,11 +210,23 @@ private struct UsageView: View {
     private var accountList: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             List {
+                if let notice = store.signInNotice {
+                    Section {
+                        Label(notice, systemImage: "checkmark.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .task(id: notice) {
+                                try? await Task.sleep(for: .seconds(6))
+                                store.clearSignInNotice()
+                            }
+                    }
+                }
                 ForEach(store.states) { state in
                     AccountSection(state: state,
                                    referenceDate: context.date,
                                    openOnDemand: openOnDemand,
-                                   openHistory: openHistory)
+                                   openHistory: openHistory,
+                                   reconnect: { presentedSheet = .reconnect($0) })
                 }
             }
             .refreshable {
@@ -232,6 +240,8 @@ private struct UsageView: View {
 private enum UsageSheet: Identifiable {
     case settings
     case addProvider(ProviderID)
+    /// Re-runs the provider's add flow against an account that already exists.
+    case reconnect(StoredAccount)
 
     var id: String {
         switch self {
@@ -239,6 +249,8 @@ private enum UsageSheet: Identifiable {
             "settings"
         case .addProvider(let provider):
             "add-\(provider.rawValue)"
+        case .reconnect(let account):
+            "reconnect-\(account.id.uuidString)"
         }
     }
 }
@@ -249,6 +261,7 @@ private struct AccountSection: View {
     let referenceDate: Date
     let openOnDemand: () -> Void
     let openHistory: (UUID, String) -> Void
+    let reconnect: (StoredAccount) -> Void
 
     var body: some View {
         Group {
@@ -315,6 +328,11 @@ private struct AccountSection: View {
                     Spacer()
                     if !store.isDemoMode {
                         Menu {
+                            // Repairs an expired provider session under the same
+                            // account id, so history and widgets stay attached.
+                            Button("Sign In Again", systemImage: "person.badge.key") {
+                                reconnect(state.account)
+                            }
                             Button("Remove Account", systemImage: "trash", role: .destructive) {
                                 store.remove(state.account)
                             }

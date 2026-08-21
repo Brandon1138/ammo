@@ -83,6 +83,30 @@ Adapters are stateless; credentials are passed per call. **Multi-account is ther
 free**: an account is `(provider, user-chosen label, Keychain-stored OAuthTokens)`,
 and any number of accounts per provider reuse one adapter.
 
+### Account identity
+
+An account's locally minted `id` is permanent: usage history, the refresh ledger and
+every Lock Screen widget binding key on it, so it must survive an expired provider
+session. Two mechanisms keep it stable.
+
+**Sign in again.** Every account entry offers it. It presents the provider's ordinary
+onboarding view with `reconnecting` set, so there is no second auth path to maintain;
+whatever that flow produces overwrites the Keychain item at the same account id and
+edits the cached entry in place. Nothing durable is created or destroyed, so unlike
+add and remove there is no cross-store transaction to journal.
+
+**Natural identity.** Each entry also stores `AccountIdentity` — a SHA-256 digest of
+the provider-side subject, domain-separated by provider. It is derived only from
+material the provider's own auth response already carried: Codex's
+`chatgpt_account_id` (id_token claim, also present in a pasted `auth.json`) and
+Cursor's access-token `sub` user id. Claude's token exchange returns tokens only and
+OpenRouter imports a key with no auth call, so both derive no key and keep the
+original behavior of minting a fresh id per add. When a fresh login through the add
+flow matches a stored key, that entry is updated in place — same id, new credential —
+and the app says it reconnected an existing account. An absent key never matches, in
+either direction; nothing is inferred from labels, plans or other unstable fields. The
+digest is written only to the App Group cache and never leaves the device.
+
 ### Data flow
 
 1. Foreground activation, pull-to-refresh, `BGAppRefreshTask`, account creation, and

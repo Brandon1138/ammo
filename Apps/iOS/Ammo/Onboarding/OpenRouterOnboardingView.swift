@@ -8,15 +8,28 @@ struct OpenRouterOnboardingView: View {
     @Environment(AccountStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
+    /// Set when this is the existing account's "Sign in again" action rather
+    /// than an add. Same flow, same view; only the destination differs.
+    var reconnecting: StoredAccount?
+
     @State private var label = ""
     @State private var apiKey = ""
     @State private var failure: UsageFailureKind?
+    @State private var mismatch: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Label") {
-                    TextField("OpenRouter", text: $label)
+                if let reconnecting {
+                    Section {
+                        Text(SignInCopy.reconnectFooter(reconnecting))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section("Label") {
+                        TextField("OpenRouter", text: $label)
+                    }
                 }
 
                 Section {
@@ -37,6 +50,12 @@ struct OpenRouterOnboardingView: View {
                     )
                 }
 
+                if let mismatch {
+                    Section {
+                        SignInAccountMismatchNotice(message: mismatch)
+                    }
+                }
+
                 if let failure {
                     Section {
                         SignInIssueNotice(providerName: "OpenRouter", failure: failure)
@@ -44,11 +63,13 @@ struct OpenRouterOnboardingView: View {
                 }
 
                 Section {
-                    Button("Add Account") { importKey() }
+                    Button(SignInCopy.primaryAction(isReconnecting: reconnecting != nil,
+                                                    isBusy: false)) { importKey() }
                         .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .navigationTitle("Add OpenRouter")
+            .navigationTitle(SignInCopy.navigationTitle(provider: .openRouter,
+                                                        isReconnecting: reconnecting != nil))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -62,14 +83,18 @@ struct OpenRouterOnboardingView: View {
     private func importKey() {
         defer { apiKey = "" }
         failure = nil
+        mismatch = nil
         do {
             let tokens = try OpenRouterProvider.importedTokens(from: apiKey)
-            try store.add(
+            try store.completeSignIn(
                 provider: .openRouter,
                 label: label,
                 tokens: tokens,
-                imported: true)
+                imported: true,
+                reconnecting: reconnecting)
             dismiss()
+        } catch let error as AccountReconnection.IdentityMismatchError {
+            mismatch = error.description
         } catch {
             AmmoLog.refresh.error("OpenRouter key import failed: \(String(describing: error), privacy: .private)")
             failure = UsageFailureClassifier.classify(error)

@@ -8,11 +8,16 @@ struct ClaudeOnboardingView: View {
     @Environment(AccountStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
+    /// Set when this is the existing account's "Sign in again" action rather
+    /// than an add. Same flow, same view; only the destination differs.
+    var reconnecting: StoredAccount?
+
     @State private var pkce = PKCE()
     @State private var label = ""
     @State private var code = ""
     @State private var showingWeb = false
     @State private var failure: UsageFailureKind?
+    @State private var mismatch: String?
     @State private var busy = false
 
     var body: some View {
@@ -38,8 +43,22 @@ struct ClaudeOnboardingView: View {
                         .privacySensitive()
                 }
 
-                Section("Label") {
-                    TextField("Claude", text: $label)
+                if let reconnecting {
+                    Section {
+                        Text(SignInCopy.reconnectFooter(reconnecting))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section("Label") {
+                        TextField("Claude", text: $label)
+                    }
+                }
+
+                if let mismatch {
+                    Section {
+                        SignInAccountMismatchNotice(message: mismatch)
+                    }
                 }
 
                 if let failure {
@@ -49,11 +68,13 @@ struct ClaudeOnboardingView: View {
                 }
 
                 Section {
-                    Button(busy ? "Adding…" : "Add Account") { submit() }
+                    Button(SignInCopy.primaryAction(isReconnecting: reconnecting != nil,
+                                                    isBusy: busy)) { submit() }
                         .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty || busy)
                 }
             }
-            .navigationTitle("Add Claude")
+            .navigationTitle(SignInCopy.navigationTitle(provider: .claude,
+                                                        isReconnecting: reconnecting != nil))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -71,13 +92,21 @@ struct ClaudeOnboardingView: View {
     private func submit() {
         busy = true
         failure = nil
+        mismatch = nil
         Task {
             defer { code = "" }
             do {
                 let tokens = try await ClaudeProvider()
                     .exchangeCode(code, verifier: pkce.verifier, state: pkce.state)
-                try store.add(provider: .claude, label: label, tokens: tokens, imported: false)
+                try store.completeSignIn(provider: .claude,
+                                         label: label,
+                                         tokens: tokens,
+                                         imported: false,
+                                         reconnecting: reconnecting)
                 dismiss()
+            } catch let error as AccountReconnection.IdentityMismatchError {
+                mismatch = error.description
+                busy = false
             } catch {
                 AmmoLog.refresh.error("Claude onboarding failed: \(String(describing: error), privacy: .private)")
                 failure = UsageFailureClassifier.classify(error)
