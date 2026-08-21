@@ -22,11 +22,14 @@ public struct MeteredLockScreenPresentation: Sendable, Equatable {
     /// Remaining capacity as 0…1, or `nil` for a pool with no capacity to draw
     /// a meter against (unlimited, or amount-only spend reporting).
     public let remainingFraction: Double?
-    /// Currency or credit copy sized for the gauge center. `nil` means the
-    /// provider reported no amount worth printing and the gauge should fall
-    /// back to `centerFallbackSymbol`.
+    /// Currency or credit copy sized for the gauge center. `nil` is allowed
+    /// only on the OpenRouter path, which still owns a dollar glyph. Cursor
+    /// and other spend pools either bind a number (`$0` when used is known
+    /// zero) or decline this presentation so the empty/exclamation gauge runs.
     public let centerText: String?
-    /// SF Symbol for the center when there is no amount to print.
+    /// SF Symbol for the OpenRouter center when that key reported no amount.
+    /// Unreachable for Cursor: a pool with nothing to print does not produce
+    /// this presentation.
     public let centerFallbackSymbol: String
     /// Spoken description of the meter, without the account or failure context
     /// the widget adds around it.
@@ -53,10 +56,15 @@ public struct MeteredLockScreenPresentation: Sendable, Equatable {
 
         guard let pool = Self.preferredPool(in: snapshot) else { return nil }
         let fraction = pool.isUnlimited ? nil : pool.remainingFraction
+        guard let text = Self.centerText(for: pool, remainingFraction: fraction) else {
+            // Known-zero spend binds `"$0"` / `"0"`. Unknown used with no
+            // remaining fraction must not draw the decorative dollarsign.
+            return nil
+        }
 
         self.pool = pool
         remainingFraction = fraction
-        centerText = Self.centerText(for: pool, remainingFraction: fraction)
+        centerText = text
         centerFallbackSymbol = Self.fallbackSymbol(for: pool)
         accessibilityDescription = Self.accessibilityDescription(
             for: pool, remainingFraction: fraction)
@@ -111,8 +119,24 @@ public struct MeteredLockScreenPresentation: Sendable, Equatable {
             return compactAmount(remaining, pool: pool)
         }
         // No capacity to deplete: the honest number is what has been spent.
-        guard let used = pool.used, used > 0 else { return nil }
-        return compactAmount(used, pool: pool)
+        // A known zero is a bound value (`$0`), not the decorative glyph.
+        guard let used = pool.used else { return nil }
+        if used > 0 {
+            return compactAmount(used, pool: pool)
+        }
+        if used == 0 {
+            return boundZeroText(for: pool)
+        }
+        return nil
+    }
+
+    private static func boundZeroText(for pool: OnDemandUsage) -> String {
+        switch pool.effectiveUnit {
+        case .credits:
+            return "0"
+        case .currency:
+            return "$0"
+        }
     }
 
     private static func fallbackSymbol(for pool: OnDemandUsage) -> String {

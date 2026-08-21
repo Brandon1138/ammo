@@ -185,6 +185,40 @@ import Testing
         #expect(presentation.centerText == AmountFormat.compactMoney(3.25, code: "USD"))
     }
 
+    @Test func aKnownZeroSpendPrintsBoundZeroInsteadOfAnUnboundDollar() throws {
+        let snapshot = cursorSnapshot(pools: [
+            pool(id: "cursor-team-on-demand",
+                 label: "Team on-demand",
+                 kind: .teamBudget,
+                 scope: .team,
+                 used: 0),
+        ])
+
+        #expect(LockScreenUsagePresentation(snapshot: snapshot) == nil)
+
+        let presentation = try #require(MeteredLockScreenPresentation(snapshot: snapshot))
+        #expect(presentation.remainingFraction == nil)
+        #expect(presentation.centerText == "$0")
+    }
+
+    @Test func aPoolWithNoUsedAmountFallsThroughRatherThanDrawingAnUnboundDollar() {
+        let snapshot = cursorSnapshot(pools: [
+            OnDemandUsage(id: "cursor-personal-on-demand",
+                          label: "Personal on-demand",
+                          kind: .spendingLimit,
+                          scope: .personal,
+                          isEnabled: true,
+                          isUnlimited: true,
+                          remaining: 10),
+        ])
+
+        // Eligible (remaining is present) but used is unknown and the pool
+        // has no remaining fraction to bind, so the empty/exclamation path
+        // must run instead of Image(systemName: "dollarsign").
+        #expect(MeteredLockScreenPresentation(snapshot: snapshot) == nil)
+        #expect(LockScreenUsagePresentation(snapshot: snapshot) == nil)
+    }
+
     @Test func aCursorSnapshotThatKeepsItsWindowsNeverNeedsTheSpendGauge() throws {
         let snapshot = UsageSnapshot(
             provider: .cursor,

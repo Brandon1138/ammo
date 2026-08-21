@@ -562,6 +562,232 @@ private struct FixtureTransport: HTTPTransport {
         #expect(snapshot.windows.map(\.usedPercent) == [42, 18])
     }
 
+    @Test func displayMessagesMapOntoCursorAndOtherModelWindows() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "enterprise",
+          "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
+          "namedModelSelectedDisplayMessage": "You've used 7% of your API usage"
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Cursor Models", "Other Models"])
+        #expect(windows.map(\.usedPercent) == [42, 7])
+        #expect(windows.map(\.kind) == [.monthly, .monthly])
+        #expect(windows[0].resetsAt == ISO8601.parse("2026-08-10T00:00:00Z"))
+        #expect(windows[0].id == "monthly:Cursor Models")
+        #expect(windows[1].id == "monthly:Other Models")
+    }
+
+    @Test func aSingleParsableDisplayMessageYieldsOnlyThatWindow() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "team",
+          "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
+          "namedModelSelectedDisplayMessage": "API usage is billed separately"
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Cursor Models"])
+        #expect(windows[0].usedPercent == 42)
+    }
+
+    @Test func displayMessagesWithoutExactlyOnePercentProduceNoWindows() throws {
+        let fixture = """
+        {
+          "membershipType": "team",
+          "autoModelSelectedDisplayMessage": "You've used 42% of included usage and 10% of bonus",
+          "namedModelSelectedDisplayMessage": "Included usage is available",
+          "teamUsage": {"onDemand": {"enabled": true, "used": 0}}
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let snapshot = UsageSnapshot(
+            provider: .cursor,
+            plan: response.membershipType,
+            windows: CursorProvider.windows(from: response),
+            onDemand: CursorProvider.onDemand(from: response))
+
+        #expect(snapshot.windows.isEmpty)
+        #expect(LockScreenUsagePresentation(snapshot: snapshot) == nil)
+
+        let metered = try #require(MeteredLockScreenPresentation(snapshot: snapshot))
+        #expect(metered.centerText == "$0")
+        #expect(metered.remainingFraction == nil)
+    }
+
+    @Test func totalPercentUsedIsALastResortCursorModelsWindow() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"totalPercentUsed": 33}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Cursor Models"])
+        #expect(windows[0].usedPercent == 33)
+        #expect(windows[0].kind == .monthly)
+    }
+
+    @Test func planPercentFieldsWinOverDisplayMessagesAndTotal() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
+          "namedModelSelectedDisplayMessage": "You've used 90% of your API usage",
+          "individualUsage": {
+            "plan": {
+              "autoPercentUsed": 5,
+              "apiPercentUsed": 8,
+              "totalPercentUsed": 99
+            }
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Cursor Models", "Other Models"])
+        #expect(windows.map(\.usedPercent) == [5, 8])
+    }
+
+    @Test func totalPercentUsedDoesNotFillInWhenApiPercentUsedIsPresent() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "pro",
+          "individualUsage": {
+            "plan": {"totalPercentUsed": 33, "apiPercentUsed": 8}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Other Models"])
+        #expect(windows[0].usedPercent == 8)
+    }
+
+    @Test func parsedNamedMessageBlocksTotalPercentUsedFallback() throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "namedModelSelectedDisplayMessage": "You've used 11% of your API usage",
+          "individualUsage": {
+            "plan": {"totalPercentUsed": 33}
+          }
+        }
+        """
+        let response = try CursorProvider.decoder.decode(
+            CursorProvider.Response.self, from: Data(fixture.utf8))
+        let windows = CursorProvider.windows(from: response)
+
+        #expect(windows.map(\.label) == ["Other Models"])
+        #expect(windows[0].usedPercent == 11)
+    }
+
+    @Test func fetchAcceptsDisplayMessageWindowsWithoutAPlanBlock() async throws {
+        let fixture = """
+        {
+          "billingCycleEnd": "2026-08-10T00:00:00Z",
+          "membershipType": "enterprise",
+          "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
+          "namedModelSelectedDisplayMessage": "You've used 7% of your API usage"
+        }
+        """
+        let provider = CursorProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        let snapshot = try await provider.fetchUsage(tokens: OAuthTokens(
+            accessToken: "test",
+            accountID: "user-test"))
+
+        #expect(snapshot.windows.map(\.label) == ["Cursor Models", "Other Models"])
+        #expect(snapshot.windows.map(\.usedPercent) == [42, 7])
+        #expect(snapshot.onDemand == nil)
+    }
+
+    @Test func malformedResponseRecordsSanitizedPlanKeysAndBodySnippet() async {
+        let fixture = """
+        {
+          "membershipType": "pro",
+          "cookie": "WorkosCursorSessionToken=user-test%3A%3Asecret-value",
+          "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaaaaaaa.bbbbbbbb",
+          "individualUsage": {"plan": {}}
+        }
+        """
+        let provider = CursorProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        do {
+            _ = try await provider.fetchUsage(tokens: OAuthTokens(
+                accessToken: "test",
+                accountID: "user-test"))
+            Issue.record("Expected an explicit malformed-response failure")
+        } catch let error as UsageError {
+            guard case .malformedResponse(let detail) = error else {
+                Issue.record("Expected malformedResponse, received \(error)")
+                return
+            }
+            #expect(detail.contains("individualUsage.plan keys: (empty)"))
+            #expect(detail.contains("body:"))
+            #expect(detail.contains("<redacted>"))
+            #expect(!detail.contains("secret-value"))
+            #expect(!detail.contains("WorkosCursorSessionToken=user-test"))
+            #expect(!detail.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"))
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
+    @Test func malformedDecodeRecordsPlanKeyPathsFromTheRawBody() async {
+        let fixture = """
+        {
+          "individualUsage": {
+            "plan": {"autoPercentUsed": {"nested": true}, "bonus": 1},
+            "onDemand": {"used": "12.50"}
+          }
+        }
+        """
+        let provider = CursorProvider(
+            transport: FixtureTransport(data: Data(fixture.utf8), status: 200))
+
+        do {
+            _ = try await provider.fetchUsage(tokens: OAuthTokens(
+                accessToken: "test",
+                accountID: "user-test"))
+            Issue.record("Expected an explicit malformed-response failure")
+        } catch let error as UsageError {
+            guard case .malformedResponse(let detail) = error else {
+                Issue.record("Expected malformedResponse, received \(error)")
+                return
+            }
+            #expect(detail.contains("individualUsage.plan.autoPercentUsed.nested"))
+            #expect(detail.contains("individualUsage.plan.bonus"))
+            #expect(detail.contains("body:"))
+        } catch {
+            Issue.record("Expected UsageError, received \(error)")
+        }
+    }
+
     @Test func legacyLabelMigrationIsScopedToCursorMonthlyWindows() throws {
         let cached = """
         {
