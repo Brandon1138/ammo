@@ -10,6 +10,7 @@ enum WidgetInvalidationReason: String, Sendable {
     case accountRemoved
     case demoModeChanged
     case displayPreferenceChanged
+    case accountOrderChanged
     case appForeground
     case refreshFinished
 }

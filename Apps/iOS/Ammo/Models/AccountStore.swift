@@ -8,8 +8,13 @@ import UsageKit
 final class AccountStore {
     static let shared = AccountStore()
 
-    private(set) var states: [AccountState]
-    private(set) var historySamples: [UsageHistorySample]
+    // Defaulted so `init` can arrange the cache through the instance helpers
+    // below rather than duplicating the ordering rules inline.
+    private(set) var states: [AccountState] = []
+    /// The person's account ordering, mirrored from the App Group so the list
+    /// and every widget agree without a second read per redraw.
+    private(set) var accountOrder: AccountOrder = .empty
+    private(set) var historySamples: [UsageHistorySample] = []
     private(set) var retryStates: [UUID: AccountRetryState] = [:]
     /// Transient confirmation that a sign-in landed on an account that already
     /// existed. Shown once, then cleared; nothing about it is persisted.
@@ -34,7 +39,7 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Unable to store Codex Spark display preference: \(String(describing: error), privacy: .private)")
             return
         }
-        states = SharedStore.load()
+        states = arranged(SharedStore.load())
         WidgetInvalidator.shared.invalidate(reason: .displayPreferenceChanged)
     }
 
@@ -53,7 +58,8 @@ final class AccountStore {
         }
 #endif
         AccountMutationStore.recoverPending()
-        states = SharedStore.load()
+        accountOrder = AccountOrderStore.load()
+        states = arranged(SharedStore.load())
         historySamples = UsageHistoryStore.load()
         retryStates = Dictionary(uniqueKeysWithValues: states.map { state in
             let eligibleAt = RefreshLedgerStore.nextEligibleAt(accountID: state.id,
@@ -127,7 +133,7 @@ final class AccountStore {
             // this complete add and remove only the stale transaction record.
             AmmoLog.sharedStore.error("Account add journal cleanup deferred: \(String(describing: error), privacy: .private)")
         }
-        states = SharedStore.load()
+        states = arranged(SharedStore.load())
         signInNotice = nil
         Task { await self.refresh(ids: [account.id], reason: .accountAdded) }
         return .added(account.id)
@@ -145,7 +151,7 @@ final class AccountStore {
                                                     tokens: tokens,
                                                     imported: imported,
                                                     label: label)
-        states = SharedStore.load()
+        states = arranged(SharedStore.load())
         retryStates[updated.id] = .ready
         signInNotice = notice
         Task { await self.refresh(ids: [updated.id], reason: .accountAdded) }
@@ -173,7 +179,7 @@ final class AccountStore {
                 AmmoLog.sharedStore.error("Unable to record account identity: \(String(describing: error), privacy: .private)")
             }
         }
-        if didUpdate { states = SharedStore.load() }
+        if didUpdate { states = arranged(SharedStore.load()) }
     }
 
     func remove(_ account: StoredAccount) {
@@ -187,7 +193,8 @@ final class AccountStore {
             // any unfinished cleanup; reload now so tombstoned state vanishes.
             AmmoLog.sharedStore.error("Account removal cleanup remains pending: \(String(describing: error), privacy: .private)")
         }
-        states = SharedStore.load()
+        persist(accountOrder.removing(account.id))
+        states = arranged(SharedStore.load())
         historySamples = UsageHistoryStore.load()
         // Successful removal already invalidated after SharedStore committed its
         // bytes. Only the deferred-cleanup path needs a caller-side reload so a
@@ -196,6 +203,57 @@ final class AccountStore {
             WidgetInvalidator.shared.invalidate(reason: .accountRemoved)
         }
         Task { await self.refresh(ids: []) }
+    }
+
+    /// Whether the account list can be reordered right now. Demo accounts are
+    /// synthesized per launch, so placing them would persist IDs that no real
+    /// account will ever have.
+    var canReorderAccounts: Bool { !isDemoMode && states.count > 1 }
+
+    /// Commits a drag from the account list.
+    ///
+    /// The whole visible list is written, not just the moved account, so every
+    /// account the person can see ends up with an explicit position and the
+    /// heuristic tiebreak stops applying to any of them.
+    func moveAccounts(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard !isDemoMode else { return }
+        var reordered = states
+        reordered.move(fromOffsets: source, toOffset: destination)
+        let order = AccountOrder(ids: reordered.map(\.id))
+        guard order != accountOrder else { return }
+        persist(order)
+        // A failed write leaves the stored order authoritative: showing a move
+        // the widgets will never make is worse than the drag springing back.
+        guard accountOrder == order else { return }
+        states = reordered
+        WidgetInvalidator.shared.invalidate(reason: .accountOrderChanged)
+    }
+
+    /// Puts the cache in the person's order.
+    ///
+    /// An account they have never placed keeps its insertion position at the
+    /// end of the list, and — once they have ordered anything at all — is
+    /// recorded there so a later reorder starts from what they can actually
+    /// see. Positions already stored are never rewritten, so adding an account
+    /// appends instead of reshuffling.
+    private func arranged(_ loaded: [AccountState]) -> [AccountState] {
+        // Demo accounts are rebuilt every launch; recording their IDs would
+        // wedge dead positions into a real person's order.
+        guard !isDemoMode else { return loaded }
+        if !accountOrder.isEmpty {
+            persist(accountOrder.appending(loaded.map(\.id)))
+        }
+        return accountOrder.arranged(loaded, id: \.id)
+    }
+
+    private func persist(_ order: AccountOrder) {
+        guard order != accountOrder else { return }
+        do {
+            try AccountOrderStore.save(order)
+            accountOrder = order
+        } catch {
+            AmmoLog.sharedStore.error("Unable to store account order: \(String(describing: error), privacy: .private)")
+        }
     }
 
     func enableDemoMode() {
@@ -217,7 +275,7 @@ final class AccountStore {
             AmmoLog.sharedStore.error("Unable to disable demo mode: \(String(describing: error), privacy: .private)")
             return
         }
-        states = SharedStore.load()
+        states = arranged(SharedStore.load())
         historySamples = UsageHistoryStore.load()
         retryStates = [:]
         WidgetInvalidator.shared.invalidate(reason: .demoModeChanged)
@@ -271,7 +329,7 @@ final class AccountStore {
         }
         let outcomes = await UsageRefreshCoordinator.shared.refresh(accountIDs: uniqueIDs,
                                                                      reason: reason)
-        states = SharedStore.load()
+        states = arranged(SharedStore.load())
         historySamples = UsageHistoryStore.load()
         let outcomesByID = Dictionary(uniqueKeysWithValues: outcomes.map { ($0.accountID, $0) })
         for id in uniqueIDs where refreshGenerations[id] == generations[id] {

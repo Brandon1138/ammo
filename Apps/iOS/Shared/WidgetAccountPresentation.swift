@@ -2,21 +2,34 @@ import Foundation
 import UsageKit
 import WidgetKit
 
-/// Provider-neutral ordering shared by widget configuration and tests. Accounts
-/// with honest amount-only data remain selectable even without percentage windows.
+/// Provider-neutral ordering shared by widget configuration and tests.
+///
+/// The person's own order is the primary key: an account they placed outranks
+/// every account they did not, whatever its usage data looks like. The old
+/// completeness heuristics survive only as the tiebreak *between* accounts with
+/// no explicit position, so a store with no stored order behaves exactly as it
+/// did before the preference existed. Accounts with honest amount-only data
+/// remain selectable even without percentage windows.
 enum WidgetAccountOrder {
-    static func defaultOrder(_ states: [AccountState]) -> [AccountState] {
-        states.sorted { lhs, rhs in
-            let leftRank = availabilityRank(lhs)
-            let rightRank = availabilityRank(rhs)
-            if leftRank != rightRank { return leftRank < rightRank }
+    static func defaultOrder(
+        _ states: [AccountState],
+        order: AccountOrder = AccountOrderStore.load()
+    ) -> [AccountState] {
+        order.arranged(states, id: \.id, tiebreak: heuristicPrecedes)
+    }
 
-            let leftProvider = providerRank(lhs.account.provider)
-            let rightProvider = providerRank(rhs.account.provider)
-            if leftProvider != rightProvider { return leftProvider < rightProvider }
+    /// The pre-MIK-157 ordering, now reached only for accounts the person has
+    /// never placed.
+    private static func heuristicPrecedes(_ lhs: AccountState, _ rhs: AccountState) -> Bool {
+        let leftRank = availabilityRank(lhs)
+        let rightRank = availabilityRank(rhs)
+        if leftRank != rightRank { return leftRank < rightRank }
 
-            return lhs.account.label.localizedCaseInsensitiveCompare(rhs.account.label) == .orderedAscending
-        }
+        let leftProvider = providerRank(lhs.account.provider)
+        let rightProvider = providerRank(rhs.account.provider)
+        if leftProvider != rightProvider { return leftProvider < rightProvider }
+
+        return lhs.account.label.localizedCaseInsensitiveCompare(rhs.account.label) == .orderedAscending
     }
 
     private static func availabilityRank(_ state: AccountState) -> Int {
@@ -103,16 +116,20 @@ enum WidgetProviderPanels {
     static let boardWindowLimit = 3
 
     /// One slot per shipping provider. Where several accounts share a provider,
-    /// the default ordering picks the one with the most complete usage data.
+    /// the person's top-ranked account of that provider takes the slot; the
+    /// most-complete-usage heuristic decides only when they have placed none of
+    /// them. The order is read once here rather than per provider so all four
+    /// panels are resolved against the same stored list.
     static func slots(
         states: [AccountState],
-        showingCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark
+        showingCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark,
+        order: AccountOrder = AccountOrderStore.load()
     ) -> [WidgetProviderSlot] {
         providers(showingCodexSpark: showingCodexSpark).map { provider in
             let candidates = states.filter { $0.account.provider == provider }
             return WidgetProviderSlot(
                 provider: provider,
-                state: WidgetAccountOrder.defaultOrder(candidates).first)
+                state: WidgetAccountOrder.defaultOrder(candidates, order: order).first)
         }
     }
 }

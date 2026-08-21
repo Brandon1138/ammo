@@ -183,6 +183,8 @@ private struct UsageView: View {
                 switch sheet {
                 case .settings:
                     SettingsView()
+                case .reorder:
+                    ReorderAccountsView()
                 case .addProvider(let provider):
                     ProviderSignInSheet(provider: provider)
                 case .reconnect(let account):
@@ -226,7 +228,8 @@ private struct UsageView: View {
                                    referenceDate: context.date,
                                    openOnDemand: openOnDemand,
                                    openHistory: openHistory,
-                                   reconnect: { presentedSheet = .reconnect($0) })
+                                   reconnect: { presentedSheet = .reconnect($0) },
+                                   openReorder: { presentedSheet = .reorder })
                 }
             }
             .refreshable {
@@ -239,6 +242,7 @@ private struct UsageView: View {
 
 private enum UsageSheet: Identifiable {
     case settings
+    case reorder
     case addProvider(ProviderID)
     /// Re-runs the provider's add flow against an account that already exists.
     case reconnect(StoredAccount)
@@ -247,6 +251,8 @@ private enum UsageSheet: Identifiable {
         switch self {
         case .settings:
             "settings"
+        case .reorder:
+            "reorder"
         case .addProvider(let provider):
             "add-\(provider.rawValue)"
         case .reconnect(let account):
@@ -262,6 +268,7 @@ private struct AccountSection: View {
     let openOnDemand: () -> Void
     let openHistory: (UUID, String) -> Void
     let reconnect: (StoredAccount) -> Void
+    let openReorder: () -> Void
 
     var body: some View {
         Group {
@@ -332,6 +339,10 @@ private struct AccountSection: View {
                             // account id, so history and widgets stay attached.
                             Button("Sign In Again", systemImage: "person.badge.key") {
                                 reconnect(state.account)
+                            }
+                            if store.canReorderAccounts {
+                                Button("Reorder Accounts", systemImage: "arrow.up.arrow.down",
+                                       action: openReorder)
                             }
                             Button("Remove Account", systemImage: "trash", role: .destructive) {
                                 store.remove(state.account)
