@@ -219,7 +219,8 @@ actor UsageRefreshCoordinator {
             return fail(account: account,
                         technicalError: String(describing: error),
                         failure: UsageFailureClassifier.classify(error),
-                        status: error.httpStatus)
+                        status: error.httpStatus,
+                        diagnostic: Self.persistedDiagnostic(for: error))
         } catch {
             guard !Task.isCancelled, isCurrent(account) else {
                 return cancelledOrUnavailable(account)
@@ -245,17 +246,24 @@ actor UsageRefreshCoordinator {
         return .cached(accountID: accountID, nextEligibleAt: nextEligibleAt)
     }
 
+    private nonisolated static func persistedDiagnostic(for error: UsageError) -> String? {
+        guard case .malformedResponse = error else { return nil }
+        return String(describing: error)
+    }
+
     private nonisolated static func fail(
         account: StoredAccount,
         technicalError: String,
         failure: UsageFailureKind,
-        status: Int?
+        status: Int?,
+        diagnostic: String? = nil
     ) -> RefreshOutcome {
         let accountID = account.id
         guard !Task.isCancelled, isCurrent(account) else {
             return cancelledOrUnavailable(account)
         }
-        let didPersist = (try? SharedStore.record(failure: failure, for: accountID)) == true
+        let didPersist = (try? SharedStore.record(
+            failure: failure, for: accountID, diagnostic: diagnostic)) == true
         guard !Task.isCancelled, isCurrent(account) else {
             return cancelledOrUnavailable(account)
         }

@@ -51,8 +51,9 @@ struct StoredAccount: Codable, Identifiable, Hashable, Sendable {
 struct AccountState: Codable, Identifiable, Sendable {
     var account: StoredAccount
     var snapshot: UsageSnapshot?
-    /// Kept only to migrate raw descriptions persisted by builds before 0.1.0 (12).
-    /// New failures are stored exclusively as stable, non-technical categories.
+    /// Legacy raw descriptions, plus sanitized `malformedResponse` shape crumbs
+    /// (plan key paths / truncated body) recorded alongside `lastFailure`.
+    /// The UI still classifies from `lastFailure`; this string is export/debug.
     var lastError: String?
     var lastFailure: UsageFailureKind?
     var updatedAt: Date?
@@ -317,13 +318,17 @@ enum SharedStore {
     }
 
     @discardableResult
-    static func record(failure: UsageFailureKind, for id: UUID) throws -> Bool {
+    static func record(
+        failure: UsageFailureKind,
+        for id: UUID,
+        diagnostic: String? = nil
+    ) throws -> Bool {
         guard !AccountDeletionStore.isDeleted(id) else { return false }
         var didRecord = false
         let revision = try mutate { states in
             guard !AccountDeletionStore.isDeleted(id) else { return }
             guard let index = states.firstIndex(where: { $0.account.id == id }) else { return }
-            states[index].lastError = nil
+            states[index].lastError = diagnostic
             states[index].lastFailure = failure
             didRecord = true
         }
