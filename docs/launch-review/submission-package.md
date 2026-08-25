@@ -3,7 +3,11 @@
 **Scope.** Everything Brandon pastes into App Store Connect for the first
 submission, in one document. Drafted against the tree at branch
 `claude/mik-167-submission-metadata` (bundle ID `com.brandon.ammo`, marketing
-version `0.1.0`, build `17`, iPhone-only, portrait-only, iOS 18.0+).
+version `0.1.0`, iPhone-only, portrait-only, iOS 18.0+). The tree carries
+`CURRENT_PROJECT_VERSION: 17` (`Apps/iOS/project.yml:19`); that is the current
+source value, **not** a submission decision. The build number that is actually
+uploaded is chosen against live App Store Connect state at §5 gate 7 and
+step 11, so nothing in this document assumes build 17 is available or final.
 
 **Authorities.** `docs/launch-remediation-operator-checklist.md` §"App Store
 Connect" (trademark and App Privacy rules), `docs/launch-review/app-review.md`
@@ -17,7 +21,7 @@ Cursor, OpenRouter), `Apps/iOS/AmmoWidgets/AmmoWidgets.swift:5-11` (three widget
 **Drift flagged during drafting.** Read §6 before pasting anything — the
 `app-review.md` Review Notes draft predates OpenRouter and says "three
 services"/"three sample accounts". This document says four. Screenshots on disk
-are build 13, not build 17.
+are build-13 captures and are not from any release candidate.
 
 ---
 
@@ -53,17 +57,19 @@ Editable without a new build — keep it to current-build facts only, never
 "coming soon" or version teasers (2.3.1).
 
 ```
-Included limits, reset times, and on-demand balances for the AI coding accounts you already pay for — on your Home Screen and Lock Screen.
+Included limits, reset times, and on-demand balances for the AI coding accounts you already use — on your Home Screen and Lock Screen.
 ```
 
-138 characters (App Store Connect counts the em dash as one character).
+134 characters (App Store Connect counts the em dash as one character). "You
+already use", not "you already pay for" — see the accuracy note under the
+description.
 
 ### Description (4000 char limit)
 
 ```
 Ammo shows how much of your AI coding allowance is left, without opening four dashboards.
 
-Connect the accounts you already pay for, and Ammo puts every included limit, reset countdown, and on-demand balance on one screen — and on your Home Screen and Lock Screen.
+Connect the accounts you already use, and Ammo puts every included limit, reset countdown, and on-demand balance on one screen — and on your Home Screen and Lock Screen.
 
 USAGE
 See each account's included windows as plain meters: session and weekly windows, monthly model allowances, and the time until each one resets. Personal, team, and organization scopes stay separate instead of being averaged into one number.
@@ -77,7 +83,7 @@ Ammo records the usage it observes on your device and charts it per account and 
 WIDGETS
 Three widget families, all configurable per account:
 • Account — one account, small or medium, plus a Lock Screen circular gauge.
-• Accounts — your configured accounts in your chosen order, small through the tall Home Screen size.
+• Accounts — up to four accounts in your chosen order: small, medium, and large, plus a taller portrait size on iOS 27 and later.
 • Activity — daily usage activity for one account and limit.
 Background App Refresh keeps them current, and the cadence adapts to how much allowance is left and when it resets.
 
@@ -99,11 +105,31 @@ REQUIREMENTS
 iPhone, iOS 18.0 or later.
 ```
 
-2,624 characters. Deliberately absent: the word "unlimited", any pricing claim
+2,649 characters. Deliberately absent: the word "unlimited", any pricing claim
 about a provider, any claim Ammo grants or extends allowance, any unshipped
 feature (Antigravity is `deferred` at
 `Apps/iOS/Ammo/Onboarding/ProviderSignInSheet.swift:19` and is therefore not
 mentioned anywhere in this package).
+
+**Two accuracy constraints this copy is written around (2.3 — Accurate
+Metadata):**
+
+- **Do not say the accounts are paid.** Not all four providers require a paid
+  account: OpenRouter reports a free tier, and Ammo presents it —
+  `Sources/UsageKit/OpenRouterKeyPresentation.swift:100-109` renders
+  "Free models: 50 req/day" for a free-tier key, and the demo fixture itself
+  marks OpenRouter free tier (`Apps/iOS/Shared/DemoModeStore.swift:90`). Both
+  the promotional text and the description therefore say "the accounts you
+  already use". "Paid continuation capacity" in the ON-DEMAND paragraph is
+  about the on-demand pools themselves, not a claim about every provider.
+- **Do not promise widget sizes the reviewer's OS cannot show.** The tall
+  portrait family is appended only under `if #available(iOS 27.0, *)`
+  (`Apps/iOS/Shared/WidgetAccountPresentation.swift:94-100`), and the
+  landscape `systemExtraLarge` family is deliberately never declared because
+  Ammo ships `TARGETED_DEVICE_FAMILY = 1`. On iOS 18–26 the Accounts widget
+  offers small, medium, and large only. "Accounts" also has exactly four
+  ordered slots (`SelectAccountsIntent`, `Apps/iOS/AmmoWidgets/AccountIntent.swift:77-99`),
+  hence "up to four accounts".
 
 ### Keywords (100 char limit)
 
@@ -165,6 +191,13 @@ direction, with the user's own credentials, and retains nothing off-device.
 2. **Credentials stay in the Keychain.** `Apps/iOS/Shared/KeychainStore.swift`
    uses `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` — device-local,
    non-synchronizing, no iCloud Keychain, no device-to-device backup migration.
+   **Retention wording, everywhere:** removing an account inside Ammo deletes
+   its Keychain item and local records (`KeychainStore.delete`, reached from
+   `Apps/iOS/Ammo/Models/AccountStore.swift` account removal). Deleting the app
+   is *not* a deletion guarantee — iOS has no uninstall callback, so
+   `SecItemDelete` never runs on uninstall and iOS alone controls whether the
+   items persist. This is exactly what `docs/privacy-policy.md:25-28` says, and
+   no surface in this package may promise more than that.
 3. **Everything else is App Group local.** Account labels, usage snapshots,
    refresh scheduling, and history live in the App Group container
    (`Apps/iOS/Shared/SharedStore.swift`) so the widgets can render.
@@ -179,11 +212,16 @@ direction, with the user's own credentials, and retains nothing off-device.
    `Apps/iOS/Ammo/PrivacyInfo.xcprivacy` and
    `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy` both declare
    `NSPrivacyTracking = false`, empty `NSPrivacyTrackingDomains`, empty
-   `NSPrivacyCollectedDataTypes` — consistent with the answers above.
+   `NSPrivacyCollectedDataTypes` — consistent with the answers above. Their
+   `NSPrivacyAccessedAPITypes` arrays are still empty on this branch and must
+   gain the App Group `UserDefaults` reason `1C8F.1` before submission; that is
+   a required-reason declaration, not a data-collection declaration, so it does
+   not change any answer in this section. See §6.3.
 
 The App Privacy answers, the privacy manifests, `docs/privacy-policy.md`, and
-the Review Notes in §3 must all keep saying the same thing. If one changes, all
-four change.
+the Review Notes in §3 must all keep saying the same thing — including the
+qualified uninstall/retention wording in point 2. If one changes, all four
+change.
 
 ### Re-check trigger list
 
@@ -216,10 +254,11 @@ Paste as-is after replacing the one bracketed placeholder. This supersedes the
 draft at the end of `app-review.md`, which predates OpenRouter.
 
 **The App Review Notes field caps at 4,000 characters.** The block below
-measures 3,828 characters with `[SUPPORT EMAIL]` still in place (`wc -c` on the
-extracted block, minus the trailing newline). Assuming a realistic ~30-character
-support address, the pasted total lands around 3,843 — comfortably under the
-4,000 cap. Re-count after pasting; App Store Connect counts what it receives.
+measures 3,960 characters with `[SUPPORT EMAIL]` (15 characters) still in
+place. A realistic ~30-character support address lands the pasted total near
+3,975 — under the cap, but with little slack: if the address is longer than
+about 55 characters, drop one Technical Notes bullet. Re-count after pasting;
+App Store Connect counts what it receives.
 
 ```
 WHAT AMMO DOES
@@ -245,18 +284,20 @@ credentials.
 
 WIDGETS
 With demo mode on, long-press the Home Screen, tap "+", search "Ammo", and add
-any of the three, each configurable per sample account:
-• "Account" — small, medium, and Lock Screen circular (add via Customize on
-  the Lock Screen).
-• "Accounts" — all configured sample accounts, small through tall.
-• "Activity" — daily usage for one account/limit; picker omits OpenRouter's
-  sample, which has no such window.
+any of the three; each is configured from the sample accounts:
+• "Account" — one sample account: small, medium, and Lock Screen circular (add
+  that one via Customize on the Lock Screen).
+• "Accounts" — four ordered slots: small, medium, large, plus a taller
+  portrait size only on iOS 27 and later.
+• "Activity" — one account/limit pair. The picker lists only samples that have
+  a usage window, so the OpenRouter sample does not appear there.
 
 WHY WE CANNOT SUPPLY PROVIDER DEMO CREDENTIALS
-Those accounts belong to individual users of third-party services, not to us.
-Sharing one would expose that person's usage, billing, and credentials beyond
-this review. Demo mode makes the full app reviewable without shared
-credentials.
+These accounts are not ours to hand over. Each one belongs to an individual
+account holder at a third-party service, and a shared credential carries that
+holder's full account privileges — spending, billing, and any team or
+workspace access — along with their private usage. Demo mode exists so the
+whole app is reviewable without sharing anyone's credential.
 
 ARCHITECTURE — NO SERVER, NO DATA COLLECTION
 Ammo has no backend. Every request goes directly from the device to the
@@ -275,17 +316,17 @@ https://github.com/Brandon1138/ammo
 INDEPENDENCE
 Ammo is independent, not affiliated with, endorsed by, or sponsored by
 Anthropic, OpenAI, Anysphere, or OpenRouter. Provider names/logos only
-identify which of the user's own accounts a row belongs to. Ammo's name,
-icon, and design are original; it shows only the user's own figures.
+identify which of the user's own accounts a row belongs to, and Ammo's name,
+icon, and design are original.
 
 TECHNICAL NOTES
 • Background App Refresh (BGAppRefreshTask, id com.brandon.ammo.refresh)
   keeps widgets current; cadence adapts to allowance left and reset times.
 • During Codex sign-in only, Ammo runs a listener on 127.0.0.1:1455 for the
-  OAuth redirect, because Codex redirects to localhost and
-  ASWebAuthenticationSession cannot intercept an http://localhost redirect.
-  Bound to loopback, rejects non-loopback peers, accepts only its own PKCE
-  callback, and shuts down when sign-in ends.
+  OAuth redirect, because Codex redirects to localhost, which
+  ASWebAuthenticationSession cannot intercept. It is bound to loopback,
+  rejects non-loopback peers, accepts only its own PKCE callback, and shuts
+  down when sign-in ends.
 • Settings has an "Export Raw Usage Payloads" debug action: recent provider
   response bodies via the system share sheet. Auth headers/token responses
   are never included.
@@ -504,17 +545,37 @@ review/drafting only.
    exists in both bundles — `Apps/iOS/Ammo/PrivacyInfo.xcprivacy` and
    `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy` — and both declare no tracking
    and no collected data types. That finding is resolved.
-3. **Required-reason API remediation is in PR #36 and still needs archive proof.**
-   Production notification preferences use
-   `UserDefaults(suiteName: AppGroup.id)` through
-   `NotificationPreferencesStorage.swift:7-16`. Apple's same-App-Group reason
-   is `1C8F.1`; the separate `UserDefaults.standard` read in
-   `AccountStore.swift:396` is simulator-only and does not justify `CA92.1`
-   in device binaries. PR #36 declares `1C8F.1` in both manifests and adds
-   regression tests. Before submission, merge that remediation and verify both
-   manifests plus the privacy report in the exact archive. This does not change
-   the §2 App Privacy answers: a required-reason declaration is not a data
-   collection declaration.
+3. **Required-reason `UserDefaults` declaration: expected `1C8F.1`, not yet on
+   this branch.** Production notification preferences resolve
+   `UserDefaults(suiteName: AppGroup.id)` —
+   `Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:14-17`,
+   constructed with `AppGroup.id` (`group.com.brandon.ammo`,
+   `Apps/iOS/Shared/SharedStore.swift:9`) at
+   `Apps/iOS/Ammo/Models/NotificationSettingsModel.swift:20-22` and
+   `Apps/iOS/Ammo/Services/UsageNotificationService.swift:14-16`. That is
+   access to a container shared by the app and its extension inside the same
+   App Group, so the expected reason is **`1C8F.1`** — not `CA92.1`. The only
+   `UserDefaults.standard` read in app code
+   (`Apps/iOS/Ammo/Models/AccountStore.swift:396`) sits inside
+   `#if targetEnvironment(simulator)` (`:390`), so it is absent from device
+   binaries and cannot be used to argue `CA92.1`. Note the
+   `UserDefaults(suiteName:) ?? .standard` fallback on
+   `NotificationPreferencesStorage.swift:16`: it only triggers if the App Group
+   is unavailable, which on a correctly provisioned build it is not.
+
+   **Current state on this branch:** both manifests still carry
+   `<key>NSPrivacyAccessedAPITypes</key><array/>`
+   (`Apps/iOS/Ammo/PrivacyInfo.xcprivacy:11-12`,
+   `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy:11-12`), so an upload from this
+   branch should be expected to draw `ITMS-91053`. PR #36
+   (`codex/appstore-technical-blockers`) adds exactly the
+   `NSPrivacyAccessedAPICategoryUserDefaults` / `1C8F.1` dictionary to **both**
+   manifests and is **open, not merged** as of 2026-08-25 — verified against
+   the PR diff, not assumed. **Gate:** merge that remediation, then confirm
+   `1C8F.1` in both manifests *and* in the privacy report generated from the
+   exact archive being submitted (§5 gate 8, step 20). This does not change the
+   §2 App Privacy answers: a required-reason declaration is not a
+   data-collection declaration.
 4. **`ITSAppUsesNonExemptEncryption` is app-target only.** Present and `false`
    at `Apps/iOS/Ammo/Info.plist:40-41`; absent from
    `Apps/iOS/AmmoWidgets/Info.plist`. Correct as-is (see §4), recorded so it is
@@ -523,7 +584,7 @@ review/drafting only.
    `ammo-device-final-build13-*.png` and friends; `project.yml:19` sets
    `CURRENT_PROJECT_VERSION: 17`. The operator checklist §8 requires captures
    from the exact submitted build, so `app-review.md` §B4's suggestion to reuse
-   the existing captures is stale. New captures required (§5 gate 6).
+   the existing captures is stale. New captures required (§5 gate 9).
 6. **There is still no in-app "not affiliated" disclaimer.**
    `grep -ri "not affiliated" Apps/iOS Sources` returns zero hits, and
    `Apps/iOS/Ammo/UI/SettingsView.swift` (which now exists — Notifications,
