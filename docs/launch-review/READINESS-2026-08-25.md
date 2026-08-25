@@ -57,7 +57,7 @@ Legend: **done** · **open** (includes partially-landed) · **moot** · **supers
 
 | ID | Verdict | Evidence |
 |---|---|---|
-| **L5** — Demo mode + remove-confirm + manifest | **open** (demo mode done; two sub-items outstanding) | **Done:** demo mode is real and reachable — `Apps/iOS/Ammo/UI/ContentView.swift:208` `Button("See a demo")` in the empty state, `:161-162` an "Exit Demo" toolbar button, `:319-325` a "Sample data" capsule on every account header, fixtures in `Apps/iOS/Shared/DemoModeStore.swift` (`DemoData`, four `D0000000-…` sample accounts), widget path covered by `Apps/iOS/Shared/SharedStore.swift:141` and `Apps/iOS/Shared/UsageHistoryStore.swift:20`, network suppressed via `Apps/iOS/Ammo/Models/AccountStore.swift:219,242,311`, tests at `Apps/iOS/AmmoTests/DemoModeTests.swift`. Both manifests exist and are byte-identical (`Apps/iOS/Ammo/PrivacyInfo.xcprivacy`, `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy`). **Open (a):** the manifests declare `<key>NSPrivacyAccessedAPITypes</key><array/>` — empty — while the app does use a required-reason API: `Apps/iOS/Ammo/Models/AccountStore.swift:396` (`UserDefaults.standard.bool(forKey:)`) and `Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16`, reached from `Apps/iOS/Ammo/Models/NotificationSettingsModel.swift:20` and `Apps/iOS/Ammo/Services/UsageNotificationService.swift:14`. `CA92.1` is undeclared. **Open (b):** there is no confirmation on the destructive action — `Apps/iOS/Ammo/UI/ContentView.swift:347` calls `store.remove(state.account)` directly, and `grep -n "confirmationDialog\|alert(" Apps/iOS/Ammo/UI/ContentView.swift` returns nothing. |
+| **L5** — Demo mode + remove-confirm + manifest | **open** (demo mode done; two sub-items outstanding) | **Done:** demo mode is real and reachable — `Apps/iOS/Ammo/UI/ContentView.swift:208` `Button("See a demo")` in the empty state, `:161-162` an "Exit Demo" toolbar button, `:319-325` a "Sample data" capsule on every account header, fixtures in `Apps/iOS/Shared/DemoModeStore.swift` (`DemoData`, four `D0000000-…` sample accounts), widget path covered by `Apps/iOS/Shared/SharedStore.swift:141` and `Apps/iOS/Shared/UsageHistoryStore.swift:20`, network suppressed via `Apps/iOS/Ammo/Models/AccountStore.swift:219,242,311`, tests at `Apps/iOS/AmmoTests/DemoModeTests.swift`. Both manifests exist and are byte-identical (`Apps/iOS/Ammo/PrivacyInfo.xcprivacy`, `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy`). **Open (a):** the manifests declare `<key>NSPrivacyAccessedAPITypes</key><array/>` — empty — while the app does use a required-reason API: `Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16` constructs `UserDefaults(suiteName:)` for the App Group, reached from `Apps/iOS/Ammo/Models/NotificationSettingsModel.swift:20` and `Apps/iOS/Ammo/Services/UsageNotificationService.swift:14`. Apple assigns same-App-Group access reason `1C8F.1`; the `UserDefaults.standard` read at `AccountStore.swift:396` is simulator-only and does not justify `CA92.1` in device binaries. `1C8F.1` is undeclared. **Open (b):** there is no confirmation on the destructive action — `Apps/iOS/Ammo/UI/ContentView.swift:347` calls `store.remove(state.account)` directly, and `grep -n "confirmationDialog\|alert(" Apps/iOS/Ammo/UI/ContentView.swift` returns nothing. |
 | **L7** — Auth-error recovery action | **open** (partially superseded) | The `.authentication` notice still renders no action: `Apps/iOS/Shared/UsageComponents.swift:321-324` keeps `canRetryImmediately == false` for `.authentication` (correct per G6), and `:273`, `:292` gate `actionTitle`/`action` on that same flag, so the card has no button at all. The copy at `:350` tells the user to *"Remove and add this \(providerName) account again to resume updates."* That advice is now **wrong**: `Apps/iOS/Ammo/UI/ContentView.swift:340-342` offers "Sign In Again" (`reconnect`), which MIK-156 made identity-preserving, so following the notice destroys history the menu would have kept. Recovery exists; the notice does not point at it. |
 
 ### Wave 3 — onboarding hardening
@@ -93,7 +93,7 @@ Legend: **done** · **open** (includes partially-landed) · **moot** · **supers
 |---|---|---|
 | **D1** — Base branch for all workers | **moot** | The interlock is gone: `feat/icon-and-branding` is an ancestor of `main`, and build 17 sits at `Apps/iOS/project.yml:19` on `main` @ `51b9b9b`. Nothing left to pin. |
 | **D2** — `Assets/Official/*` in git history | **open** | Neither half was executed. The files are still in HEAD (`git ls-files Apps/iOS/Assets/`), so the "delete from HEAD now" step never happened, and the history question was never called. The repo remains PUBLIC. This is the single named exposure that has outlived the entire plan. |
-| **D3** — Demo-mode persistence | **superseded** | Neither of the plan's two options was taken. `Apps/iOS/Shared/DemoModeStore.swift:7-22` persists a **marker file** in the App Group container (`demo-mode-enabled`), not `@AppStorage` and not an in-memory `@Observable` flag. The manifest shipped anyway, as recommended. Consequence: the demo toggle creates no `CA92.1` usage — but the app has independent `UserDefaults` usage the manifest fails to declare (see L5 open item (a)). The interlock the decision was about is real, just located elsewhere than predicted. |
+| **D3** — Demo-mode persistence | **superseded** | Neither of the plan's two options was taken. `Apps/iOS/Shared/DemoModeStore.swift:7-22` persists a **marker file** in the App Group container (`demo-mode-enabled`), not `@AppStorage` and not an in-memory `@Observable` flag. The manifest shipped anyway, as recommended. Consequence: the demo toggle creates no `UserDefaults` required-reason usage — but the app has independent same-App-Group `UserDefaults` access requiring `1C8F.1` that the manifests fail to declare (see L5 open item (a)). The interlock the decision was about is real, just located elsewhere than predicted. |
 | **D4** — Cursor in 0.1.0 | **moot** | Cursor ships and has been live-verified (operator-confirmed; corroborated in-tree by `Screenshots/ammo-device-final-build13-cursor-live-refresh.png` and by four merged Cursor fixes since — MIK-152, MIK-154, MIK-159, MIK-164). Residual: `SPEC.md:386` and `CURSOR_RESEARCH.md:3` still say verification is pending, which is now a stale-doc gap rather than a ship decision. |
 | **D5** — Stale worktree pruning | **moot** | The fan-out the pruning protected never used that namespace. Pruning also did not happen — `git worktree list` now returns 50 entries across `/Users/brandon/code/personal/ammo-worktrees/` and `/Users/brandon/code/personal/ammo/worktrees/`. Operator hygiene only; no App Store impact. |
 
@@ -113,14 +113,16 @@ Legend: **done** · **open** (includes partially-landed) · **moot** · **supers
 
 ### Ship-stoppers — submission will fail, be rejected, or is legally exposed
 
-1. **Privacy manifest under-declares a required-reason API (`CA92.1`).**
+1. **Privacy manifest under-declares same-App-Group UserDefaults reason `1C8F.1`.**
    `Apps/iOS/Ammo/PrivacyInfo.xcprivacy` and `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy`
-   both ship `<key>NSPrivacyAccessedAPITypes</key><array/>` while the app reads
-   `UserDefaults.standard` (`Apps/iOS/Ammo/Models/AccountStore.swift:396`) and stores
-   notification preferences through `NotificationPreferencesStorage`
+   both ship `<key>NSPrivacyAccessedAPITypes</key><array/>`, while production notification
+   preferences use `UserDefaults(suiteName: AppGroup.id)` through
+   `NotificationPreferencesStorage`
    (`Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16`, reached
    from `NotificationSettingsModel.swift:20` and `UsageNotificationService.swift:14`).
-   This is exactly what the `ITMS-91053` upload check flags. From L5. *(Gap A)*
+   Apple's required-reason taxonomy assigns `1C8F.1` to access within the same App Group.
+   The separate `UserDefaults.standard` read in `AccountStore.swift:396` is simulator-only.
+   Undeclared production access can trigger `ITMS-91053`. From L5. *(Gap A)*
 
 2. **Extracted provider app icons remain in a public repository.**
    `Apps/iOS/Assets/Official/codex-app-icon.png` and `cursor-app-icon.png` are tracked
@@ -195,22 +197,20 @@ Legend: **done** · **open** (includes partially-landed) · **moot** · **supers
 
 > The orchestrator files these. Titles are ready to paste; bodies are self-contained.
 
-### A. `fix(privacy): declare UserDefaults (CA92.1) in both privacy manifests`
+### A. `fix(privacy): declare same-App-Group UserDefaults (1C8F.1) in both manifests`
 
 Both `Apps/iOS/Ammo/PrivacyInfo.xcprivacy` and `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy`
-currently ship an empty `NSPrivacyAccessedAPITypes` array, but the app genuinely uses a
-required-reason API: `Apps/iOS/Ammo/Models/AccountStore.swift:396` reads
-`UserDefaults.standard.bool(forKey: "AmmoHistoryPreview")`, and notification preferences are
-persisted through `Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16`
-from `NotificationSettingsModel.swift:20` and `UsageNotificationService.swift:14`. Apple's
-upload validator flags undeclared `UserDefaults` access as `ITMS-91053`, which blocks the
-build before a human reviewer ever sees it. Add an `NSPrivacyAccessedAPICategoryUserDefaults`
-entry with reason code `CA92.1` (app-group-scoped access by the app and its own extension)
-to both manifests, keeping them byte-identical as they are today. While there, audit for any
-other required-reason category — a sweep for file-timestamp, disk-space, and active-keyboard
-APIs currently returns no hits, so `CA92.1` is expected to be the only addition. Verify by
-archiving and confirming both `PrivacyInfo.xcprivacy` files reach the bundle, per
-`docs/launch-remediation-operator-checklist.md:26-51`.
+currently ship an empty `NSPrivacyAccessedAPITypes` array, while production notification
+preferences use `UserDefaults(suiteName: AppGroup.id)` through
+`Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16`, reached from
+`NotificationSettingsModel.swift:20` and `UsageNotificationService.swift:14`. Apple's
+required-reason taxonomy assigns `1C8F.1` to access within the same App Group; the
+`UserDefaults.standard` read in `AccountStore.swift:396` is simulator-only and does not
+justify `CA92.1` in device binaries. Undeclared production access can trigger
+`ITMS-91053` before human review. Add
+`NSPrivacyAccessedAPICategoryUserDefaults` reason `1C8F.1` to both manifests, audit for
+other required-reason categories, and verify both manifests in the archived app and widget
+bundles per `docs/launch-remediation-operator-checklist.md:26-51`.
 
 ### B. `chore(assets): remove Apps/iOS/Assets/Official from the public repo and re-source glyph provenance`
 
