@@ -3,8 +3,9 @@ import Foundation
 /// Cursor usage adapter.
 ///
 /// Cursor does not publish an individual-plan usage API. This adapter mirrors
-/// Cursor's first-party PKCE login and reads the same private dashboard summary
-/// used by Cursor's own web UI. Keep the contract date-stamped and tolerant.
+/// Cursor's first-party PKCE login and reads the same usage summary Cursor's
+/// own web client observes once authenticated. Keep the contract date-stamped
+/// and tolerant.
 public struct CursorProvider: UsageProvider {
     public let id = ProviderID.cursor
 
@@ -54,6 +55,14 @@ public struct CursorProvider: UsageProvider {
             "Accept": "application/json",
             "Cookie": cookie,
         ])
+        return try Self.snapshot(from: data)
+    }
+
+    /// Parses one successful usage-summary body into the normalized snapshot
+    /// shared by the app and widget. Keeping this seam public lets the shared
+    /// cache repair a windowless legacy snapshot from its retained response
+    /// without teaching the widget about Cursor's wire format.
+    public static func snapshot(from data: Data, fetchedAt: Date = Date()) throws -> UsageSnapshot {
         let response: Response
         do {
             response = try Self.decoder.decode(Response.self, from: data)
@@ -70,7 +79,8 @@ public struct CursorProvider: UsageProvider {
         return UsageSnapshot(provider: .cursor,
                              plan: response.membershipType,
                              windows: windows,
-                             onDemand: onDemand)
+                             onDemand: onDemand,
+                             fetchedAt: fetchedAt)
     }
 
     public func refresh(tokens: OAuthTokens) async throws -> OAuthTokens {

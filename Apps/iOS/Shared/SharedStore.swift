@@ -376,13 +376,58 @@ enum SharedStore {
     }
 
     private static func sanitize(_ states: [AccountState]) -> [AccountState] {
-        states.map { state in
+        let cursorPayloads = Dictionary(
+            RawUsagePayloadStore.load().filter { $0.provider == .cursor }.map {
+                ($0.accountID, $0)
+            }, uniquingKeysWith: { first, _ in first })
+        return states.map { state in
             var state = state
             state.snapshot = state.snapshot.map {
-                CodexProvider.removingUnverifiedBillingData(from: $0)
+                let sanitized = CodexProvider.removingUnverifiedBillingData(from: $0)
+                guard let payload = cursorPayloads[state.id] else { return sanitized }
+                return Self.recoverCursorWindows(
+                    in: sanitized,
+                    rawPayload: payload.body,
+                    payloadFetchedAt: payload.fetchedAt)
             }
             return state
         }
+    }
+
+    /// The transport captures the body immediately before Cursor decoding
+    /// creates the snapshot timestamp. A small one-way allowance lets
+    /// pre-MIK-164 captures prove they belong to that snapshot while refusing
+    /// bodies retained by an older or newer refresh.
+    private static let cursorPayloadProvenanceAllowance: TimeInterval = 5
+
+    /// MIK-159 recovers Cursor windows while fetching, but a widget can still
+    /// hold a pre-recovery snapshot after an app update. The raw successful
+    /// response is already retained for diagnostics/export; use it only to
+    /// restore missing percentage windows, preserving every cached field and
+    /// timestamp when parsing succeeds.
+    static func recoverCursorWindows(
+        in snapshot: UsageSnapshot,
+        rawPayload: Data,
+        payloadFetchedAt: Date
+    ) -> UsageSnapshot {
+        let captureLead = snapshot.fetchedAt.timeIntervalSince(payloadFetchedAt)
+        guard snapshot.provider == .cursor,
+              snapshot.windows.isEmpty,
+              captureLead >= 0,
+              captureLead <= cursorPayloadProvenanceAllowance,
+              let recovered = try? CursorProvider.snapshot(
+                  from: rawPayload,
+                  fetchedAt: snapshot.fetchedAt),
+              !recovered.windows.isEmpty
+        else { return snapshot }
+
+        return UsageSnapshot(provider: snapshot.provider,
+                             plan: snapshot.plan ?? recovered.plan,
+                             windows: recovered.windows,
+                             resetCreditsAvailable: snapshot.resetCreditsAvailable,
+                             onDemand: snapshot.onDemand ?? recovered.onDemand,
+                             isFreeTier: snapshot.isFreeTier,
+                             fetchedAt: snapshot.fetchedAt)
     }
 
     private static func removeLegacyCodexBillingCache() {

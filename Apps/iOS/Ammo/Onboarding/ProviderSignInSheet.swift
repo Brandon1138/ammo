@@ -51,8 +51,18 @@ enum SignInCopy {
     }
 
     static func reconnectFooter(_ account: StoredAccount) -> String {
-        """
-        Signing in again replaces the credential for \(account.label) in place.         Its usage history and any widget showing it stay attached.
-        """
+        "Sign in to the same provider account. Ammo replaces only its credential; \(account.label)'s local history, order, and widget selections stay attached. A different provider account is refused."
+    }
+}
+
+enum AccountRemovalCopy {
+    static let action = "Remove Account"
+
+    static func title(for account: StoredAccount) -> String {
+        "Remove \(account.label)?"
+    }
+
+    static func message(for account: StoredAccount) -> String {
+        "This deletes \(account.label)'s credential, cached usage, history, and widget bindings from this device. It does not sign out of or revoke the provider account or session outside Ammo."
     }
 }

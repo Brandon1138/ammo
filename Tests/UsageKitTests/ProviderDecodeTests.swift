@@ -106,6 +106,25 @@ private struct FixtureTransport: HTTPTransport {
     }
 }
 
+private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private let response: Data
+    private var recordedRequest: URLRequest?
+
+    init(response: Data) {
+        self.response = response
+    }
+
+    var request: URLRequest? {
+        lock.withLock { recordedRequest }
+    }
+
+    func request(_ request: URLRequest) async throws -> (Data, Int) {
+        lock.withLock { recordedRequest = request }
+        return (response, 200)
+    }
+}
+
 @Suite struct ClaudeDecodeTests {
     @Test func mapsLimitsArrayToWindows() throws {
         let response = try ClaudeProvider.decoder.decode(
@@ -170,6 +189,34 @@ private struct FixtureTransport: HTTPTransport {
 }
 
 @Suite struct CodexDecodeTests {
+    @Test func derivesStableAmmoClientIdentityFromBundleMetadata() {
+        let identity = AmmoClientIdentity.derived(from: [
+            "CFBundleShortVersionString": " 0.1.0 ",
+            "CFBundleVersion": "17",
+        ])
+
+        #expect(identity == AmmoClientIdentity(version: "0.1.0", build: "17"))
+        #expect(identity.userAgent == "Ammo/0.1.0 (build 17)")
+        #expect(AmmoClientIdentity(version: nil, build: nil).userAgent == "Ammo")
+    }
+
+    @Test func fetchSendsExactAmmoRequestHeaders() async throws {
+        let transport = RequestRecordingTransport(response: Data(codexFixture.utf8))
+        let provider = CodexProvider(
+            transport: transport,
+            clientIdentity: AmmoClientIdentity(version: "0.1.0", build: "17"))
+
+        _ = try await provider.fetchUsage(tokens: OAuthTokens(
+            accessToken: "test-access-token",
+            accountID: "account-123"))
+
+        let request = try #require(transport.request)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-access-token")
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "Ammo/0.1.0 (build 17)")
+        #expect(request.value(forHTTPHeaderField: "ChatGPT-Account-Id") == "account-123")
+        #expect(request.allHTTPHeaderFields?.values.contains("codex-cli") == false)
+    }
+
     @Test func mapsWeeklyOnlyPlan() throws {
         let response = try CodexProvider.decoder.decode(
             CodexProvider.Response.self, from: Data(codexFixture.utf8))

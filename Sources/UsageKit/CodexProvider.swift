@@ -19,15 +19,20 @@ public struct CodexProvider: UsageProvider {
     public static let redirectURI = "http://localhost:1455/auth/callback"
 
     let transport: HTTPTransport
+    let clientIdentity: AmmoClientIdentity
 
-    public init(transport: HTTPTransport = URLSessionTransport()) {
+    public init(
+        transport: HTTPTransport = URLSessionTransport(),
+        clientIdentity: AmmoClientIdentity = .current
+    ) {
         self.transport = transport
+        self.clientIdentity = clientIdentity
     }
 
     public func fetchUsage(tokens: OAuthTokens) async throws -> UsageSnapshot {
         var headers = [
             "Authorization": "Bearer \(tokens.accessToken)",
-            "User-Agent": "codex-cli",
+            "User-Agent": clientIdentity.userAgent,
         ]
         if let accountID = tokens.accountID {
             headers["ChatGPT-Account-Id"] = accountID

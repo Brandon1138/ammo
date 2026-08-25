@@ -342,6 +342,12 @@ struct MIK110Tests {
 
     @Test("A committed snapshot is what the shared store hands back to a timeline")
     func committedSnapshotIsReadable() throws {
+        let restoreDemoMode = DemoModeStore.isEnabled
+        if restoreDemoMode { try DemoModeStore.setEnabled(false) }
+        defer {
+            if restoreDemoMode { try? DemoModeStore.setEnabled(true) }
+        }
+
         let account = StoredAccount(provider: .codex, label: "Canonical probe")
         try SharedStore.insert(AccountState(account: account))
         defer { try? SharedStore.remove(id: account.id) }

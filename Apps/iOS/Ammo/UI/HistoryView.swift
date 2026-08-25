@@ -31,6 +31,7 @@ struct HistoryView: View {
     @Binding var selection: HistorySelection
     @State private var range: HistoryRange = .week
     @State private var selectedTrendDate: Date?
+    @State private var presentedSheet: HistorySheet?
 
     var body: some View {
         NavigationStack {
@@ -52,6 +53,12 @@ struct HistoryView: View {
             }
             .onChange(of: store.states.map(\.id)) { _, _ in
                 normalizeSelection()
+            }
+            .sheet(item: $presentedSheet) { sheet in
+                switch sheet {
+                case .reconnect(let account):
+                    ProviderSignInSheet(provider: account.provider, reconnecting: account)
+                }
             }
         }
     }
@@ -85,9 +92,11 @@ struct HistoryView: View {
                         providerName: state.account.provider.displayName,
                         failure: failure,
                         hasCachedSnapshot: state.snapshot != nil,
-                        retryState: store.retryState(for: state.id, at: .now)) {
+                        retryState: store.retryState(for: state.id, at: .now),
+                        retry: {
                             Task { await store.refresh(ids: [state.id], reason: .manual) }
-                        }
+                        },
+                        reconnect: { presentedSheet = .reconnect(state.account) })
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,6 +310,18 @@ private struct ActivityHistorySection: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Repairs an expired provider session under the same account id, mirroring
+/// the account menu's "Sign In Again" on Usage — history stays attached.
+private enum HistorySheet: Identifiable {
+    case reconnect(StoredAccount)
+
+    var id: UUID {
+        switch self {
+        case .reconnect(let account): account.id
         }
     }
 }
