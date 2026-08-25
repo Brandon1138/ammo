@@ -282,7 +282,7 @@ invalidate, a CLI login elsewhere.
 GET https://chatgpt.com/backend-api/wham/usage
 Authorization: Bearer <access_token>          # JWT from ChatGPT OAuth
 ChatGPT-Account-Id: <account_id>
-User-Agent: codex-cli
+User-Agent: Ammo/0.1.0 (build 17)   # Ammo's own identity, see AmmoClientIdentity.swift
 ```
 
 Response (fields Ammo consumes):
@@ -383,11 +383,12 @@ closed. `View Codex usage` is a separate system-browser action to
   copy — this is why on-device login (own token pair) is the primary onboarding, and
   why the dev harness never calls refresh.
 
-### Cursor — IMPLEMENTED 2026-07-17; LIVE VERIFICATION PENDING
+### Cursor — IMPLEMENTED 2026-07-17; LIVE-VERIFIED ON DEVICE
 
 Cursor has no public individual-plan usage API. Ammo uses Cursor's first-party
-PKCE browser login and its private dashboard summary directly from the device.
-The full observed contract and drift notes live in
+PKCE browser login and reads the same usage summary Cursor's own web client
+observes when authenticated, directly from the device. The full observed
+contract and drift notes live in
 [`CURSOR_RESEARCH.md`](CURSOR_RESEARCH.md).
 
 ```
@@ -491,10 +492,11 @@ require a Management key and are out of scope.
 
 ## Known issues / deferred providers
 
-- **Cursor live proof** — the adapter, mapping, PKCE URL, polling, JWT derivation,
-  and refresh decoding have offline coverage, but the complete flow still needs to
-  be exercised on-device against a real Cursor account. Its individual usage API is
-  private and may drift.
+- **Cursor contract stability** — the adapter, mapping, PKCE URL, polling, JWT
+  derivation, and refresh decoding have offline coverage and the full flow has
+  been live-verified on a physical device against a real Cursor account. Its
+  individual usage endpoint remains unofficial and may still drift; see
+  [`CURSOR_RESEARCH.md`](CURSOR_RESEARCH.md).
 - **OpenRouter live proof** — API-key import and the documented `/api/v1/key`
   contract have deterministic coverage. A real ordinary key response and the
   documented PKCE localhost/code-exchange flow still require physical-iPhone
@@ -511,17 +513,13 @@ require a Management key and are out of scope.
 
 ## Re-deriving the contracts (when they drift)
 
-1. **Cheapest:** check [CodexBar](https://github.com/steipete/CodexBar)'s
-   `docs/claude.md`, `docs/codex.md`, `docs/codex-oauth.md` — actively maintained,
-   MIT, and it tracks these same private APIs (plus Cursor/Gemini for later phases).
-2. **Claude:** run `claude /usage` (or the CLI with `ANTHROPIC_LOG=debug`) and observe
-   the request; or replay the Keychain token against the endpoint with `curl` and
-   inspect the JSON.
-3. **Codex:** run `codex -s read-only -a untrusted app-server` and call the JSON-RPC
-   methods `account/read` / `account/rateLimits/read`; or proxy the CLI
-   (`mitmproxy`) to see current endpoints/headers.
-4. Update the contract section, the adapter, and the test fixtures together, and
-   re-date-stamp the section.
+These contracts were observed from each provider's own authenticated first-party
+client — its CLI or web app — never from a developer-run collection service, and
+cross-checked against actively maintained community references such as
+[CodexBar](https://github.com/steipete/CodexBar) (MIT), which tracks these same
+contracts. If a contract drifts, re-observe it the same way against your own
+account and credentials, then update the contract section, the adapter, and the
+test fixtures together, and re-date-stamp the section.
 
 ## iOS app (phase 3 — implemented)
 

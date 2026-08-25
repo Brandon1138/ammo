@@ -217,6 +217,13 @@ struct RefreshIssueNotice: View {
     let hasCachedSnapshot: Bool
     let retryState: AccountRetryState
     var retry: (() -> Void)?
+    /// Repairs an expired provider session under the same account id, so
+    /// history and widgets stay attached — the same flow the account menu's
+    /// "Sign In Again" offers. Only surfaces where that flow is reachable
+    /// (the account list, history) supply this; contexts that can't present
+    /// a sign-in sheet, such as widgets, leave it nil and the card renders
+    /// with no action.
+    var reconnect: (() -> Void)?
     @State private var completedCooldown: Date?
 
     var body: some View {
@@ -269,7 +276,14 @@ struct RefreshIssueNotice: View {
         return retryState
     }
 
-    private func actionTitle(for state: AccountRetryState) -> String? {
+    // Not private: exercised directly by AppStoreReadinessUXTests to confirm
+    // the .authentication case routes to Sign In Again, not an auto-retry.
+    func actionTitle(for state: AccountRetryState) -> String? {
+        if failure == .authentication {
+            // No cooldown applies: sign-in isn't a retryable network call, and
+            // canRetryImmediately stays false so nothing here auto-retries it.
+            return reconnect != nil ? "Sign In Again" : nil
+        }
         guard failure.canRetryImmediately else { return nil }
         switch state {
         case .ready:
@@ -288,7 +302,8 @@ struct RefreshIssueNotice: View {
         return eligibleAt
     }
 
-    private func action(for state: AccountRetryState) -> (() -> Void)? {
+    func action(for state: AccountRetryState) -> (() -> Void)? {
+        if failure == .authentication { return reconnect }
         guard failure.canRetryImmediately, state == .ready else { return nil }
         return retry
     }
@@ -306,7 +321,10 @@ struct SignInIssueNotice: View {
     }
 }
 
-private extension UsageFailureKind {
+// Not private: refreshMessage/canRetryImmediately are exercised directly by
+// AppStoreReadinessUXTests to confirm the .authentication copy and no
+// auto-retry hold.
+extension UsageFailureKind {
     var systemImage: String {
         switch self {
         case .timedOut: "clock.badge.exclamationmark"
@@ -348,7 +366,7 @@ private extension UsageFailureKind {
         case .offline:
             return "Ammo will update \(providerName) when your connection is back.\(cached)"
         case .authentication:
-            return "Remove and add this \(providerName) account again to resume updates.\(cached)"
+            return "\(providerName) needs you to sign in again to resume updates.\(cached)"
         case .serviceUnavailable:
             return "\(providerName) can't be reached right now. Try again in a moment.\(cached)"
         case .invalidResponse:

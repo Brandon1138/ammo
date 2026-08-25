@@ -3,8 +3,9 @@ import Foundation
 /// Cursor usage adapter.
 ///
 /// Cursor does not publish an individual-plan usage API. This adapter mirrors
-/// Cursor's first-party PKCE login and reads the same private dashboard summary
-/// used by Cursor's own web UI. Keep the contract date-stamped and tolerant.
+/// Cursor's first-party PKCE login and reads the same usage summary Cursor's
+/// own web client observes once authenticated. Keep the contract date-stamped
+/// and tolerant.
 public struct CursorProvider: UsageProvider {
     public let id = ProviderID.cursor
 

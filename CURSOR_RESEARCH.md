@@ -1,6 +1,8 @@
 # Cursor Usage Research
 
-**Status:** Implemented with offline contract tests; live on-device verification pending.
+**Status:** Implemented with offline contract tests and live-verified on a
+physical device; multiple Cursor-specific fixes have shipped since based on
+that live use.
 **Research date:** 2026-07-17
 **Contract stability:** Unofficial and expected to drift.
 **Endpoint liveness:** The three endpoints below were probed unauthenticated on

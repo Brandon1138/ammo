@@ -367,11 +367,13 @@ private struct AccountSection: View {
                         failure: failure,
                         hasCachedSnapshot: state.snapshot != nil,
                         retryState: store.retryState(for: state.id,
-                                                     at: referenceDate)) {
+                                                     at: referenceDate),
+                        retry: {
                             Task {
                                 await store.refresh(ids: [state.id], reason: .manual)
                             }
-                        }
+                        },
+                        reconnect: { reconnect(state.account) })
                         .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
