@@ -9,8 +9,8 @@ version `0.1.0`, build `17`, iPhone-only, portrait-only, iOS 18.0+).
 Connect" (trademark and App Privacy rules), `docs/launch-review/app-review.md`
 §B2/§B3/§B4/§L1 and the Review Notes draft, `docs/privacy-policy.md`, `PRODUCT.md`.
 
-**Source of truth for build facts.** `Apps/iOS/project.yml:16-17` (version/build),
-`Apps/iOS/project.yml:20` and `:52` (`TARGETED_DEVICE_FAMILY: "1"`, iPhone only),
+**Source of truth for build facts.** `Apps/iOS/project.yml:18-19` (version/build),
+`Apps/iOS/project.yml:22` and `:58` (`TARGETED_DEVICE_FAMILY: "1"`, iPhone only),
 `Sources/UsageKit/Models.swift:14` (`ProviderID.supported` = Claude, Codex,
 Cursor, OpenRouter), `Apps/iOS/AmmoWidgets/AmmoWidgets.swift:5-11` (three widgets).
 
@@ -124,7 +124,7 @@ the description does not already carry.
 | Secondary category | Utilities |
 | Price | Free, no in-app purchases |
 | Copyright | `2026 Brandon Aron` |
-| Version | `0.1.0` (must match `MARKETING_VERSION`, `Apps/iOS/project.yml:16`) |
+| Version | `0.1.0` (must match `MARKETING_VERSION`, `Apps/iOS/project.yml:18`) |
 | "What's New" | First release. Omit for a first submission if App Store Connect does not require it. |
 
 ---
@@ -215,89 +215,86 @@ declaration, and shipping a stale answer is a 5.1.1 problem, not a paperwork one
 Paste as-is after replacing the one bracketed placeholder. This supersedes the
 draft at the end of `app-review.md`, which predates OpenRouter.
 
-**The App Review Notes field caps at 4,000 characters.** The block below is
-3,956 with `[SUPPORT EMAIL]` still in place, so the substituted address must be
-about 40 characters or shorter — or trim a Technical Notes bullet to make room.
-Re-count after pasting; App Store Connect counts what it receives.
+**The App Review Notes field caps at 4,000 characters.** The block below
+measures 3,828 characters with `[SUPPORT EMAIL]` still in place (`wc -c` on the
+extracted block, minus the trailing newline). Assuming a realistic ~30-character
+support address, the pasted total lands around 3,843 — comfortably under the
+4,000 cap. Re-count after pasting; App Store Connect counts what it receives.
 
 ```
 WHAT AMMO DOES
-Ammo shows developers how much of their AI coding-tool allowance is left, reading
-usage/quota data from four services the user already has accounts with — Claude
-(Anthropic), Codex (OpenAI), Cursor (Anysphere), OpenRouter — and shows it in the
-app and in Home Screen and Lock Screen widgets. Free, no in-app purchases.
+Ammo shows developers how much of their AI coding-tool allowance is left,
+reading usage/quota data from four services the user already has accounts
+with — Claude (Anthropic), Codex (OpenAI), Cursor (Anysphere), OpenRouter — in
+the app and in Home Screen and Lock Screen widgets. Free, no in-app purchases.
 
 REVIEWING WITHOUT AN ACCOUNT — PLEASE START HERE
 No account is needed.
 1. Launch Ammo. The Usage tab shows a "No accounts yet" empty state.
 2. Tap "See a demo".
-3. Four labelled sample accounts load — "Codex sample", "Claude sample", "Cursor
-   sample", "OpenRouter sample" — each marked "Sample data":
+3. Four labelled sample accounts load — "Codex sample", "Claude sample",
+   "Cursor sample", "OpenRouter sample" — each marked "Sample data":
    • Usage — sample limit windows with reset countdowns.
    • On-demand — sample personal allocations and an API-key spending pool.
-   • History — 12 weeks (84 days) of sample history; tap a Usage row to open it.
+   • History — 12 weeks (84 days) of sample history; tap a row to open it.
    • Widgets — see below.
-4. Exit via "Exit Demo" in the Usage toolbar, top right; demo data never
-   overwrites real accounts.
+4. Exit via "Exit Demo" in the Usage toolbar; demo data never overwrites real
+   accounts.
 Demo mode makes no network requests: a marker file plus generated fixtures, no
 credentials.
 
 WIDGETS
-With demo mode on, long-press the Home Screen, tap "+", search "Ammo", and add any
-of the three.
-• "Account" — small, medium, and Lock Screen circular, configurable with any of
-  the four sample accounts (for Lock Screen, long-press it, tap Customize, and
-  add Ammo below the clock).
+With demo mode on, long-press the Home Screen, tap "+", search "Ammo", and add
+any of the three, each configurable per sample account:
+• "Account" — small, medium, and Lock Screen circular (add via Customize on
+  the Lock Screen).
 • "Accounts" — all configured sample accounts, small through tall.
-• "Activity" — daily usage activity for one account and limit. Its picker lists
-  only sample accounts that expose a usage-limit window; OpenRouter's free-tier
-  spending sample has no such window and is intentionally absent there.
+• "Activity" — daily usage for one account/limit; picker omits OpenRouter's
+  sample, which has no such window.
 
 WHY WE CANNOT SUPPLY PROVIDER DEMO CREDENTIALS
-The accounts and credentials belong to individual users of third-party services,
-not to us. Sharing a real account would expose that person's usage, billing
-surface, and credentials with privileges beyond this review. Demo mode therefore
-makes the complete app reviewable without shared provider credentials.
+Those accounts belong to individual users of third-party services, not to us.
+Sharing one would expose that person's usage, billing, and credentials beyond
+this review. Demo mode makes the full app reviewable without shared
+credentials.
 
 ARCHITECTURE — NO SERVER, NO DATA COLLECTION
-Ammo has no backend. Every request goes directly from the device to the provider's
-own servers; nothing is proxied, logged, or sent to us. No analytics SDK, no crash
-reporter, no advertising identifier, no third-party dependency. Notifications are
-local only; there is no push entitlement.
+Ammo has no backend. Every request goes directly from the device to the
+provider's own servers; nothing is proxied, logged, or sent to us. No
+analytics SDK, no crash reporter, no advertising identifier, no third-party
+dependency. Notifications are local only; no push entitlement.
 
 Sign-in uses each provider's own web page in ASWebAuthenticationSession /
-SFSafariViewController — Ammo never sees a password. OpenRouter instead takes an
-API key the user creates in their own OpenRouter dashboard. Tokens and keys live only in the iOS Keychain
-(`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Explicit Remove Account
-deletes Ammo's local Keychain item and related local data. iOS controls whether
-Keychain items persist after uninstall, so Ammo does not promise uninstall-time
-deletion. All verifiable:
+SFSafariViewController — Ammo never sees a password. OpenRouter instead takes
+an API key the user creates in their own dashboard. Tokens/keys live only in
+the iOS Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Remove
+Account deletes the local Keychain item and related data; iOS controls
+whether Keychain items persist after uninstall. Verifiable:
 https://github.com/Brandon1138/ammo
 
 INDEPENDENCE
-Ammo is independent and is not affiliated with, endorsed by, or sponsored by
-Anthropic, OpenAI, Anysphere, or OpenRouter. Provider names and logos appear only
-to identify which of the user's own accounts a row belongs to. Ammo's name, icon,
-and design are original, and it shows only the user's own figures.
+Ammo is independent, not affiliated with, endorsed by, or sponsored by
+Anthropic, OpenAI, Anysphere, or OpenRouter. Provider names/logos only
+identify which of the user's own accounts a row belongs to. Ammo's name,
+icon, and design are original; it shows only the user's own figures.
 
 TECHNICAL NOTES
-• Background App Refresh (BGAppRefreshTask, id com.brandon.ammo.refresh) keeps
-  widgets current; cadence adapts to allowance left and reset times.
-• During Codex sign-in only, Ammo runs a listener on 127.0.0.1:1455 for the OAuth
-  redirect, because that provider redirects to localhost and
-  ASWebAuthenticationSession cannot intercept an http://localhost redirect. It is
-  bound to loopback, rejects non-loopback peers, accepts only a callback matching
-  its own PKCE state, and shuts down when sign-in ends.
+• Background App Refresh (BGAppRefreshTask, id com.brandon.ammo.refresh)
+  keeps widgets current; cadence adapts to allowance left and reset times.
+• During Codex sign-in only, Ammo runs a listener on 127.0.0.1:1455 for the
+  OAuth redirect, because Codex redirects to localhost and
+  ASWebAuthenticationSession cannot intercept an http://localhost redirect.
+  Bound to loopback, rejects non-loopback peers, accepts only its own PKCE
+  callback, and shuts down when sign-in ends.
 • Settings has an "Export Raw Usage Payloads" debug action: recent provider
-  response bodies, shared via the system share sheet. Authentication headers and
-  token responses are never included.
+  response bodies via the system share sheet. Auth headers/token responses
+  are never included.
 • The On-demand tab can link to the provider's own billing page, only on the
-  United States storefront, where an external purchase call-to-action needs no
-  entitlement. It fails closed elsewhere.
+  United States storefront, where an external purchase call-to-action needs
+  no entitlement; fails closed elsewhere.
 • iPhone only, portrait only, iOS 18.0+.
 
-Contact: [SUPPORT EMAIL] — happy to answer anything before rejecting; we can ship
-same-day.
+Contact: [SUPPORT EMAIL]
 ```
 
 **Placeholder to fill:** `[SUPPORT EMAIL]` — one address Brandon actually reads.
@@ -320,13 +317,13 @@ and would not fit the field.
 **This must agree with the Info.plist key, and it does.**
 `ITSAppUsesNonExemptEncryption` is set to `<false/>` at
 `Apps/iOS/Ammo/Info.plist:40-41`, generated from
-`Apps/iOS/project.yml:47` (`ITSAppUsesNonExemptEncryption: false`). Because the
+`Apps/iOS/project.yml:49` (`ITSAppUsesNonExemptEncryption: false`). Because the
 key is present and false, App Store Connect should not ask at all on upload —
 if it does ask, the answers above are the ones that match the binary.
 
 **Verified caveat:** the key is set on the **app** target only. The widget
 extension's `Apps/iOS/AmmoWidgets/Info.plist` has no
-`ITSAppUsesNonExemptEncryption` key (`project.yml:70-78` does not add it). Export
+`ITSAppUsesNonExemptEncryption` key (`project.yml:73-79` does not add it). Export
 compliance is evaluated per uploaded app record, not per embedded extension, so
 this is correct as-is and needs no change; it is recorded here so nobody
 "discovers" it mid-submission and assumes something is broken.
@@ -523,7 +520,7 @@ review/drafting only.
    `Apps/iOS/AmmoWidgets/Info.plist`. Correct as-is (see §4), recorded so it is
    not mistaken for a defect.
 5. **Screenshots on disk are build 13, not the final release candidate.** `Screenshots/` contains
-   `ammo-device-final-build13-*.png` and friends; `project.yml:17` sets
+   `ammo-device-final-build13-*.png` and friends; `project.yml:19` sets
    `CURRENT_PROJECT_VERSION: 17`. The operator checklist §8 requires captures
    from the exact submitted build, so `app-review.md` §B4's suggestion to reuse
    the existing captures is stale. New captures required (§5 gate 6).
