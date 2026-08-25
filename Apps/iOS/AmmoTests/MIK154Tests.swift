@@ -16,6 +16,14 @@ import UsageKit
 @Suite("MIK-154 Cursor Lock Screen gauge")
 struct MIK154Tests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let windowResponse = Data(#"""
+    {
+      "billingCycleEnd": "2026-08-10T00:00:00Z",
+      "membershipType": "enterprise",
+      "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
+      "namedModelSelectedDisplayMessage": "You've used 7% of your API usage"
+    }
+    """#.utf8)
 
     @Test("A windowless Cursor account gets a live spend gauge, not a static glyph")
     func cursorWithoutWindowsDrawsTheSpendGauge() throws {
@@ -107,17 +115,8 @@ struct MIK154Tests {
             windows: [],
             onDemand: [personalAllocation(used: 30, limit: 120)],
             fetchedAt: now)
-        let response = Data(#"""
-        {
-          "billingCycleEnd": "2026-08-10T00:00:00Z",
-          "membershipType": "enterprise",
-          "autoModelSelectedDisplayMessage": "You've used 42% of your included total usage",
-          "namedModelSelectedDisplayMessage": "You've used 7% of your API usage"
-        }
-        """#.utf8)
-
         let repaired = SharedStore.recoverCursorWindows(
-            in: stale, rawPayload: response, fetchedAt: now)
+            in: stale, rawPayload: windowResponse, payloadFetchedAt: now)
         let state = AccountState(
             account: StoredAccount(provider: .cursor, label: "Cursor Enterprise"),
             snapshot: repaired,
@@ -131,6 +130,49 @@ struct MIK154Tests {
         ])
         #expect(presentation.indicatorWindow.label == CursorProvider.cursorModelsLabel)
         #expect(presentation.numericWindow?.label == CursorProvider.otherModelsLabel)
+    }
+
+    @Test("A retained Cursor response captured immediately before its snapshot is valid")
+    func responseCapturedJustBeforeSnapshotIsValid() {
+        let snapshot = cursorState(windows: [], pools: [personalAllocation(used: 30, limit: 120)])
+            .snapshot!
+
+        let repaired = SharedStore.recoverCursorWindows(
+            in: snapshot,
+            rawPayload: windowResponse,
+            payloadFetchedAt: now.addingTimeInterval(-1))
+
+        #expect(repaired.windows.map(\.label) == [
+            CursorProvider.cursorModelsLabel,
+            CursorProvider.otherModelsLabel,
+        ])
+        #expect(repaired.fetchedAt == snapshot.fetchedAt)
+    }
+
+    @Test("An older retained Cursor response cannot rewrite a newer cached snapshot")
+    func olderResponseIsRejected() {
+        let snapshot = cursorState(windows: [], pools: [personalAllocation(used: 30, limit: 120)])
+            .snapshot!
+
+        let repaired = SharedStore.recoverCursorWindows(
+            in: snapshot,
+            rawPayload: windowResponse,
+            payloadFetchedAt: now.addingTimeInterval(-60))
+
+        #expect(repaired == snapshot)
+    }
+
+    @Test("A newer retained Cursor response cannot rewrite an older cached snapshot")
+    func newerResponseIsRejected() {
+        let snapshot = cursorState(windows: [], pools: [personalAllocation(used: 30, limit: 120)])
+            .snapshot!
+
+        let repaired = SharedStore.recoverCursorWindows(
+            in: snapshot,
+            rawPayload: windowResponse,
+            payloadFetchedAt: now.addingTimeInterval(1))
+
+        #expect(repaired == snapshot)
     }
 
     @Test("OpenRouter keeps the gauge its own key presentation produces")

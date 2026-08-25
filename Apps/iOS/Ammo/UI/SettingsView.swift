@@ -72,6 +72,30 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    disclosureRow(
+                        title: "Stored on this device",
+                        systemImage: "iphone.and.arrow.forward",
+                        message: AmmoPrivacyDisclosure.localData)
+                    disclosureRow(
+                        title: "Sent to providers",
+                        systemImage: "arrow.up.right",
+                        message: AmmoPrivacyDisclosure.providerProcessing)
+                    disclosureRow(
+                        title: "Independent app",
+                        systemImage: "person.crop.circle.badge.checkmark",
+                        message: AmmoPrivacyDisclosure.nonAffiliation)
+
+                    Link(destination: AmmoPrivacyDisclosure.privacyPolicyURL) {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
+                    Link(destination: AmmoPrivacyDisclosure.supportURL) {
+                        Label("Support", systemImage: "questionmark.circle")
+                    }
+                } header: {
+                    Text("Privacy & Support")
+                }
+
+                Section {
                     Button {
                         exportRawUsagePayloads()
                     } label: {
@@ -125,6 +149,21 @@ struct SettingsView: View {
         }
     }
 
+    private func disclosureRow(
+        title: String,
+        systemImage: String,
+        message: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private var codexSparkBinding: Binding<Bool> {
         Binding(
             get: { store.showsCodexSpark },
@@ -161,6 +200,19 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+enum AmmoPrivacyDisclosure {
+    static let localData =
+        "Credentials stay in iOS Keychain. Account labels, usage snapshots, history, refresh data, and widget preferences stay on this device in Ammo's App Group."
+    static let providerProcessing =
+        "When you sign in or refresh, Ammo sends requests directly to the provider you chose. That provider processes them under its own privacy policy. Ammo has no developer-operated server."
+    static let nonAffiliation =
+        "Ammo is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Cursor, or OpenRouter."
+    static let privacyPolicyURL = URL(
+        string: "https://github.com/Brandon1138/ammo/blob/main/docs/privacy-policy.md")!
+    static let supportURL = URL(
+        string: "https://github.com/Brandon1138/ammo/issues")!
 }
 
 private struct PayloadExport: Identifiable {

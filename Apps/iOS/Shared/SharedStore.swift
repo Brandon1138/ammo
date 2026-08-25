@@ -386,11 +386,19 @@ enum SharedStore {
                 let sanitized = CodexProvider.removingUnverifiedBillingData(from: $0)
                 guard let payload = cursorPayloads[state.id] else { return sanitized }
                 return Self.recoverCursorWindows(
-                    in: sanitized, rawPayload: payload.body, fetchedAt: sanitized.fetchedAt)
+                    in: sanitized,
+                    rawPayload: payload.body,
+                    payloadFetchedAt: payload.fetchedAt)
             }
             return state
         }
     }
+
+    /// The transport captures the body immediately before Cursor decoding
+    /// creates the snapshot timestamp. A small one-way allowance lets
+    /// pre-MIK-164 captures prove they belong to that snapshot while refusing
+    /// bodies retained by an older or newer refresh.
+    private static let cursorPayloadProvenanceAllowance: TimeInterval = 5
 
     /// MIK-159 recovers Cursor windows while fetching, but a widget can still
     /// hold a pre-recovery snapshot after an app update. The raw successful
@@ -400,10 +408,16 @@ enum SharedStore {
     static func recoverCursorWindows(
         in snapshot: UsageSnapshot,
         rawPayload: Data,
-        fetchedAt: Date
+        payloadFetchedAt: Date
     ) -> UsageSnapshot {
-        guard snapshot.provider == .cursor, snapshot.windows.isEmpty,
-              let recovered = try? CursorProvider.snapshot(from: rawPayload, fetchedAt: fetchedAt),
+        let captureLead = snapshot.fetchedAt.timeIntervalSince(payloadFetchedAt)
+        guard snapshot.provider == .cursor,
+              snapshot.windows.isEmpty,
+              captureLead >= 0,
+              captureLead <= cursorPayloadProvenanceAllowance,
+              let recovered = try? CursorProvider.snapshot(
+                  from: rawPayload,
+                  fetchedAt: snapshot.fetchedAt),
               !recovered.windows.isEmpty
         else { return snapshot }
 

@@ -4,7 +4,7 @@ Effective: August 14, 2026
 
 Ammo is an independent iOS app for viewing usage limits from services you
 already use. Ammo is not affiliated with, endorsed by, or sponsored by
-Anthropic, OpenAI, or Anysphere.
+Anthropic, OpenAI, Cursor/Anysphere, or OpenRouter.
 
 ## Data handling
 

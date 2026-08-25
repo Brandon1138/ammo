@@ -40,6 +40,12 @@ struct MIK156Tests {
         tokens: OAuthTokens,
         body: (StoredAccount) throws -> Void
     ) throws {
+        let restoreDemoMode = DemoModeStore.isEnabled
+        if restoreDemoMode { try DemoModeStore.setEnabled(false) }
+        defer {
+            if restoreDemoMode { try? DemoModeStore.setEnabled(true) }
+        }
+
         try SharedStore.insert(AccountState(account: account))
         defer {
             KeychainStore.delete(for: account.id)

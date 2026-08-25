@@ -263,6 +263,7 @@ private enum UsageSheet: Identifiable {
 
 private struct AccountSection: View {
     @Environment(AccountStore.self) private var store
+    @State private var isConfirmingRemoval = false
     let state: AccountState
     let referenceDate: Date
     let openOnDemand: () -> Void
@@ -345,7 +346,7 @@ private struct AccountSection: View {
                                        action: openReorder)
                             }
                             Button("Remove Account", systemImage: "trash", role: .destructive) {
-                                store.remove(state.account)
+                                isConfirmingRemoval = true
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -378,6 +379,15 @@ private struct AccountSection: View {
                     updatedFooter
                 }
             }
+        }
+        .alert(AccountRemovalCopy.title(for: state.account),
+               isPresented: $isConfirmingRemoval) {
+            Button(AccountRemovalCopy.action, role: .destructive) {
+                store.remove(state.account)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(AccountRemovalCopy.message(for: state.account))
         }
     }
 
