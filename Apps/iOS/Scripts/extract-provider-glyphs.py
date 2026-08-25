@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
-"""Remove app-icon tiles while preserving the official provider glyph pixels."""
+"""Isolate a provider glyph from a locally supplied source image.
 
+This script does not ship, vendor, or read any provider artwork from this
+repository. It takes a `--source` directory that you supply at run time,
+outside the repo, and writes the extracted glyph into
+`Apps/iOS/Shared/ProviderAssets.xcassets`. See `docs/asset-resourcing.md`
+for the licensing/usage basis of each glyph currently checked into that
+catalog, and for the checklist to follow before replacing or adding one.
+
+Usage:
+    python3 extract-provider-glyphs.py --source /path/to/local/icons
+"""
+
+import argparse
 from collections import deque
 from pathlib import Path
 
@@ -9,7 +21,6 @@ from PIL import Image, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ROOT / "Assets" / "Official"
 CATALOG = ROOT / "Shared" / "ProviderAssets.xcassets"
 
 
@@ -73,9 +84,9 @@ def fill_holes(mask: np.ndarray) -> np.ndarray:
     return mask | ~exterior
 
 
-def export_glyph(source_name: str, destination: Path, provider: str) -> None:
-    source = Image.open(SOURCES / source_name).convert("RGBA")
-    pixels = np.asarray(source)
+def export_glyph(source: Path, destination: Path, provider: str) -> None:
+    image = Image.open(source).convert("RGBA")
+    pixels = np.asarray(image)
     red = pixels[:, :, 0].astype(np.float32)
     green = pixels[:, :, 1].astype(np.float32)
     blue = pixels[:, :, 2].astype(np.float32)
@@ -100,12 +111,12 @@ def export_glyph(source_name: str, destination: Path, provider: str) -> None:
         mask = largest_component((luminance > 45) & (source_alpha > 0))
 
     alpha = Image.fromarray((mask * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2))
-    result = source.copy()
+    result = image.copy()
     result.putalpha(Image.fromarray(np.minimum(np.asarray(alpha), source_alpha).astype(np.uint8)))
 
     bounds = result.getbbox()
     if bounds is None:
-        raise RuntimeError(f"No glyph found in {source_name}")
+        raise RuntimeError(f"No glyph found in {source}")
     cropped = result.crop(bounds)
     scale = min(448 / cropped.width, 448 / cropped.height)
     cropped = cropped.resize(
@@ -117,13 +128,28 @@ def export_glyph(source_name: str, destination: Path, provider: str) -> None:
     canvas.save(destination, optimize=True)
 
 
-export_glyph(
-    "codex-app-icon.png",
-    CATALOG / "logo-codex.imageset" / "codex.png",
-    "codex",
-)
-export_glyph(
-    "cursor-app-icon.png",
-    CATALOG / "logo-cursor.imageset" / "cursor.png",
-    "cursor",
-)
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--source",
+        required=True,
+        type=Path,
+        help="Local directory (outside this repo) holding the icons to extract from.",
+    )
+    args = parser.parse_args()
+    source_dir: Path = args.source
+
+    export_glyph(
+        source_dir / "codex-app-icon.png",
+        CATALOG / "logo-codex.imageset" / "codex.png",
+        "codex",
+    )
+    export_glyph(
+        source_dir / "cursor-app-icon.png",
+        CATALOG / "logo-cursor.imageset" / "cursor.png",
+        "cursor",
+    )
+
+
+if __name__ == "__main__":
+    main()
