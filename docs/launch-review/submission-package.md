@@ -244,18 +244,20 @@ credentials.
 
 WIDGETS
 With demo mode on, long-press the Home Screen, tap "+", search "Ammo", and add any
-of the three. All are per-account configurable via "Edit Widget"; the four sample
-accounts appear in the picker.
-• "Account" — small, medium, and Lock Screen circular (for that one, long-press
-  the Lock Screen, tap Customize, add it below the clock).
-• "Accounts" — all configured accounts, small through tall.
-• "Activity" — daily usage activity for one account and limit.
+of the three.
+• "Account" — small, medium, and Lock Screen circular, configurable with any of
+  the four sample accounts (for Lock Screen, long-press it, tap Customize, and
+  add Ammo below the clock).
+• "Accounts" — all configured sample accounts, small through tall.
+• "Activity" — daily usage activity for one account and limit. Its picker lists
+  only sample accounts that expose a usage-limit window; OpenRouter's free-tier
+  spending sample has no such window and is intentionally absent there.
 
 WHY WE CANNOT SUPPLY PROVIDER DEMO CREDENTIALS
-The accounts belong to third parties, not to us: we cannot create them on Apple's
-behalf, all four are paid, and sharing ours would expose a real person's paid
-usage and billing surface. Demo mode exists so the app is fully reviewable
-without one.
+The accounts and credentials belong to individual users of third-party services,
+not to us. Sharing a real account would expose that person's usage, billing
+surface, and credentials with privileges beyond this review. Demo mode therefore
+makes the complete app reviewable without shared provider credentials.
 
 ARCHITECTURE — NO SERVER, NO DATA COLLECTION
 Ammo has no backend. Every request goes directly from the device to the provider's
@@ -265,9 +267,11 @@ local only; there is no push entitlement.
 
 Sign-in uses each provider's own web page in ASWebAuthenticationSession /
 SFSafariViewController — Ammo never sees a password. OpenRouter instead takes an
-API key the user creates in their own OpenRouter dashboard. Tokens and keys live
-only in the iOS Keychain (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly) and
-are deleted with the account or the app. All verifiable:
+API key the user creates in their own OpenRouter dashboard. Tokens and keys live only in the iOS Keychain
+(`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Explicit Remove Account
+deletes Ammo's local Keychain item and related local data. iOS controls whether
+Keychain items persist after uninstall, so Ammo does not promise uninstall-time
+deletion. All verifiable:
 https://github.com/Brandon1138/ammo
 
 INDEPENDENCE
@@ -432,49 +436,58 @@ paste-ready; everything below is an action only he can take.
 
 **Gates — do these before touching App Store Connect**
 
-1. Decide the §4 Content Rights logo question. Either complete `app-review.md`
-   §L1 remediation 1 (re-source each provider glyph from the vendor's published
-   brand kit, record source URL and permitted-use clause), or consciously accept
-   the current provenance. Do not answer Content Rights until this is settled.
-2. Publish `docs/privacy-policy.md` at a stable HTTPS URL. Open it logged out.
-3. Confirm GitHub Issues are enabled and
+1. Resolve provider-service and trademark authorization for every provider that
+   remains in the submitted binary. Save clause-level terms/permission and brand
+   provenance evidence; repository code comments and nominative-use reasoning are
+   not themselves authorization. Exclude or replace any provider/asset that cannot
+   be defended to App Review.
+2. Resolve the §4 Content Rights logo question by re-sourcing each glyph from a
+   permitted vendor brand kit with recorded source and clause, or by replacing it
+   with neutral presentation. Do not answer Content Rights until this is settled.
+3. Decide EU Digital Services Act trader/non-trader status in App Store Connect
+   and complete verification if required. If unresolved, exclude EU storefronts
+   rather than guessing.
+4. Publish `docs/privacy-policy.md` at a stable HTTPS URL and open it logged out.
+5. Confirm GitHub Issues are enabled and
    `https://github.com/Brandon1138/ammo/issues` loads logged out.
-4. Fill `[SUPPORT EMAIL]` in the §3 Review Notes.
-5. Run the operator checklist's archive, entitlement, device, live-contract,
-   widget, and accessibility passes on the exact commit being submitted. Do not
-   reuse older evidence.
-6. Capture fresh iPhone screenshots from **build 17**. The captures in
-   `Screenshots/` are build 13 and cannot be used (operator checklist §8).
-   Check no credential, personal label, or unrelated device bezel appears.
+6. Fill `[SUPPORT EMAIL]` in the §3 Review Notes.
+7. Query App Store Connect for the app record and all used build numbers before
+   choosing the release build. Do not assume build 17 remains available.
+8. Run archive, entitlement, privacy-report, device, live-contract, widget, and
+   accessibility passes on the exact release-candidate commit. Reuse no older proof.
+9. Capture fresh native App Store screenshots from that exact candidate. Existing
+   build-13 captures and any pre-remediation build-17 captures are not final.
+   Check that no credential, personal label, or unrelated device bezel appears.
 
 **App Store Connect entry, in order**
 
-7. Create or select the app record for `com.brandon.ammo`. Set the app name
-   `Ammo`, primary language, and bundle ID.
-8. Categories: Developer Tools (primary), Utilities (secondary). Price: Free.
-9. Paste §1 into the version's localization: subtitle, promotional text,
-   description, keywords. Re-check character counts after paste — App Store
-   Connect counts what it receives, not what this document claims.
-10. Enter the Support URL and the Privacy Policy URL from §4.
-11. Upload the build-17 screenshots for the current required iPhone sizes.
-12. App Privacy: answer **No** to data collection (§2). Confirm the listing
+10. Query for the app record for `com.brandon.ammo`; create it only if it is
+    still absent. Set app name `Ammo`, primary language, and bundle ID.
+11. Query the highest used build number, choose a strictly higher candidate,
+    update `CURRENT_PROJECT_VERSION`, regenerate XcodeGen, and rebuild/archive.
+12. Categories: Developer Tools (primary), Utilities (secondary). Price: Free.
+13. Paste §1 into the version localization and re-check character counts.
+14. Enter the verified Support URL and Privacy Policy URL from §4.
+15. Upload screenshots captured from the exact processed candidate.
+16. App Privacy: answer **No** to data collection (§2), then confirm the listing
     preview reads **Data Not Collected**. Do not declare User ID.
-13. Age rating questionnaire: answer per §4; confirm the result is **4+**.
-14. Content Rights: **Yes**, per the §4 basis and gate 1.
-15. Upload the archive (App Store method), wait for processing, and resolve
-    **every** validation warning before submitting — including any
-    `ITMS-91053` required-reason-API warning (§6).
-16. Attach the processed build to the version. Confirm the version string reads
-    `0.1.0` and the build reads `17`.
-17. Export compliance: if prompted, answer per §4 (uses encryption: yes;
-    exempt: yes). If the Info.plist key is honored, no prompt appears.
-18. Paste §3 into App Review Notes. Leave "Sign-in required" **off** — there is
-    no app account. Do not leave Review Notes blank.
-19. Set release option (manual release recommended for a first submission) and
-    submit.
-20. Watch for the reviewer's first message. If a 5.2.5 query arrives, respond
-    with §4's Content Rights basis and `app-review.md`'s escalation guidance —
-    offer to remove or replace the logos same-day rather than arguing.
+17. Complete the DSA declaration/storefront decision from gate 3.
+18. Age rating: answer per §4 and confirm **4+**.
+19. Content Rights: answer only after gates 1–2 are resolved.
+20. Upload the exact archive, wait for processing, and resolve every validation
+    warning, including any `ITMS-91053` required-reason warning.
+21. Attach the processed build and confirm its displayed marketing version,
+    build number, commit provenance, and screenshots all match the candidate.
+22. Export compliance: if prompted, answer per §4.
+23. Paste §3 into App Review Notes. Leave "Sign-in required" off; Ammo has no
+    first-party account. Do not leave Review Notes blank.
+24. Install the processed build through internal TestFlight and repeat the
+    non-destructive smoke test before public App Review submission.
+25. Set manual release for the first submission, then submit only after every
+    gate above has recorded evidence.
+26. Watch for the first reviewer message. If authorization or mark provenance is
+    requested, provide the saved evidence or remove the affected provider/asset;
+    do not substitute argument for evidence.
 
 ---
 
@@ -494,22 +507,22 @@ review/drafting only.
    exists in both bundles — `Apps/iOS/Ammo/PrivacyInfo.xcprivacy` and
    `Apps/iOS/AmmoWidgets/PrivacyInfo.xcprivacy` — and both declare no tracking
    and no collected data types. That finding is resolved.
-3. **Required-reason API declaration is likely missing.** Both privacy manifests
-   have an empty `NSPrivacyAccessedAPITypes`, but the app reads and writes
-   `UserDefaults` (`Sources/UsageKit/Notifications/NotificationPreferencesStorage.swift:7-16`,
-   `Apps/iOS/Ammo/Models/AccountStore.swift:396`,
-   `Apps/iOS/Ammo/UI/SettingsView.swift:11`), including a suite shared with the
-   widget extension. `NSPrivacyAccessedAPICategoryUserDefaults` is a
-   required-reason API. Expect an `ITMS-91053` warning email on upload. This
-   does **not** change the §2 App Privacy answers — a declared reason is not a
-   data collection declaration — but it is a code change someone must make
-   before or right after the first upload. Out of scope here; flagged as
-   step 15 in §5.
+3. **Required-reason API remediation is in PR #36 and still needs archive proof.**
+   Production notification preferences use
+   `UserDefaults(suiteName: AppGroup.id)` through
+   `NotificationPreferencesStorage.swift:7-16`. Apple's same-App-Group reason
+   is `1C8F.1`; the separate `UserDefaults.standard` read in
+   `AccountStore.swift:396` is simulator-only and does not justify `CA92.1`
+   in device binaries. PR #36 declares `1C8F.1` in both manifests and adds
+   regression tests. Before submission, merge that remediation and verify both
+   manifests plus the privacy report in the exact archive. This does not change
+   the §2 App Privacy answers: a required-reason declaration is not a data
+   collection declaration.
 4. **`ITSAppUsesNonExemptEncryption` is app-target only.** Present and `false`
    at `Apps/iOS/Ammo/Info.plist:40-41`; absent from
    `Apps/iOS/AmmoWidgets/Info.plist`. Correct as-is (see §4), recorded so it is
    not mistaken for a defect.
-5. **Screenshots on disk are build 13, not build 17.** `Screenshots/` contains
+5. **Screenshots on disk are build 13, not the final release candidate.** `Screenshots/` contains
    `ammo-device-final-build13-*.png` and friends; `project.yml:17` sets
    `CURRENT_PROJECT_VERSION: 17`. The operator checklist §8 requires captures
    from the exact submitted build, so `app-review.md` §B4's suggestion to reuse
