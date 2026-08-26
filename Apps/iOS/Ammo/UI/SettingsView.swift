@@ -80,10 +80,12 @@ struct SettingsView: View {
                         title: "Sent to providers",
                         systemImage: "arrow.up.right",
                         message: AmmoPrivacyDisclosure.providerProcessing)
-                    disclosureRow(
-                        title: "Independent app",
-                        systemImage: "person.crop.circle.badge.checkmark",
-                        message: AmmoPrivacyDisclosure.nonAffiliation)
+                } header: {
+                    Text("Privacy")
+                }
+
+                Section {
+                    LabeledContent("Version", value: AmmoAbout.versionDisplay)
 
                     Link(destination: AmmoPrivacyDisclosure.privacyPolicyURL) {
                         Label("Privacy Policy", systemImage: "hand.raised")
@@ -91,8 +93,14 @@ struct SettingsView: View {
                     Link(destination: AmmoPrivacyDisclosure.supportURL) {
                         Label("Support", systemImage: "questionmark.circle")
                     }
+
+                    Text(AmmoAbout.credits)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } header: {
-                    Text("Privacy & Support")
+                    Text("About")
+                } footer: {
+                    Text(AmmoPrivacyDisclosure.nonAffiliation)
                 }
 
                 Section {
@@ -208,11 +216,24 @@ enum AmmoPrivacyDisclosure {
     static let providerProcessing =
         "When you sign in or refresh, Ammo sends requests directly to the provider you chose. That provider processes them under its own privacy policy. Ammo has no developer-operated server."
     static let nonAffiliation =
-        "Ammo is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Cursor, or OpenRouter."
+        "Ammo is an independent app. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Anysphere, or OpenRouter."
     static let privacyPolicyURL = URL(
-        string: "https://github.com/Brandon1138/ammo/blob/main/docs/privacy-policy.md")!
+        string: "https://brandon1138.github.io/ammo/privacy-policy/")!
     static let supportURL = URL(
         string: "https://github.com/Brandon1138/ammo/issues")!
+}
+
+enum AmmoAbout {
+    static let credits = "Made by Brandon Aron · Design by George Began-Mich"
+
+    /// Marketing version and build read from the bundle, so the row can never
+    /// drift from what App Store Connect received.
+    static var versionDisplay: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
+    }
 }
 
 private struct PayloadExport: Identifiable {

@@ -84,10 +84,19 @@ struct AppStoreReadinessUXTests {
         #expect(AmmoPrivacyDisclosure.localData.contains("App Group"))
         #expect(AmmoPrivacyDisclosure.providerProcessing.contains("directly to the provider"))
         #expect(AmmoPrivacyDisclosure.providerProcessing.contains("no developer-operated server"))
-        for provider in ["Anthropic", "OpenAI", "Cursor", "OpenRouter"] {
+        #expect(AmmoPrivacyDisclosure.nonAffiliation.hasPrefix("Ammo is an independent app."))
+        for provider in ["Anthropic", "OpenAI", "Anysphere", "OpenRouter"] {
             #expect(AmmoPrivacyDisclosure.nonAffiliation.contains(provider))
         }
         #expect(AmmoPrivacyDisclosure.privacyPolicyURL.scheme == "https")
         #expect(AmmoPrivacyDisclosure.supportURL.scheme == "https")
+    }
+
+    @Test("About section credits both authors and shows the bundle version and build")
+    func settingsAboutSectionIsComplete() {
+        #expect(AmmoAbout.credits.contains("Brandon Aron"))
+        #expect(AmmoAbout.credits.contains("George Began-Mich"))
+        #expect(AmmoAbout.versionDisplay.contains("("))
+        #expect(!AmmoAbout.versionDisplay.isEmpty)
     }
 }
