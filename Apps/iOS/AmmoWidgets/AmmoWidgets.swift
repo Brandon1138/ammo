@@ -28,8 +28,10 @@ struct AmmoActivityWidget: Widget {
 }
 
 /// Home-screen widget for one account (small: bar per window; medium: headline
-/// meter plus ledger of reset/credit facts) and lock-screen
-/// circular gauge. Account is chosen per-widget via AppIntentConfiguration.
+/// meter plus ledger of reset/credit facts). Account is chosen per-widget via
+/// AppIntentConfiguration. The Lock Screen circular gauge is deferred to a
+/// post-launch build; its pre-removal state lives on the
+/// `deferred/lockscreen-widgets` branch.
 struct AmmoAccountWidget: Widget {
     let kind = "AmmoAccount"
 
@@ -42,7 +44,7 @@ struct AmmoAccountWidget: Widget {
         }
         .configurationDisplayName("Account")
         .description("Usage left for one account.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 

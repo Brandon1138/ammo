@@ -79,8 +79,10 @@ metadata; do not call fixture decode proof live-contract proof.
 
 ## Widgets and accessibility
 
-Add each widget family using demo and live data. Verify small/medium, Lock Screen,
+Add each widget family using demo and live data. Verify small/medium,
 light/dark, tinted, and clear rendering; account picker must list demo samples.
+(Lock Screen accessory widgets are deferred to a post-launch build; the
+pre-removal state lives on the `deferred/lockscreen-widgets` branch.)
 Confirm no token or pasted credential appears in widget/App Group files. With
 VoiceOver enabled, traverse every tab, account menu, error notice, demo controls,
 and widget configuration. With Accessibility Large text, verify no clipped actions,
