@@ -7,68 +7,410 @@ extracted from a competitor's or partner's shipped app icon — see
 for why the previous `Apps/iOS/Assets/Official/*.png` +
 `Scripts/extract-provider-glyphs.py` pipeline was removed (MIK-170).
 
-Before adding, replacing, or re-licensing a provider glyph, the operator
-must work through this checklist per provider. **All URLs below are
-operator-verify** — this document was written without live web access and
-the URLs have not been confirmed to resolve or to still be current.
+**Status: partially resolved.** Every URL below was retrieved live on
+**2026-08-26** and is no longer "operator-verify". Cursor and OpenRouter glyphs
+have been re-sourced from the vendors' own published brand assets. Anthropic
+and OpenAI/Codex could not be resolved — both are marked **not-established**
+below with a concrete operator recommendation. The per-file evidence index that
+App Review gets pointed at is
+[`Apps/iOS/Shared/SOURCES.md`](../Apps/iOS/Shared/SOURCES.md).
+
+**Ammo's specific use, which every verdict below is measured against:** a
+20–28 pt glyph plus the provider's plain-text name, identifying which of the
+*user's own* provider accounts a row, section header, add-account menu item, or
+widget line belongs to. No provider mark appears in Ammo's app name, app icon,
+subtitle, keywords, or its own branding.
+
+## Verdict summary
+
+| Provider | Brand-guideline URL (verified 2026-08-26) | Name labels | Logo | Assets |
+|---|---|---|---|---|
+| OpenAI / Codex | `openai.com/brand` (live, 403 to scripted fetch; read via Internet Archive) | permitted-with-conditions | **not-established** | left in place |
+| Anthropic / Claude | `anthropic.com/legal/trademark-guidelines` (guessed `/brand` **404s**) | permitted-with-conditions | **not-established** | left in place |
+| Cursor (Anysphere) | `cursor.com/brand` (live) | permitted-with-conditions | permitted-with-conditions | **re-sourced** |
+| OpenRouter | `openrouter.ai/brand` (live) | permitted-with-conditions | permitted-with-conditions | **re-sourced** |
+
+---
 
 ## OpenAI / Codex
 
-- Official brand resources: `https://openai.com/brand/` — operator-verify
-- Usage-terms question: does OpenAI's brand policy permit third-party apps
-  to display the Codex/OpenAI mark to indicate integration with the OpenAI
-  API, and under what conditions (unmodified mark, no implied endorsement,
-  attribution, etc.)?
-- Current shipped glyph provenance: `logo-codex.imageset/codex.png` and
-  `logo-codex-menu.imageset/codex-menu.png` — previously extracted from a
-  vendored Codex app icon (`Apps/iOS/Assets/Official/codex-app-icon.png`,
-  now deleted). **Needs re-sourcing** from an OpenAI-provided brand asset
-  before these can be treated as compliant.
-- `logo-openai-monochrome.imageset/openai.svg` — vector, template-rendering
-  intent; provenance not documented at extraction time. Confirm source and
-  license before next release.
+- **Official brand resources:** <https://openai.com/brand> — **verified live
+  2026-08-26.** The guessed URL was correct. The page returns HTTP 403 to
+  scripted fetches (Cloudflare); the clause text below was read from the
+  Internet Archive capture
+  <https://web.archive.org/web/20260820094316/https://openai.com/brand/>
+  (snapshot 2026-08-20), retrieved 2026-08-26. Operator should re-read the live
+  page in a browser before submission and confirm the text still matches.
+- **Logo downloads are gated.** The page's "Download logos" control points at
+  <https://brand.openai.com/>, which redirects to
+  `https://brand.openai.com/auth/?referer=%2F` — an authenticated portal
+  (verified 2026-08-26). The only publicly downloadable artifact linked from the
+  brand page is <https://cdn.openai.com/brand/OpenAI-Partnership-Templates-2025.zip>,
+  which contains exactly two Photoshop `.psb` co-branding templates and no logo
+  files (downloaded and listed 2026-08-26).
+- **No Codex mark is published.** The brand page covers the OpenAI wordmark, the
+  Blossom, ChatGPT and GPT. It contains no Codex logo, no Codex asset, and no
+  Codex-specific guidance. `https://openai.com/codex/brand` returns 403 and
+  `https://developers.openai.com/codex/brand` redirects to a 404.
+
+**Quoted clauses** (verbatim, from the archived brand page):
+
+> "The "OpenAI" name, the OpenAI logo, the "ChatGPT" and "GPT" brands, and other
+> OpenAI trademarks, are property of OpenAI. These guidelines are intended to
+> help our partners, resellers, customers, developers, consultants, publishers,
+> and any other third parties understand how to use and display our trademarks
+> and copyrighted work in their own assets and materials."
+
+> "How to use our Logos
+> Do:
+> Use the logo only when it directly relates to OpenAI services.
+> Follow OpenAI's style guides and usage terms.
+> Use the logo exactly as provided and acknowledge that it belongs to OpenAI.
+> Don't:
+> Use the logo without permission or outside OpenAI's terms.
+> Misrepresent your relationship with OpenAI, imply endorsement, or confuse users about sponsorship.
+> Use the logo more prominently than your own or in unrelated contexts.
+> Place the logo on tangible merchandise, promotional items, or modify it in any way.
+> Incorporate the logo into your own branding, trademark, or design a similar logo."
+
+> "Dos and Don'ts: Blossom — DON'T add any colors to the Blossom."
+
+> "The term "Marks" includes anything we use to identify our goods or services,
+> including our names, logos, icons, and design elements. By using OpenAl's
+> Marks, you agree that we own them and that any goodwill generated by your use
+> benefits us.
+> Permission to use our Marks is limited in the following ways:
+> Only use our Marks if they adhere to these brand guidelines.
+> The permission we grant is non-exclusive (we can give it to others) and non-transferrable (you cannot give it to others).
+> Do not feature our Marks more prominently than your own company's name or marks.
+> We may update the guide, and changes must be made in accordance with our updates within a reasonable time.
+> We can review the use of our Marks and require changes if needed.
+> We may terminate permission to use our Marks at any time, and usage must stop promptly."
+
+> "We do not permit model names in app titles because there is concern that it
+> confuses end users."
+
+> "For everything else, including permission requests for the use of our logos,
+> questions about these guidelines, or communications that go beyond the cases
+> outlined above, please contact partnercomms@openai.com"
+
+**Verdict — name label "Codex": permitted-with-conditions.** Referential use of
+the name outside the app title. Conditions already met: no OpenAI or Codex mark
+in Ammo's app name/subtitle/keywords; no model names in the app title; the mark
+is not more prominent than Ammo's own name; an explicit independence statement
+is in the description, privacy policy, and Review Notes.
+
+**Verdict — Codex logo (`logo-codex`, `logo-codex-menu`): not-established.**
+Two independent failures: (a) OpenAI publishes no Codex brand asset at all, so
+there is nothing to re-source from, and the current files remain the pixel
+extraction from the shipped Codex app icon; (b) the only route to a
+first-party OpenAI logo file is the `brand.openai.com` login. "Use the logo
+without permission" is an explicit Don't.
+
+**Verdict — OpenAI Blossom (`logo-openai-monochrome/openai.svg`):
+not-established.** The file matches the widely mirrored public 41×41 Blossom
+SVG but cannot be traced to a first-party download, and the first-party
+download is behind the same login. Separately, Ammo renders it as a **template**
+on non-full-colour surfaces (`ProviderLogo.swift` → `imageRenderingMode`), which
+recolours it — read against "DON'T add any colors to the Blossom" and "modify it
+in any way."
+
+**Operator recommendation.** Do not ship a guess. Two options, in order of
+preference:
+
+1. **Ask.** Email partnercomms@openai.com describing the exact use (a 20 pt
+   glyph beside the word "Codex", labelling the user's own OpenAI account in a
+   personal usage-tracking app; no endorsement claim) and request written
+   permission plus the first-party asset files. Keep the reply as the evidence.
+   This is the only path that also produces a legitimate Codex mark.
+2. **Fall back to a neutral monogram.** If no permission arrives before
+   submission, replace `logo-codex`, `logo-codex-menu` and
+   `logo-openai-monochrome` with a neutral monochrome monogram drawn in-house —
+   a `Text("C")` or a rounded-square glyph in Ammo's own accent colour, using
+   Ammo's own type, with no reference to OpenAI's shapes or colours — while
+   keeping the plain-text label "Codex". This is a per-asset swap inside
+   `ProviderLogo.swift`'s existing `assetName`/`fallbackSymbolName` branch, not
+   a UI redesign: `ProviderID.antigravity` already takes exactly that path via
+   `fallbackSymbolName`. Nominative-use of the *name* is the part that carries
+   the identification; the glyph is decoration.
 
 ## Anthropic / Claude
 
-- Official brand resources: `https://www.anthropic.com/brand` — operator-verify
-- Usage-terms question: does Anthropic's brand/trademark policy permit
-  displaying the Claude Code mark in a third-party client app, and does it
-  require a specific mark variant (e.g. the "color" lockup already in use)?
-- Current shipped glyph provenance: `logo-claude.imageset/claudecode-color.svg`
-  — vector asset, not derived from an app icon crop. Provenance (which
-  Anthropic asset it was sourced from, and under what license) is not
-  documented in-repo; confirm and record it.
+- **The guessed URL is wrong.** <https://www.anthropic.com/brand> returns
+  **HTTP 404** (verified 2026-08-26). So do
+  `https://www.anthropic.com/press`, `https://www.anthropic.com/brand-guidelines`
+  and `https://claude.com/legal/trademark-guidelines`.
+- **The real URL:** <https://www.anthropic.com/legal/trademark-guidelines>
+  (HTTP 200, effective date "August 1, 2024"), retrieved 2026-08-26.
+- **Claude Code specific terms:**
+  <https://code.claude.com/docs/en/legal-and-compliance>, retrieved 2026-08-26.
+  `https://docs.anthropic.com/en/docs/claude-code/legal-and-compliance`
+  301-redirects here.
+- **No public brand kit.** No downloadable Anthropic logo/brand archive was
+  found on any first-party host. The guidelines say Anthropic supplies the image
+  itself, to parties it has already approved.
 
-## Cursor
+**Quoted clauses** (verbatim, Trademark Guidelines):
 
-- Official brand resources: `https://cursor.com/brand` — operator-verify
-  (URL unconfirmed; Cursor's brand/press page may live at a different path)
-- Usage-terms question: does Cursor's brand policy permit third-party apps
-  to display the Cursor mark to indicate integration with Cursor's usage
-  API, and does it restrict modification (color, cropping, monochrome
-  derivation)?
-- Current shipped glyph provenance: `logo-cursor.imageset/cursor.png`,
-  `logo-cursor-menu.imageset/cursor-menu.png`, and
-  `logo-cursor-monochrome.imageset/cursor-monochrome.png` — previously
-  extracted from a vendored Cursor app icon
-  (`Apps/iOS/Assets/Official/cursor-app-icon.png`, now deleted). **Needs
-  re-sourcing** from a Cursor-provided brand asset before these can be
-  treated as compliant.
+> "These guidelines apply to your use of any trademarks owned by Anthropic, PBC
+> or its affiliates ("our trademarks"). Our trademarks include our names, logos,
+> brand elements, and anything we use to identify our goods and services."
 
-## OpenRouter
+> "You may only use our trademarks as specifically permitted by us and only in
+> materials we approve beforehand. We may terminate permission to use our
+> trademarks at any time."
 
-- Official brand resources: `https://openrouter.ai/brand` — operator-verify
-  (URL unconfirmed; OpenRouter may not publish a dedicated brand page)
-- Usage-terms question: does OpenRouter permit third-party apps to display
-  its mark to indicate integration with the OpenRouter API, and are there
-  restrictions on color/format?
-- Current shipped glyph provenance: `logo-openrouter.imageset/openrouter-color.svg`
-  — vector asset, not derived from an app icon crop. Provenance not
-  documented in-repo; confirm and record it.
+> "We will supply an image (or images) of the trademark(s) for your use and
+> specific requirements regarding size, pixels, spacing, and the like. No
+> alterations of our trademarks (changes to color, font, proportion, or
+> otherwise) are permitted."
+
+> "You may not use our trademarks in a manner that implies Anthropic's
+> sponsorship or endorsement, or a relationship or affiliation with Anthropic,
+> except as we expressly authorize."
+
+> "If you have an existing business relationship with Anthropic and want to use
+> our trademarks in a press release, on your website, or in another context,
+> please email marketing@anthropic.com."
+
+**Quoted clause** (verbatim, Claude Code legal and compliance):
+
+> "**Using the Claude Code name and logo.** You can accurately say, in plain
+> text, that your product has Claude Code preinstalled or that it runs Claude
+> Code. But you can't use the Claude Code or Anthropic names or logos as part of
+> your own product, feature, or company name, in your own logo, or in a way that
+> suggests Anthropic built, endorses, or is partnered with your product. Any
+> other use of Anthropic's names or logos is governed by our Trademark
+> Guidelines and requires our written permission."
+
+**Verdict — name label "Claude": permitted-with-conditions.** The Claude Code
+page grants exactly one unilateral affordance: accurate statements *in plain
+text*. Ammo's use is a plain-text label. Conditions: keep it plain text, keep it
+out of Ammo's product/feature/company name and logo (satisfied), and never imply
+Anthropic built or endorses Ammo (satisfied).
+
+**Verdict — Claude logo (`logo-claude/claudecode-color.svg`):
+not-established.** Anthropic's guidelines are permission-first: use is allowed
+only "as specifically permitted by us and only in materials we approve
+beforehand," Anthropic supplies the image file, and no alterations are
+permitted. There is no published self-serve grant, and the plain-text carve-out
+in the Claude Code docs deliberately covers *text*, not logos: "Any other use of
+Anthropic's names or logos … requires our written permission."
+
+**Provenance of the file actually shipping** (this is the answer to the
+"confirm and record it" item in the previous revision): `claudecode-color.svg`
+is **not** an Anthropic-supplied asset. Its path data is byte-identical to
+`@lobehub/icons-static-svg` `icons/claudecode-color.svg` (retrieved 2026-08-26
+from <https://unpkg.com/@lobehub/icons-static-svg@latest/icons/claudecode-color.svg>);
+the file also carries LobeHub's `style="flex:none;line-height:1"` signature. The
+only edit is `<title>Claude Code</title>` → `<title>Claude</title>`. It is a
+third-party icon-library redraw of the mark.
+
+**Not replaced**, because there is no official file to replace it with — the
+asset is left in place per the "do not ship a guess" rule, with the verdict
+recorded rather than papered over.
+
+**Operator recommendation.**
+
+1. **Ask.** Email marketing@anthropic.com describing the exact use and
+   requesting written permission plus the trademark image file and its size /
+   pixel / spacing requirements. Anthropic's own process is to supply the image,
+   so a grant and a compliant asset arrive together.
+2. **Fall back to a neutral monogram.** If no permission arrives, replace
+   `logo-claude` with the same in-house neutral monochrome monogram described
+   under OpenAI above and keep the plain-text label "Claude" — which is the one
+   thing the Claude Code page permits unilaterally. Same one-line change in
+   `ProviderLogo.swift`; no UI redesign.
+3. Note that the redraw is *additionally* exposed: even with permission,
+   shipping a third-party redraw would fail "We will supply an image … No
+   alterations … are permitted." The monogram fallback avoids both problems.
+
+## Cursor (Anysphere, Inc.)
+
+- **Official brand resources:** <https://cursor.com/brand> — **verified live
+  2026-08-26, HTTP 200.** The guessed URL was correct; the "URL unconfirmed"
+  caveat in the previous revision can be dropped.
+- **Assets are published for self-serve download.** The page's "Download brand
+  assets" link resolves to
+  <https://ptht05hbb1ssoooe.public.blob.vercel-storage.com/assets/brand/cursor-brand-assets.zip>
+  — public, no login, no click-through licence. Downloaded 2026-08-26,
+  `sha256 97488a7751914e60f9ff532bc33810cdeaebdddc017548abe6ca2bc29bbc3928`.
+  Contents: `General Logos/{Cube,Lockup Horizontal,Lockup Vertical,Wordmark}`
+  in SVG + PNG, `App Icons/PNG`, `Avatars/{Circle,Square}/PNG`. No LICENSE or
+  README file is included in the archive.
+- **Contract hook:** <https://cursor.com/marketplace-publisher-terms>, retrieved
+  2026-08-26.
+
+**Quoted clauses** (verbatim). The brand page is short; this is the entirety of
+its substantive text:
+
+> "Cursor brand guidelines
+> Resources to represent Cursor consistently and accurately.
+> Download brand assets
+> Brand assets
+> Logos are available in 2D (default) and 2.5D (for larger applications), in
+> horizontal lockup (preferred), vertical lockup, or separately as cube or
+> wordmark.
+> App icons are available in 2.5D (default), 2D, and 3D, light and dark.
+> Avatars are available in 2D (default) and 2.5D, light and dark, for circular
+> or square use.
+> Name
+> Refer to us as Cursor. Not Cursor AI or Cursor Code."
+
+From the Marketplace Publisher Terms:
+
+> ""Brand Guidelines" means Anysphere's brand usage guidelines available at
+> cursor.com/brand, as may be updated from time to time." (§1.2)
+
+> "Publisher's use of Anysphere's name, trademarks, or logos in connection with
+> the Plugin must comply with the Brand Guidelines." (§4.6)
+
+> "Anysphere may revoke your right to use our trademarks at any time." (§4.6)
+
+**Verdict — name label and logo: permitted-with-conditions.** Cursor publishes
+its marks for unauthenticated third-party download under a page whose stated
+purpose is "Resources to represent Cursor consistently and accurately," and
+states only one substantive restriction. Conditions, all currently met:
+
+- Refer to the product as "Cursor", never "Cursor AI" or "Cursor Code" —
+  `ProviderID.cursor` renders as `Cursor` throughout.
+- Use a published variant unmodified; do not distort. Ammo ships the official
+  cube scaled proportionally on a transparent canvas.
+- Permission is revocable at Anysphere's discretion — re-check before each
+  release.
+- Caveat for the operator: the brand page carries **no explicit licence grant
+  and no explicit third-party-use clause**; the permission is inferred from
+  unauthenticated publication for the stated purpose plus the Marketplace Terms
+  treating the same guidelines as the standard for third-party mark use. That is
+  materially stronger than the pixel extraction it replaces, but it is not a
+  written grant. If a reviewer presses, fall back to the monogram option.
+
+**Re-sourced 2026-08-26** — old vs new pixel dimensions:
+
+| Asset | Old | New | Official source file | Rendering intent |
+|---|---|---|---|---|
+| `logo-cursor.imageset/cursor.png` | 512×512 (glyph bbox 393×448) | 512×512 (glyph bbox 392×448) | `General Logos/Cube/PNG/CUBE_25D.png` (1401×1600) | unchanged — full colour, `.original` |
+| `logo-cursor-menu.imageset/cursor-menu.png` | 512×512 (glyph bbox 283×322) | 512×512 (glyph bbox 282×322) | `General Logos/Cube/PNG/CUBE_25D.png` | unchanged — optical inset carried in the asset for native menus |
+| `logo-cursor-monochrome.imageset/cursor-monochrome.png` | 640×640 (glyph bbox 562×640) | 640×640 (glyph bbox 561×640) | `General Logos/Cube/PNG/CUBE_2D_DARK.png` (1401×1597) | unchanged — template-rendered |
+
+Canvas dimensions are identical; glyph bounding boxes differ by ≤1 px from
+proportional rescaling. No recolour, no distortion: 1401/1600 = 0.8756 vs
+392/448 = 0.8750. The full-colour cube's pixel values are unchanged from the old
+extraction (`#726F6D`/`#55544F`/`#43413C`), confirming the extraction had been of
+this same 2.5D cube. The monochrome variant uses Cursor's own published
+single-colour 2D cube (`#EDECEC`) rather than a monochrome derivation of the 2.5D
+one; the old file was pure white, and since that imageset is template-rendered the
+RGB change has no visual effect.
+
+`Apps/iOS/Shared/SOURCES.md` is excluded from both Xcode targets in
+`Apps/iOS/project.yml` so it is evidence in the repo, not a resource in the
+bundle.
+
+## OpenRouter, Inc.
+
+- **Official brand resources:** <https://openrouter.ai/brand> — **verified live
+  2026-08-26, HTTP 200**, page title "Brand Assets - Official OpenRouter Logos".
+  The guessed URL was correct and the previous revision's note that OpenRouter
+  "may not publish a dedicated brand page" was wrong: it does, and it publishes
+  a dedicated glyph variant for exactly Ammo's use case.
+- **Assets are published for self-serve download**, per-variant SVG and 2× PNG
+  plus a full `openrouter-logos.zip`, all unauthenticated.
+
+**Quoted clauses** (verbatim, from the brand page):
+
+> "Brand assets
+> Every configuration of the OpenRouter mark, ready to use. SVG scales anywhere;
+> PNGs are exported at 2×. Please don't stretch, recolor, or remix the marks."
+
+> "Glyph
+> The mark alone — avatars, favicons, small sizes."
+
+The OpenRouter Terms of Service (<https://openrouter.ai/terms>, retrieved
+2026-08-26) contain no trademark-specific clause; §12 "Ownership; Proprietary
+Rights" is general. The brand page is the operative permission.
+
+**Verdict — name label and logo: permitted-with-conditions.** "Every
+configuration of the OpenRouter mark, ready to use" is an explicit self-serve
+grant, and "Glyph — The mark alone — avatars, favicons, small sizes" describes
+Ammo's use directly. Conditions:
+
+- Don't stretch — met (SVG shipped verbatim, rendered with
+  `.aspectRatio(contentMode: .fit)`).
+- Don't remix — met (verbatim official file).
+- **Don't recolor — partially at risk.** In the app the glyph renders
+  `.original`, but `ProviderLogo.imageRenderingMode` returns `.template` when
+  `widgetRenderingMode != .fullColor`, and the view applies
+  `widgetAccentedRenderingMode(.accented)` for every provider except Cursor. In
+  an accented Home/Lock Screen widget the OS therefore tints the Volt glyph to
+  the widget's accent colour. See the follow-up item below.
+
+**Re-sourced 2026-08-26:**
+
+| Asset | Old | New | Source |
+|---|---|---|---|
+| `logo-openrouter.imageset/openrouter-color.svg` | 24×24 viewBox, 325 bytes, third-party redraw | 1024×730 viewBox, 563 bytes, official file verbatim | <https://openrouter.ai/brand/logos/transparent/glyph/svg/glyph-volt.svg> |
+
+`sha256` of the installed file equals the `sha256` of the download
+(`0d22462e4f2835a5a5b9000af0a55fc9238e39996100f54706e41ec45b9d1727`) — it is
+byte-identical, not re-exported.
+
+**Rendered appearance is unchanged.** The old 24×24 file drew the mark with the
+same 1.40 aspect ratio, horizontally full-bleed and vertically centred inside
+transparent padding. `ProviderLogo` renders inside a square frame with
+`.aspectRatio(contentMode: .fit)`, so a tight 1024×730 canvas fits to exactly
+the pixels the padded 24×24 canvas previously filled. `preserves-vector-representation`
+and the absence of `template-rendering-intent` in the imageset are unchanged.
+
+**Provenance of the file that was replaced:** the previous
+`openrouter-color.svg` path data is byte-identical to
+`@lobehub/icons-static-svg` `icons/openrouter-color.svg` (retrieved 2026-08-26
+from <https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openrouter-color.svg>)
+— a third-party icon library, not an OpenRouter asset. Recorded here because
+"provenance not documented in-repo" is now answered, not just fixed.
+
+---
 
 ## Follow-up
 
+### Git history — recommendation: do NOT rewrite. Operator's call.
+
 `Apps/iOS/Assets/Official/*` was removed from HEAD but **remains in git
-history** on this public repository (PLAN.md decision D2). Rewriting
-history (e.g. `git filter-repo` + force-push) is a separate, explicit
-operator decision — not taken as part of MIK-170.
+history** on this public repository (PLAN.md decision D2). The recommendation is
+to **leave history alone**:
+
+- The extracted assets are gone from HEAD, and as of this commit the Cursor
+  extractions are gone from the shipping binary entirely.
+- Provenance is now documented per file in
+  [`Apps/iOS/Shared/SOURCES.md`](../Apps/iOS/Shared/SOURCES.md), which is the
+  artifact a reviewer or a vendor's counsel would actually be pointed at.
+- App Review evaluates the shipped binary and the store listing, not the git
+  history of a linked repository.
+- Force-pushing a rewritten public repo breaks every existing clone, invalidates
+  open PR refs and any commit SHA referenced from issues, docs, or CI, and is
+  itself irreversible for third parties.
+
+**This remains explicitly the operator's decision.** Rewriting history is a
+separate, deliberate act (`git filter-repo` + force-push) and was not taken as
+part of MIK-170 or of this change. If a vendor makes a takedown request that
+names the history specifically, revisit it then.
+
+### Accented-widget tinting vs "don't recolor"
+
+`ProviderLogo` applies `.widgetAccentedRenderingMode(.accented)` and template
+rendering to every provider except Cursor, so in accented widget rendering the
+OS tints the mark. That is in tension with OpenRouter's "Please don't … recolor"
+and OpenAI's "DON'T add any colors to the Blossom." Options for the operator,
+smallest first: (a) switch the non-Cursor branch to
+`.widgetAccentedRenderingMode(.fullColor)` so the OS leaves the marks alone —
+one line, but the glyph then reads as a colour intrusion in a monochrome accented
+widget; (b) omit provider glyphs from widget surfaces and keep the plain-text
+provider name there; (c) accept the tint as de-minimis system-level styling and
+record the reasoning. Not decided here — it changes widget appearance, which is
+outside the scope of a provenance fix.
+
+### Re-check triggers
+
+Re-run this checklist when: a provider is added or removed; a vendor updates its
+brand page (all four grants are expressly revocable/updatable); or App Review
+asks for mark authorization. Re-download the Cursor and OpenRouter files and
+compare checksums against `Apps/iOS/Shared/SOURCES.md` before each submission.

@@ -28,6 +28,8 @@ targets:
     sources:
       - path: Ammo
       - path: Shared
+        excludes:
+          - SOURCES.md
     dependencies:
       - package: UsageKit
         product: UsageKit
@@ -65,6 +67,8 @@ targets:
     sources:
       - path: AmmoWidgets
       - path: Shared
+        excludes:
+          - SOURCES.md
     dependencies:
       - package: UsageKit
         product: UsageKit
