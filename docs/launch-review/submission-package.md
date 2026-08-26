@@ -57,10 +57,10 @@ Editable without a new build — keep it to current-build facts only, never
 "coming soon" or version teasers (2.3.1).
 
 ```
-Included limits, reset times, and on-demand balances for the AI coding accounts you already use — on your Home Screen and Lock Screen.
+Included limits, reset times, and on-demand balances for the AI coding accounts you already use — on your Home Screen.
 ```
 
-134 characters (App Store Connect counts the em dash as one character). "You
+118 characters (App Store Connect counts the em dash as one character). "You
 already use", not "you already pay for" — see the accuracy note under the
 description.
 
@@ -69,7 +69,7 @@ description.
 ```
 Ammo shows how much of your AI coding allowance is left, without opening four dashboards.
 
-Connect the accounts you already use, and Ammo puts every included limit, reset countdown, and on-demand balance on one screen — and on your Home Screen and Lock Screen.
+Connect the accounts you already use, and Ammo puts every included limit, reset countdown, and on-demand balance on one screen — and on your Home Screen.
 
 USAGE
 See each account's included windows as plain meters: session and weekly windows, monthly model allowances, and the time until each one resets. Personal, team, and organization scopes stay separate instead of being averaged into one number.
@@ -82,7 +82,7 @@ Ammo records the usage it observes on your device and charts it per account and 
 
 WIDGETS
 Three widget families, all configurable per account:
-• Account — one account, small or medium, plus a Lock Screen circular gauge.
+• Account — one account, small or medium.
 • Accounts — up to four accounts in your chosen order: small, medium, and large, plus a taller portrait size on iOS 27 and later.
 • Activity — daily usage activity for one account and limit.
 Background App Refresh keeps them current, and the cadence adapts to how much allowance is left and when it resets.
@@ -105,7 +105,7 @@ REQUIREMENTS
 iPhone, iOS 18.0 or later.
 ```
 
-2,649 characters. Deliberately absent: the word "unlimited", any pricing claim
+2,598 characters. Deliberately absent: the word "unlimited", any pricing claim
 about a provider, any claim Ammo grants or extends allowance, any unshipped
 feature (Antigravity is `deferred` at
 `Apps/iOS/Ammo/Onboarding/ProviderSignInSheet.swift:19` and is therefore not
@@ -254,10 +254,10 @@ Paste as-is after replacing the one bracketed placeholder. This supersedes the
 draft at the end of `app-review.md`, which predates OpenRouter.
 
 **The App Review Notes field caps at 4,000 characters.** The block below
-measures 3,960 characters with `[SUPPORT EMAIL]` (15 characters) still in
+measures 3,870 characters with `[SUPPORT EMAIL]` (15 characters) still in
 place. A realistic ~30-character support address lands the pasted total near
-3,975 — under the cap, but with little slack: if the address is longer than
-about 55 characters, drop one Technical Notes bullet. Re-count after pasting;
+3,885 — under the cap, but with limited slack: if the address is longer than
+about 145 characters, drop one Technical Notes bullet. Re-count after pasting;
 App Store Connect counts what it receives.
 
 ```
@@ -265,7 +265,7 @@ WHAT AMMO DOES
 Ammo shows developers how much of their AI coding-tool allowance is left,
 reading usage/quota data from four services the user already has accounts
 with — Claude (Anthropic), Codex (OpenAI), Cursor (Anysphere), OpenRouter — in
-the app and in Home Screen and Lock Screen widgets. Free, no in-app purchases.
+the app and in Home Screen widgets. Free, no in-app purchases.
 
 REVIEWING WITHOUT AN ACCOUNT — PLEASE START HERE
 No account is needed.
@@ -285,8 +285,7 @@ credentials.
 WIDGETS
 With demo mode on, long-press the Home Screen, tap "+", search "Ammo", and add
 any of the three; each is configured from the sample accounts:
-• "Account" — one sample account: small, medium, and Lock Screen circular (add
-  that one via Customize on the Lock Screen).
+• "Account" — one sample account: small or medium.
 • "Accounts" — four ordered slots: small, medium, large, plus a taller
   portrait size only on iOS 27 and later.
 • "Activity" — one account/limit pair. The picker lists only samples that have

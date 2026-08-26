@@ -2,7 +2,7 @@ import SwiftUI
 import UsageKit
 import WidgetKit
 
-// MARK: - Single account (systemSmall + accessoryCircular)
+// MARK: - Single account (systemSmall + systemMedium)
 
 struct AccountWidgetView: View {
     @Environment(\.widgetFamily) private var family
@@ -16,8 +16,6 @@ struct AccountWidgetView: View {
     var body: some View {
         if let state = entry.state {
             switch family {
-            case .accessoryCircular:
-                CircularGaugeView(state: state, referenceDate: entry.date)
             case .systemMedium:
                 MediumAccountView(state: state, referenceDate: entry.date)
             default:
@@ -161,149 +159,7 @@ struct SmallAccountView: View {
     }
 }
 
-/// accessoryCircular: provider-reported window drives open gauge chrome and,
-/// when another window exists, its remaining percent becomes numeric value.
-/// Single-window providers show a marker for their real window. Providers that
-/// report spend instead of a window draw the same chrome from their on-demand
-/// pool, so every account on the Lock Screen carries live value and the logo in
-/// the six o'clock gap.
-struct CircularGaugeView: View {
-    let state: AccountState
-    let referenceDate: Date
-
-    @ViewBuilder
-    var body: some View {
-        if let presentation = state.lockScreenUsagePresentation {
-            if presentation.numericWindow != nil {
-                usageGauge(presentation: presentation)
-                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .fill))
-                    .statusOverlay(symbol: failureSymbol)
-            } else {
-                usageGauge(presentation: presentation)
-                    .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
-                    .statusOverlay(symbol: failureSymbol)
-            }
-        } else if let metered = state.lockScreenMeteredPresentation {
-            // A pool with capacity can deplete the arc; an amount-only pool has
-            // nothing to deplete, so it keeps the full track and the dot.
-            let variant: AmmoAccessoryCircularGaugeStyle.Variant =
-                metered.remainingFraction == nil ? .marker : .fill
-            meteredGauge(presentation: metered)
-                .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: variant))
-                .statusOverlay(symbol: failureSymbol)
-        } else {
-            Gauge(value: 0, in: 0...100) {
-                ProviderLogo(provider: state.account.provider, size: 12)
-            } currentValueLabel: {
-                if state.activeFailure != nil || state.snapshot != nil {
-                    Image(systemName: "exclamationmark")
-                } else {
-                    Text("…")
-                }
-            }
-            .gaugeStyle(AmmoAccessoryCircularGaugeStyle(variant: .marker))
-            .accessibilityLabel(emptyAccessibilityLabel)
-        }
-    }
-
-    private func usageGauge(
-        presentation: LockScreenUsagePresentation
-    ) -> some View {
-        let indicator = presentation.indicatorWindow
-        let numeric = presentation.numericWindow ?? indicator
-        return Gauge(value: indicator.remainingPercent, in: 0...100) {
-            ProviderLogo(provider: state.account.provider, size: 12)
-        } currentValueLabel: {
-            Text(numeric.remainingPercentText)
-        }
-        .tint(indicator.barColor)
-        .accessibilityLabel(accessibilityLabel(for: presentation))
-    }
-
-    private func meteredGauge(
-        presentation: MeteredLockScreenPresentation
-    ) -> some View {
-        Gauge(value: presentation.remainingFraction ?? 1, in: 0...1) {
-            ProviderLogo(provider: state.account.provider, size: 12)
-        } currentValueLabel: {
-            if let centerText = presentation.centerText {
-                Text(centerText)
-            } else if state.account.provider == .openRouter {
-                Image(systemName: presentation.centerFallbackSymbol)
-            } else {
-                // Cursor used to draw an unbound dollarsign here when the
-                // pool had used == 0. That glyph is no longer reachable:
-                // MeteredLockScreenPresentation binds "$0" or declines.
-                Image(systemName: "exclamationmark")
-            }
-        }
-        .tint(meterColor(presentation.remainingFraction ?? 1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(meteredAccessibilityLabel(presentation: presentation))
-    }
-
-    /// Failure is the only overlay the Lock Screen shows. Staleness needs no
-    /// marker there: gauges refresh with the app and with background refresh,
-    /// so a stale badge was a relic of the era when the widget fetched for
-    /// itself.
-    private var failureSymbol: String? {
-        state.activeFailure != nil ? "exclamationmark.circle.fill" : nil
-    }
-
-    private func meteredAccessibilityLabel(
-        presentation: MeteredLockScreenPresentation
-    ) -> String {
-        var values = [
-            "\(state.account.provider.displayName) \(presentation.accessibilityDescription)"
-        ]
-        if state.activeFailure != nil {
-            values.append("Update failed; showing cached data")
-        }
-        return values.joined(separator: ", ")
-    }
-
-    private func accessibilityLabel(
-        for presentation: LockScreenUsagePresentation
-    ) -> String {
-        var values = [
-            "\(presentation.indicatorWindow.label) \(presentation.indicatorWindow.remainingPercentText) remaining"
-        ]
-        if let numeric = presentation.numericWindow {
-            values.append("\(numeric.label) \(numeric.remainingPercentText) remaining")
-        }
-        if state.activeFailure != nil {
-            values.append("Update failed; showing cached data")
-        }
-        return values.joined(separator: ", ")
-    }
-
-    private var emptyAccessibilityLabel: String {
-        if state.activeFailure != nil {
-            return "\(state.account.provider.displayName) update failed; open Ammo"
-        }
-        if state.snapshot != nil {
-            return "\(state.account.provider.displayName) returned no usage windows"
-        }
-        return "\(state.account.provider.displayName) is waiting for its first update"
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func statusOverlay(symbol: String?) -> some View {
-        if let symbol {
-            overlay(alignment: .topTrailing) {
-                Image(systemName: symbol)
-                    .font(.system(size: 8, weight: .bold))
-                    .accessibilityHidden(true)
-            }
-        } else {
-            self
-        }
-    }
-}
-
-/// Shared by OpenRouter's XL bar and every Lock Screen spend gauge.
+/// Depletion color for OpenRouter's XL bar.
 private func meterColor(_ remainingFraction: Double) -> Color {
     if remainingFraction <= 0.1 {
         .red
