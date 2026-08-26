@@ -4,10 +4,10 @@
 submission, in one document. Drafted against the tree at branch
 `claude/mik-167-submission-metadata` (bundle ID `com.brandon.ammo`, marketing
 version `0.1.0`, iPhone-only, portrait-only, iOS 18.0+). The tree carries
-`CURRENT_PROJECT_VERSION: 17` (`Apps/iOS/project.yml:19`); that is the current
+`CURRENT_PROJECT_VERSION: 18` (`Apps/iOS/project.yml:19`); that is the current
 source value, **not** a submission decision. The build number that is actually
-uploaded is chosen against live App Store Connect state at §5 gate 7 and
-step 11, so nothing in this document assumes build 17 is available or final.
+uploaded is still chosen against live App Store Connect state at §5 gate 7 and
+step 11, so nothing in this document assumes build 18 is available or final.
 
 **Authorities.** `docs/launch-remediation-operator-checklist.md` §"App Store
 Connect" (trademark and App Privacy rules), `docs/launch-review/app-review.md`
@@ -254,11 +254,10 @@ Paste as-is after replacing the one bracketed placeholder. This supersedes the
 draft at the end of `app-review.md`, which predates OpenRouter.
 
 **The App Review Notes field caps at 4,000 characters.** The block below
-measures 3,870 characters with `[SUPPORT EMAIL]` (15 characters) still in
-place. A realistic ~30-character support address lands the pasted total near
-3,885 — under the cap, but with limited slack: if the address is longer than
-about 145 characters, drop one Technical Notes bullet. Re-count after pasting;
-App Store Connect counts what it receives.
+measures 3,879 characters with the support address filled in
+(`brandon.aron38@gmail.com`, 24 characters), leaving 121 characters of slack
+under the cap. If a Technical Notes bullet is ever added, re-count before
+pasting; App Store Connect counts what it receives.
 
 ```
 WHAT AMMO DOES
@@ -334,13 +333,14 @@ TECHNICAL NOTES
   no entitlement; fails closed elsewhere.
 • iPhone only, portrait only, iOS 18.0+.
 
-Contact: [SUPPORT EMAIL]
+Contact: brandon.aron38@gmail.com
 ```
 
-**Placeholder to fill:** `[SUPPORT EMAIL]` — one address Brandon actually reads.
-The repo URL is already filled in and matches the Support URL in §4. This text is
-deliberately denser than the `app-review.md` draft, which is ~5,400 characters
-and would not fit the field.
+**Placeholder: filled.** The former `[SUPPORT EMAIL]` slot now carries
+`brandon.aron38@gmail.com`, an address Brandon actually reads; nothing in this
+block is left to substitute. The repo URL is already filled in and matches the
+Support URL in §4. This text is deliberately denser than the `app-review.md`
+draft, which is ~5,400 characters and would not fit the field.
 
 ---
 
@@ -528,9 +528,10 @@ paste-ready; everything below is an action only he can take.
    loads and matches `docs/privacy-policy.md`.
 5. Confirm GitHub Issues are enabled and
    `https://github.com/Brandon1138/ammo/issues` loads logged out.
-6. Fill `[SUPPORT EMAIL]` in the §3 Review Notes.
+6. ~~Fill `[SUPPORT EMAIL]` in the §3 Review Notes.~~ **Done** — the §3 block
+   now reads `Contact: brandon.aron38@gmail.com`.
 7. Query App Store Connect for the app record and all used build numbers before
-   choosing the release build. Do not assume build 17 remains available.
+   choosing the release build. Do not assume build 18 remains available.
 8. Run archive, entitlement, privacy-report, device, live-contract, widget, and
    accessibility passes on the exact release-candidate commit. Reuse no older proof.
 9. Capture fresh native App Store screenshots from that exact candidate. Existing
@@ -622,18 +623,25 @@ review/drafting only.
    not mistaken for a defect.
 5. **Screenshots on disk are build 13, not the final release candidate.** `Screenshots/` contains
    `ammo-device-final-build13-*.png` and friends; `project.yml:19` sets
-   `CURRENT_PROJECT_VERSION: 17`. The operator checklist §8 requires captures
+   `CURRENT_PROJECT_VERSION: 18`. The operator checklist §8 requires captures
    from the exact submitted build, so `app-review.md` §B4's suggestion to reuse
    the existing captures is stale. New captures required (§5 gate 9).
-6. **There is still no in-app "not affiliated" disclaimer.**
-   `grep -ri "not affiliated" Apps/iOS Sources` returns zero hits, and
-   `Apps/iOS/Ammo/UI/SettingsView.swift` (which now exists — Notifications,
-   Display, Debug sections) has no About row and no privacy-policy link.
-   `app-review.md` §L1 remediation 3 recommends one line in Settings or in the
-   empty state; it is cheap and it is what Apple points at when deciding whether
-   an app implies endorsement. Not required to submit — the disclaimer is in the
-   description, the privacy policy, and the Review Notes — but it is the
-   highest-value small change left.
+6. **~~There is still no in-app "not affiliated" disclaimer.~~ Resolved.**
+   `Apps/iOS/Ammo/UI/SettingsView.swift` now carries an **About** section —
+   a Version row reading `CFBundleShortVersionString`/`CFBundleVersion` from the
+   bundle, a **Privacy Policy** link to
+   `https://brandon1138.github.io/ammo/privacy-policy/`, a **Support** link to
+   `https://github.com/Brandon1138/ammo/issues`, a credits row, and the
+   independence disclaimer as the section footer, worded to match §1's
+   INDEPENDENCE paragraph: "Ammo is an independent app. It is not affiliated
+   with, endorsed by, or sponsored by Anthropic, OpenAI, Anysphere, or
+   OpenRouter." (`AmmoPrivacyDisclosure.nonAffiliation`, asserted by
+   `Apps/iOS/AmmoTests/AppStoreReadinessUXTests.swift`.) The preceding
+   **Privacy** section keeps the on-device-storage and provider-processing
+   disclosures. `app-review.md` §L1 remediation 3 is therefore satisfied in the
+   binary, not only in the description, the privacy policy, and the Review Notes.
+   The §4 Privacy Policy URL slot still needs the published page confirmed
+   logged out (§5 gate 4) — the in-app link points at the same URL.
 7. **`PRODUCT.md` and `README.md` prose is not listing-safe.** Both predate the
    metadata rules and are written for a developer audience; §1's copy is written
    fresh rather than adapted from them, per `app-review.md` §B5.
