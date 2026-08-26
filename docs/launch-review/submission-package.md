@@ -421,17 +421,40 @@ surface suggests sponsorship or endorsement. The app name, icon, and design are
 original, and the independence disclaimer appears in the description, the
 privacy policy, and the Review Notes.
 
-**Before answering Yes, confirm the logo provenance is defensible**
-(operator checklist §5, `app-review.md` §L1). §L1 records that the shipped
-glyphs were pixel-extracted from the providers' shipping app icons via
-`Apps/iOS/Scripts/extract-provider-glyphs.py`, with
-`Apps/iOS/Assets/Official/*-app-icon.png` checked in as build inputs. That is a
-weaker story than "used per their published brand guidelines". §L1's remediation
-— re-source each asset from the vendor's own published brand kit and record the
-source URL and permitted-use clause in a `SOURCES.md` next to the asset catalog —
-converts "extracted from their icon" into a sentence that survives a legal
-question. **This is a code/asset change and is out of scope for this document;
-it is listed as a gate in §5.**
+**Before answering Yes, read the recorded provenance — it is now mixed, not
+uniform.** The §L1 remediation has been carried out in part.
+`Apps/iOS/Shared/SOURCES.md` is the per-file evidence index and
+`docs/asset-resourcing.md` holds the clause quotations, verified URLs, and
+per-provider verdicts (all retrieved 2026-08-26). Current state:
+
+- **Cursor** (`logo-cursor`, `logo-cursor-menu`, `logo-cursor-monochrome`) —
+  re-sourced from Anysphere's own published brand archive at `cursor.com/brand`,
+  downloaded unauthenticated, installed unmodified and undistorted. The
+  extraction from Cursor's shipped app icon is gone from the binary.
+  Permitted-with-conditions; the one stated condition ("Refer to us as Cursor.
+  Not Cursor AI or Cursor Code.") is met.
+- **OpenRouter** (`logo-openrouter`) — replaced byte-for-byte with the official
+  glyph from `openrouter.ai/brand`, whose page states "Every configuration of
+  the OpenRouter mark, ready to use" and describes the Glyph variant as being
+  for "avatars, favicons, small sizes". Permitted-with-conditions.
+- **Claude** (`logo-claude`) and **Codex / OpenAI** (`logo-codex`,
+  `logo-codex-menu`, `logo-openai-monochrome`) — **not-established.** Anthropic
+  grants logo use only "as specifically permitted by us and only in materials we
+  approve beforehand," supplies the image itself, and publishes no self-serve
+  kit; OpenAI gates its logo downloads behind a `brand.openai.com` login and
+  publishes no Codex mark at all. Neither could be re-sourced. Those files are
+  left in place with the verdict recorded rather than guessed at, and
+  `docs/asset-resourcing.md` carries the operator recommendation: request
+  written permission (partnercomms@openai.com / marketing@anthropic.com), or
+  swap those three imagesets for a neutral in-house monochrome monogram and keep
+  the plain-text provider names.
+
+The *names* remain referential in every case, and both vendors' terms support
+that independently: Anthropic's Claude Code page permits accurately saying "in
+plain text" what your product works with, and OpenAI's guidelines restrict model
+names in app titles — which Ammo does not use. **The remaining exposure is the
+Claude and Codex glyph artwork, and that is operator judgment, recorded at §5
+gates 1–2.**
 
 The third-party *data* shown (the user's own usage figures) is fetched with the
 user's own credentials at the user's direction, and is the user's own account
@@ -473,14 +496,27 @@ paste-ready; everything below is an action only he can take.
 
 **Gates — do these before touching App Store Connect**
 
-1. Resolve provider-service and trademark authorization for every provider that
-   remains in the submitted binary. Save clause-level terms/permission and brand
-   provenance evidence; repository code comments and nominative-use reasoning are
-   not themselves authorization. Exclude or replace any provider/asset that cannot
-   be defended to App Review.
-2. Resolve the §4 Content Rights logo question by re-sourcing each glyph from a
-   permitted vendor brand kit with recorded source and clause, or by replacing it
-   with neutral presentation. Do not answer Content Rights until this is settled.
+1. **Partly done — evidence recorded, two verdicts outstanding.** Clause-level
+   brand/trademark evidence for all four providers is captured in
+   `docs/asset-resourcing.md` (verified URLs, verbatim clauses, retrieved
+   2026-08-26) and indexed per asset file in `Apps/iOS/Shared/SOURCES.md`. Note
+   `https://www.anthropic.com/brand` 404s — the real page is
+   `https://www.anthropic.com/legal/trademark-guidelines`. Verdicts: Cursor and
+   OpenRouter permitted-with-conditions; Claude and OpenAI/Codex logos
+   **not-established**. Remaining operator judgment: either obtain written
+   permission from Anthropic (marketing@anthropic.com) and OpenAI
+   (partnercomms@openai.com), or exclude those glyphs per gate 2. This gate also
+   still covers provider **service/API** authorization, which is a separate
+   question from mark use and is not settled by the above.
+2. **Partly done.** The Cursor and OpenRouter glyphs have been re-sourced from
+   the vendors' own published brand assets and the source URL, clause, and
+   retrieval date are recorded in `Apps/iOS/Shared/SOURCES.md`. The Claude and
+   Codex/OpenAI glyphs could not be re-sourced — no vendor kit is publicly
+   available for either. Before answering Content Rights, decide those three
+   imagesets: ship them on written permission, or replace them with the neutral
+   monochrome monogram described in `docs/asset-resourcing.md` (a per-asset
+   change in `ProviderLogo.swift`, not a UI redesign). Do not answer Content
+   Rights until that decision is recorded.
 3. Decide EU Digital Services Act trader/non-trader status in App Store Connect
    and complete verification if required. If unresolved, exclude EU storefronts
    rather than guessing.
