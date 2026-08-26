@@ -1,0 +1,88 @@
+<!-- Source of truth: docs/privacy-policy.md — keep in sync. -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ammo Privacy Policy</title>
+<meta name="description" content="Privacy policy for Ammo, an independent iOS app for viewing usage limits from services you already use.">
+<meta name="color-scheme" content="light dark">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #16181d;
+    --muted: #5c6270;
+    --rule: #e3e5ea;
+    --code-bg: #f0f1f4;
+    --link: #0b5cd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1014;
+      --fg: #e9ebf0;
+      --muted: #9aa1ae;
+      --rule: #23262d;
+      --code-bg: #1c2027;
+      --link: #7cb2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 3rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 38rem; margin: 0 auto; }
+  h1 { font-size: 2rem; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+  h2 { font-size: 1.1875rem; margin: 2.5rem 0 0.75rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); }
+  .effective { color: var(--muted); margin: 0 0 2rem; }
+  p { margin: 0 0 1rem; }
+  ul { padding-left: 1.25rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.75rem; }
+  a { color: var(--link); overflow-wrap: anywhere; }
+  code {
+    background: var(--code-bg);
+    border-radius: 0.25rem;
+    padding: 0.1em 0.35em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.875em;
+    overflow-wrap: anywhere;
+  }
+  .backlink { display: inline-block; margin-top: 2.5rem; font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ammo Privacy Policy</h1>
+
+  <p class="effective">Effective: August 14, 2026</p>
+
+  <p>Ammo is an independent iOS app for viewing usage limits from services you already use. Ammo is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Cursor/Anysphere, or OpenRouter.</p>
+
+  <h2>Data handling</h2>
+  <ul>
+    <li>Ammo has no developer-operated backend. Network requests go directly from your device to the provider you choose.</li>
+    <li>Provider credentials are stored in iOS Keychain items configured with <code>kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly</code>. They do not synchronize through iCloud Keychain and do not migrate to another device from a backup.</li>
+    <li>Account labels, usage snapshots, refresh scheduling data, and usage history are stored locally in Ammo's App Group container so its widgets can render.</li>
+    <li>Ammo includes no analytics, advertising, attribution, crash-reporting, or telemetry SDK. Ammo does not sell or share personal data.</li>
+    <li>Demo mode uses generated sample data, stores no provider credentials, and makes no network requests.</li>
+  </ul>
+
+  <h2>Deletion and retention</h2>
+  <p>Removing an account inside Ammo deletes its Keychain credentials and local usage records. Remove accounts before uninstalling if you want an explicit Keychain deletion; iOS controls uninstall-time Keychain retention and does not provide apps an uninstall callback. App Group files are managed by iOS with the app and extension containers.</p>
+
+  <h2>Provider processing</h2>
+  <p>When you refresh usage or sign in, the selected provider receives requests and processes them under its own privacy policy. Ammo receives the response only on your device and does not transmit it to Ammo's developer.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or deletion issues: <a href="https://github.com/Brandon1138/ammo/issues">https://github.com/Brandon1138/ammo/issues</a></p>
+
+  <p>Source: <a href="https://github.com/Brandon1138/ammo">https://github.com/Brandon1138/ammo</a></p>
+
+  <a class="backlink" href="/ammo/">← Ammo</a>
+</main>
+</body>
+</html>

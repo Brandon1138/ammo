@@ -454,15 +454,16 @@ leave the field pointing at something that does not accept contact.
 ### Privacy Policy URL
 
 ```
-[PRIVACY POLICY URL]
+https://brandon1138.github.io/ammo/privacy-policy/
 ```
 
-Operator checklist §2: publish `docs/privacy-policy.md` at a stable HTTPS URL —
-GitHub Pages off the public repo is fine — and **open it in a logged-out browser
-before entering it**. Do not use a repository blob URL unless the repo is
-public, and do not use a URL that redirects through a login. The published page
-must match `docs/privacy-policy.md` as shipped, which in turn must match the §2
-answers; the effective date in that file is August 14, 2026.
+Operator checklist §2: this URL is published by GitHub Pages from `site/` on the
+public repo (`.github/workflows/pages.yml`, source `site/privacy-policy/index.html`),
+and it goes live automatically on the next push to `main`. Still **open it in a
+logged-out browser before entering it**. Do not use a repository blob URL unless
+the repo is public, and do not use a URL that redirects through a login. The
+published page must match `docs/privacy-policy.md` as shipped, which in turn must
+match the §2 answers; the effective date in that file is August 14, 2026.
 
 ---
 
@@ -484,7 +485,11 @@ paste-ready; everything below is an action only he can take.
 3. Decide EU Digital Services Act trader/non-trader status in App Store Connect
    and complete verification if required. If unresolved, exclude EU storefronts
    rather than guessing.
-4. Publish `docs/privacy-policy.md` at a stable HTTPS URL and open it logged out.
+4. Privacy policy publishing is automated: merging this change deploys `site/` to
+   GitHub Pages, putting `docs/privacy-policy.md` live at
+   `https://brandon1138.github.io/ammo/privacy-policy/`. The only remaining step
+   is to open that URL in a logged-out browser after the merge and confirm it
+   loads and matches `docs/privacy-policy.md`.
 5. Confirm GitHub Issues are enabled and
    `https://github.com/Brandon1138/ammo/issues` loads logged out.
 6. Fill `[SUPPORT EMAIL]` in the §3 Review Notes.

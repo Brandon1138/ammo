@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ammo</title>
+<meta name="description" content="Ammo is an iPhone app that shows how much of your AI coding allowance is left.">
+<meta name="color-scheme" content="light dark">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #16181d;
+    --muted: #5c6270;
+    --rule: #e3e5ea;
+    --card: #f6f7f9;
+    --link: #0b5cd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1014;
+      --fg: #e9ebf0;
+      --muted: #9aa1ae;
+      --rule: #23262d;
+      --card: #171a20;
+      --link: #7cb2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 3rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 34rem; margin: 0 auto; }
+  h1 { font-size: 2.25rem; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+  .tagline { font-size: 1.125rem; color: var(--muted); margin: 0 0 2.25rem; }
+  h2 { font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 2.25rem 0 0.75rem; font-weight: 600; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { border-top: 1px solid var(--rule); }
+  li:last-child { border-bottom: 1px solid var(--rule); }
+  li a { display: block; padding: 0.75rem 0.125rem; text-decoration: none; color: var(--link); }
+  li a:hover, li a:focus { text-decoration: underline; }
+  li a .sub { display: block; color: var(--muted); font-size: 0.875rem; }
+  .note {
+    background: var(--card);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin: 2.25rem 0 0;
+  }
+  footer { margin-top: 2rem; color: var(--muted); font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ammo</h1>
+  <p class="tagline">An iPhone app showing how much of your AI coding allowance is left.</p>
+
+  <h2>Links</h2>
+  <ul>
+    <li><a href="/ammo/privacy-policy/">Privacy Policy<span class="sub">What Ammo stores, and where it stays</span></a></li>
+    <li><a href="https://github.com/Brandon1138/ammo/issues">Support — GitHub Issues<span class="sub">github.com/Brandon1138/ammo/issues</span></a></li>
+    <li><a href="mailto:brandon.aron38@gmail.com">Support — Email<span class="sub">brandon.aron38@gmail.com</span></a></li>
+    <li><a href="https://github.com/Brandon1138/ammo">Source code<span class="sub">github.com/Brandon1138/ammo</span></a></li>
+  </ul>
+
+  <p class="note">Ammo is an independent app. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Anysphere, or OpenRouter.</p>
+
+  <footer>Made by Brandon Aron · Design by George Began-Mich</footer>
+</main>
+</body>
+</html>
