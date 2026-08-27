@@ -17,6 +17,16 @@ verdicts, and the operator work still outstanding live in
 [`docs/asset-resourcing.md`](../../../docs/asset-resourcing.md); this file is
 the per-file index.
 
+**Operator decision, 2026-08-27.** The four Anthropic and OpenAI/Codex files
+below ship as-is in the first submission, recorded as **operator-accepted
+(2026-08-27): ship as-is, nominative use + market precedent**. That is an
+operator-accepted risk backed by App Store market precedent, **not** vendor
+permission — neither vendor has granted anything or been asked. Every
+provenance finding in this file is unchanged: those four files remain
+**not-established**, the Claude glyph is still a LobeHub redraw, and the Codex
+glyphs are still icon extractions. Full reasoning and the precedent evidence:
+[`docs/asset-resourcing.md` § Operator decision (2026-08-27)](../../../docs/asset-resourcing.md#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+
 ## Index
 
 | Asset file | Source | Permission basis | Retrieved | Verdict |
@@ -25,10 +35,10 @@ the per-file index.
 | `logo-cursor-menu.imageset/cursor-menu.png` | same as above | same as above | 2026-08-26 | permitted-with-conditions |
 | `logo-cursor-monochrome.imageset/cursor-monochrome.png` | `cursor.com/brand` → `cursor-brand-assets.zip` → `General Logos/Cube/PNG/CUBE_2D_DARK.png` | same as above | 2026-08-26 | permitted-with-conditions |
 | `logo-openrouter.imageset/openrouter-color.svg` | `openrouter.ai/brand/logos/transparent/glyph/svg/glyph-volt.svg` | `openrouter.ai/brand` ("Every configuration of the OpenRouter mark, ready to use.") | 2026-08-26 | permitted-with-conditions |
-| `logo-claude.imageset/claudecode-color.svg` | **Not first-party.** Byte-identical path data to `@lobehub/icons-static-svg` `icons/claudecode-color.svg` | None recorded — Anthropic requires prior written permission | 2026-08-26 | **not-established** |
-| `logo-codex.imageset/codex.png` | **Not first-party.** Pixel-extracted from the shipped Codex app icon (pipeline removed in MIK-170) | None recorded — OpenAI publishes no Codex brand asset | 2026-08-26 | **not-established** |
-| `logo-codex-menu.imageset/codex-menu.png` | same as above | same as above | 2026-08-26 | **not-established** |
-| `logo-openai-monochrome.imageset/openai.svg` | **Not first-party.** Widely mirrored 41×41 OpenAI "Blossom" SVG; original download not identified | None recorded — official download is behind `brand.openai.com` login | 2026-08-26 | **not-established** |
+| `logo-claude.imageset/claudecode-color.svg` | **Not first-party.** Byte-identical path data to `@lobehub/icons-static-svg` `icons/claudecode-color.svg` | None recorded — Anthropic requires prior written permission | 2026-08-26 | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** |
+| `logo-codex.imageset/codex.png` | **Not first-party.** Pixel-extracted from the shipped Codex app icon (pipeline removed in MIK-170) | None recorded — OpenAI publishes no Codex brand asset | 2026-08-26 | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** |
+| `logo-codex-menu.imageset/codex-menu.png` | same as above | same as above | 2026-08-26 | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** |
+| `logo-openai-monochrome.imageset/openai.svg` | **Not first-party.** Widely mirrored 41×41 OpenAI "Blossom" SVG; original download not identified | None recorded — official download is behind `brand.openai.com` login | 2026-08-26 | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** |
 
 ---
 
@@ -96,7 +106,7 @@ the per-file index.
   `widgetRenderingMode == .accented` (`ProviderLogo.swift`, `imageRenderingMode`).
   See `docs/asset-resourcing.md` for the operator decision on that surface.
 
-## Anthropic / Claude — not established
+## Anthropic / Claude — provenance not established, operator-accepted 2026-08-27
 
 - **Correct URL:** <https://www.anthropic.com/legal/trademark-guidelines>
   (effective August 1, 2024), retrieved 2026-08-26, HTTP 200.
@@ -135,7 +145,7 @@ the per-file index.
 - **Permission request address:** marketing@anthropic.com (per the guidelines'
   "Inquiries/Press Releases" section).
 
-## OpenAI / Codex — not established
+## OpenAI / Codex — provenance not established, operator-accepted 2026-08-27
 
 - **Brand page:** <https://openai.com/brand> — live but returns HTTP 403 to
   scripted fetches; the text quoted below is from the Internet Archive capture

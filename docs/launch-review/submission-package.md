@@ -421,8 +421,9 @@ surface suggests sponsorship or endorsement. The app name, icon, and design are
 original, and the independence disclaimer appears in the description, the
 privacy policy, and the Review Notes.
 
-**Before answering Yes, read the recorded provenance — it is now mixed, not
-uniform.** The §L1 remediation has been carried out in part.
+**Before answering Yes, read the recorded provenance — it is mixed, not
+uniform, and the mixed part is now an accepted operator risk rather than an open
+question.** The §L1 remediation has been carried out in part.
 `Apps/iOS/Shared/SOURCES.md` is the per-file evidence index and
 `docs/asset-resourcing.md` holds the clause quotations, verified URLs, and
 per-provider verdicts (all retrieved 2026-08-26). Current state:
@@ -438,23 +439,38 @@ per-provider verdicts (all retrieved 2026-08-26). Current state:
   the OpenRouter mark, ready to use" and describes the Glyph variant as being
   for "avatars, favicons, small sizes". Permitted-with-conditions.
 - **Claude** (`logo-claude`) and **Codex / OpenAI** (`logo-codex`,
-  `logo-codex-menu`, `logo-openai-monochrome`) — **not-established.** Anthropic
-  grants logo use only "as specifically permitted by us and only in materials we
-  approve beforehand," supplies the image itself, and publishes no self-serve
-  kit; OpenAI gates its logo downloads behind a `brand.openai.com` login and
-  publishes no Codex mark at all. Neither could be re-sourced. Those files are
-  left in place with the verdict recorded rather than guessed at, and
-  `docs/asset-resourcing.md` carries the operator recommendation: request
-  written permission (partnercomms@openai.com / marketing@anthropic.com), or
-  swap those three imagesets for a neutral in-house monochrome monogram and keep
-  the plain-text provider names.
+  `logo-codex-menu`, `logo-openai-monochrome`) — provenance **not-established**;
+  **operator-accepted (2026-08-27): ship as-is, nominative use + market
+  precedent.** Anthropic grants logo use only "as specifically permitted by us
+  and only in materials we approve beforehand," supplies the image itself, and
+  publishes no self-serve kit; OpenAI gates its logo downloads behind a
+  `brand.openai.com` login and publishes no Codex mark at all. Neither could be
+  re-sourced, and that finding is unchanged — the files remain a LobeHub redraw
+  and shipped-icon extractions. The operator decided on 2026-08-27 to ship them
+  unchanged in the first submission as a recorded risk, on two bases: the
+  nominative/referential analysis above, and App Store market precedent (the
+  live listing **Limits: AI Usage Tracker**, developer Pranav Karthik
+  Mruthyunjayan, <https://apps.apple.com/us/app/limits-ai-usage-tracker/id6783130074>,
+  retrieved 2026-08-27, whose own screenshots show the Claude and Codex marks in
+  the same identify-the-user's-own-account role). **That precedent is evidence
+  that App Review has accepted this use; it is not, and must never be presented
+  as, permission from Anthropic or OpenAI.** The remedies stay on file in
+  `docs/asset-resourcing.md` if a vendor objects: request written permission
+  (partnercomms@openai.com / marketing@anthropic.com), or swap those imagesets
+  for a neutral in-house monochrome monogram and keep the plain-text provider
+  names.
 
 The *names* remain referential in every case, and both vendors' terms support
 that independently: Anthropic's Claude Code page permits accurately saying "in
 plain text" what your product works with, and OpenAI's guidelines restrict model
 names in app titles — which Ammo does not use. **The remaining exposure is the
-Claude and Codex glyph artwork, and that is operator judgment, recorded at §5
-gates 1–2.**
+Claude and Codex glyph artwork. That was operator judgment; it was exercised on
+2026-08-27 in favour of shipping as-is, and it is recorded at §5 gates 1–2 and
+in `docs/asset-resourcing.md` § "Operator decision (2026-08-27)". Content Rights
+is therefore answerable Yes now — Ammo asserts the rights it actually holds:
+original app name, icon, and design; user's own account data; and referential
+use of provider names and marks, with provenance disclosed in full rather than
+overstated.**
 
 The third-party *data* shown (the user's own usage figures) is fetched with the
 user's own credentials at the user's direction, and is the user's own account
@@ -497,27 +513,47 @@ paste-ready; everything below is an action only he can take.
 
 **Gates — do these before touching App Store Connect**
 
-1. **Partly done — evidence recorded, two verdicts outstanding.** Clause-level
+1. **Resolved 2026-08-27 — evidence recorded, decision recorded.** Clause-level
    brand/trademark evidence for all four providers is captured in
    `docs/asset-resourcing.md` (verified URLs, verbatim clauses, retrieved
    2026-08-26) and indexed per asset file in `Apps/iOS/Shared/SOURCES.md`. Note
    `https://www.anthropic.com/brand` 404s — the real page is
    `https://www.anthropic.com/legal/trademark-guidelines`. Verdicts: Cursor and
    OpenRouter permitted-with-conditions; Claude and OpenAI/Codex logos
-   **not-established**. Remaining operator judgment: either obtain written
-   permission from Anthropic (marketing@anthropic.com) and OpenAI
-   (partnercomms@openai.com), or exclude those glyphs per gate 2. This gate also
-   still covers provider **service/API** authorization, which is a separate
-   question from mark use and is not settled by the above.
-2. **Partly done.** The Cursor and OpenRouter glyphs have been re-sourced from
-   the vendors' own published brand assets and the source URL, clause, and
-   retrieval date are recorded in `Apps/iOS/Shared/SOURCES.md`. The Claude and
-   Codex/OpenAI glyphs could not be re-sourced — no vendor kit is publicly
-   available for either. Before answering Content Rights, decide those three
-   imagesets: ship them on written permission, or replace them with the neutral
-   monochrome monogram described in `docs/asset-resourcing.md` (a per-asset
-   change in `ProviderLogo.swift`, not a UI redesign). Do not answer Content
-   Rights until that decision is recorded.
+   provenance **not-established**, and **operator-accepted (2026-08-27): ship
+   as-is, nominative use + market precedent**. Evidence pointers:
+   - `docs/asset-resourcing.md` § "Operator decision (2026-08-27): Anthropic and
+     OpenAI marks ship as-is" — the decision, its two bases, and its scope.
+   - `docs/asset-resourcing.md` §§ "OpenAI / Codex" and "Anthropic / Claude" —
+     unchanged verbatim clause quotations and the unchanged not-established
+     provenance findings.
+   - `Apps/iOS/Shared/SOURCES.md` — the four affected rows (`logo-claude`,
+     `logo-codex`, `logo-codex-menu`, `logo-openai-monochrome`) carry the same
+     verdict wording.
+   - §4 "Content Rights" above — the nominative-use analysis and the market
+     precedent listing (Limits: AI Usage Tracker, developer Pranav Karthik
+     Mruthyunjayan, retrieved 2026-08-27).
+
+   **State the risk accurately if asked:** this is operator acceptance backed by
+   App Store precedent, **not** permission from Anthropic or OpenAI. Neither
+   vendor has been asked or has replied. If a reviewer or a vendor challenges
+   the artwork, the recorded remedies are to request written permission
+   (marketing@anthropic.com / partnercomms@openai.com) or to swap those
+   imagesets for the neutral in-house monogram. This gate also still covers
+   provider **service/API** authorization, which is a separate question from
+   mark use and is **not** settled by the above.
+2. **Resolved 2026-08-27.** The Cursor and OpenRouter glyphs have been
+   re-sourced from the vendors' own published brand assets and the source URL,
+   clause, and retrieval date are recorded in `Apps/iOS/Shared/SOURCES.md`. The
+   Claude and Codex/OpenAI glyphs could not be re-sourced — no vendor kit is
+   publicly available for either — and the operator decided on 2026-08-27 to
+   ship them unchanged rather than swap in the neutral monochrome monogram. The
+   monogram fallback described in `docs/asset-resourcing.md` stays on file as
+   the remedy, unimplemented. The same decision accepts the accented-widget tint
+   (`docs/asset-resourcing.md` § "Accented-widget tinting vs don't recolor",
+   option (c)): iOS applies accented rendering system-wide to all widget
+   content, so it is system presentation rather than an Ammo redesign of a
+   vendor mark. **Content Rights is answerable now** — see step 19.
 3. Decide EU Digital Services Act trader/non-trader status in App Store Connect
    and complete verification if required. If unresolved, exclude EU storefronts
    rather than guessing.
@@ -534,9 +570,25 @@ paste-ready; everything below is an action only he can take.
    choosing the release build. Do not assume build 18 remains available.
 8. Run archive, entitlement, privacy-report, device, live-contract, widget, and
    accessibility passes on the exact release-candidate commit. Reuse no older proof.
+   **Partly done 2026-08-27 on base commit
+   `b8e19b71affef8a97b781c242592cd0de9704213`** — SwiftPM tests, Simulator
+   tests, Release archive, App Store export, app and widget entitlements,
+   `ITSAppUsesNonExemptEncryption`, and both packaged `PrivacyInfo.xcprivacy`
+   files are recorded in
+   [`gate-8-build-verification-20260827.md`](gate-8-build-verification-20260827.md).
+   **Still operator-only:** the physical-device pass, the live four-provider
+   contract check against real accounts, the widget pass, and the accessibility
+   pass. Redo all of it if the release candidate moves off that commit.
 9. Capture fresh native App Store screenshots from that exact candidate. Existing
    build-13 captures and any pre-remediation build-17 captures are not final.
    Check that no credential, personal label, or unrelated device bezel appears.
+   **Done 2026-08-27 for the 6.9-inch class** from the same base commit —
+   four 1320 x 2868 PNGs in `Screenshots/appstore/6.9-inch/`, named
+   `ammo-6.9-inch-build18-*`, captured in demo mode with a normalised status
+   bar; manifest in that directory's `README.md`, verification in
+   [`gate-8-build-verification-20260827.md`](gate-8-build-verification-20260827.md).
+   The superseded unversioned set was deleted. Re-capture if the release
+   candidate moves off that commit.
 
 **App Store Connect entry, in order**
 
@@ -552,7 +604,11 @@ paste-ready; everything below is an action only he can take.
     preview reads **Data Not Collected**. Do not declare User ID.
 17. Complete the DSA declaration/storefront decision from gate 3.
 18. Age rating: answer per §4 and confirm **4+**.
-19. Content Rights: answer only after gates 1–2 are resolved.
+19. Content Rights: answer **Yes** per §4. Gates 1–2 are resolved (2026-08-27);
+    the supporting evidence is `docs/asset-resourcing.md` and
+    `Apps/iOS/Shared/SOURCES.md`. If App Review asks for mark authorization,
+    hand over those files as-is — they disclose the not-established provenance
+    rather than claiming permission.
 20. Upload the exact archive, wait for processing, and resolve every validation
     warning, including any `ITMS-91053` required-reason warning.
 21. Attach the processed build and confirm its displayed marketing version,
