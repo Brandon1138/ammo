@@ -208,17 +208,19 @@ leading toolbar. The fourth screenshot is that sheet presented over Usage.
 
 These are gate-8 items this log deliberately does **not** claim:
 
-1. **Physical-device pass.** Everything above is Simulator plus a generic-iOS
-   archive. No build was installed on hardware.
+1. **Physical-device pass**, which carries the widget and accessibility checks
+   with it. Everything above is Simulator plus a generic-iOS archive; no build
+   was installed on hardware. Two checks belong to that one pass and are
+   likewise unverified here: **widget on a real Home Screen** — the widget is
+   only verified above as a packaged, entitled, privacy-manifested `.appex` in
+   §4, never placed — and the **accessibility sweep** (Dynamic Type, VoiceOver,
+   contrast).
 2. **Live four-provider contract check.** No real Claude, Codex, Cursor, or
    OpenRouter credential was used; every screen in §5 is demo fixture data, and
    no provider endpoint was contacted.
-3. **Widget pass.** No widget was placed on a Home Screen; the widget was only
-   verified as a packaged, entitled, privacy-manifested `.appex` in §4.
-4. **Accessibility pass** (Dynamic Type, VoiceOver, contrast).
-5. **App Store Connect build-number query.** Build 18 is what this commit
+3. **App Store Connect build-number query.** Build 18 is what this commit
    produces; whether 18 is still free in App Store Connect is unknown here.
-6. **Upload.** Nothing was uploaded to App Store Connect. The IPA in §3 was
+4. **Upload.** Nothing was uploaded to App Store Connect. The IPA in §3 was
    exported to a scratch directory outside the repository and is not committed.
 
 ---

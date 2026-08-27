@@ -576,9 +576,11 @@ paste-ready; everything below is an action only he can take.
    `ITSAppUsesNonExemptEncryption`, and both packaged `PrivacyInfo.xcprivacy`
    files are recorded in
    [`gate-8-build-verification-20260827.md`](gate-8-build-verification-20260827.md).
-   **Still operator-only:** the physical-device pass, the live four-provider
-   contract check against real accounts, the widget pass, and the accessibility
-   pass. Redo all of it if the release candidate moves off that commit.
+   **Still operator-only:** the physical-device pass — which carries the
+   widget-on-Home-Screen check and the accessibility sweep (Dynamic Type,
+   VoiceOver, contrast) with it — and the live four-provider contract check
+   against real accounts. Redo all of it if the release candidate moves off that
+   commit.
 9. Capture fresh native App Store screenshots from that exact candidate. Existing
    build-13 captures and any pre-remediation build-17 captures are not final.
    Check that no credential, personal label, or unrelated device bezel appears.
