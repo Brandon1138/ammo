@@ -7,12 +7,14 @@ extracted from a competitor's or partner's shipped app icon — see
 for why the previous `Apps/iOS/Assets/Official/*.png` +
 `Scripts/extract-provider-glyphs.py` pipeline was removed (MIK-170).
 
-**Status: partially resolved.** Every URL below was retrieved live on
-**2026-08-26** and is no longer "operator-verify". Cursor and OpenRouter glyphs
-have been re-sourced from the vendors' own published brand assets. Anthropic
-and OpenAI/Codex could not be resolved — both are marked **not-established**
-below with a concrete operator recommendation. The per-file evidence index that
-App Review gets pointed at is
+**Status: closed for the first submission.** Every URL below was retrieved live
+on **2026-08-26** and is no longer "operator-verify". Cursor and OpenRouter
+glyphs have been re-sourced from the vendors' own published brand assets.
+Anthropic and OpenAI/Codex could not be resolved: their provenance findings are
+**not-established** and stay that way. On **2026-08-27** the operator decided to
+ship both marks as-is anyway, as a recorded risk — see
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+The per-file evidence index that App Review gets pointed at is
 [`Apps/iOS/Shared/SOURCES.md`](../Apps/iOS/Shared/SOURCES.md).
 
 **Ammo's specific use, which every verdict below is measured against:** a
@@ -25,10 +27,65 @@ subtitle, keywords, or its own branding.
 
 | Provider | Brand-guideline URL (verified 2026-08-26) | Name labels | Logo | Assets |
 |---|---|---|---|---|
-| OpenAI / Codex | `openai.com/brand` (live, 403 to scripted fetch; read via Internet Archive) | permitted-with-conditions | **not-established** | left in place |
-| Anthropic / Claude | `anthropic.com/legal/trademark-guidelines` (guessed `/brand` **404s**) | permitted-with-conditions | **not-established** | left in place |
+| OpenAI / Codex | `openai.com/brand` (live, 403 to scripted fetch; read via Internet Archive) | permitted-with-conditions | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** | left in place |
+| Anthropic / Claude | `anthropic.com/legal/trademark-guidelines` (guessed `/brand` **404s**) | permitted-with-conditions | provenance **not-established**; **operator-accepted (2026-08-27): ship as-is, nominative use + market precedent** | left in place |
 | Cursor (Anysphere) | `cursor.com/brand` (live) | permitted-with-conditions | permitted-with-conditions | **re-sourced** |
 | OpenRouter | `openrouter.ai/brand` (live) | permitted-with-conditions | permitted-with-conditions | **re-sourced** |
+
+---
+
+## Operator decision (2026-08-27): Anthropic and OpenAI marks ship as-is
+
+**Decision.** The Claude glyph and the Codex/OpenAI glyphs ship unchanged in the
+first App Store submission. The recorded verdict wording, used identically here,
+in [`Apps/iOS/Shared/SOURCES.md`](../Apps/iOS/Shared/SOURCES.md) and in
+[`docs/launch-review/submission-package.md`](launch-review/submission-package.md),
+is: **operator-accepted (2026-08-27): ship as-is, nominative use + market
+precedent.**
+
+**This is an operator-accepted risk, recorded with precedent. It is not vendor
+permission.** Neither Anthropic nor OpenAI has granted anything, has been asked,
+or has replied. Every provenance finding in this document stands exactly as
+written and is not softened by the decision: the Claude file is a LobeHub
+third-party redraw, the Codex files remain pixel extractions from the shipped
+Codex app icon, the Blossom cannot be traced to a first-party download, and all
+three remain **not-established**. The decision accepts that exposure for
+submission; it does not resolve it. The "Ask" and "neutral monogram" operator
+recommendations below stay live and are the remedy if a vendor objects.
+
+**Basis 1 — nominative/referential use.** The use analysed in
+[`docs/launch-review/submission-package.md`](launch-review/submission-package.md)
+§4 "Content Rights": a 20–28 pt glyph plus the provider's plain-text name,
+identifying which of the *user's own* accounts a row belongs to, with no
+provider mark in Ammo's app name, icon, subtitle, or keywords, and an explicit
+independence statement in the description, privacy policy, and Review Notes.
+
+**Basis 2 — market precedent on the App Store itself.**
+
+- **Listing URL:** <https://apps.apple.com/us/app/limits-ai-usage-tracker/id6783130074>
+- **App name:** Limits: AI Usage Tracker (Apple ID `6783130074`, bundle id
+  `com.pranavkarthik.Limits`). "GetLimits" is the product's domain
+  (`getlimits.app`), not its App Store listing name; the listing was located by
+  resolving that domain and confirmed against the iTunes Lookup API.
+- **Developer name (as published by Apple):** Pranav Karthik Mruthyunjayan
+- **Retrieved:** 2026-08-27 (HTTP 200; listing live, version 1.0.8 dated
+  2026-08-26, category Developer Tools, age rating 4+)
+- **What the listing shows:** the live App Store product page for a shipping,
+  currently-listed third-party AI usage tracker whose own screenshots display
+  the Anthropic Claude mark and the OpenAI Codex mark inside captured app and
+  widget UI, next to plain-text provider names, in the same identify-the-user's-
+  own-account role Ammo uses them for.
+- **What this precedent is worth:** it evidences that App Review has approved and
+  continues to list an app making this exact referential use of these two marks.
+  It is not a grant, it is not transferable, and Apple approving one app creates
+  no right against Anthropic or OpenAI, who can object independently of Apple at
+  any time.
+
+**Scope of the decision.** It covers (a) shipping `logo-claude`, `logo-codex`,
+`logo-codex-menu` and `logo-openai-monochrome` as-is, and (b) the accented-widget
+tint discussed under [Follow-up](#accented-widget-tinting-vs-dont-recolor),
+resolved as option (c). It does not cover Cursor or OpenRouter, which are
+re-sourced from first-party assets and need no such acceptance.
 
 ---
 
@@ -100,23 +157,31 @@ in Ammo's app name/subtitle/keywords; no model names in the app title; the mark
 is not more prominent than Ammo's own name; an explicit independence statement
 is in the description, privacy policy, and Review Notes.
 
-**Verdict — Codex logo (`logo-codex`, `logo-codex-menu`): not-established.**
-Two independent failures: (a) OpenAI publishes no Codex brand asset at all, so
-there is nothing to re-source from, and the current files remain the pixel
-extraction from the shipped Codex app icon; (b) the only route to a
-first-party OpenAI logo file is the `brand.openai.com` login. "Use the logo
+**Verdict — Codex logo (`logo-codex`, `logo-codex-menu`): operator-accepted
+(2026-08-27): ship as-is, nominative use + market precedent.** See
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+The provenance finding underneath that decision is unchanged and remains
+**not-established**. Two independent failures: (a) OpenAI publishes no Codex
+brand asset at all, so there is nothing to re-source from, and the current files
+remain the pixel extraction from the shipped Codex app icon; (b) the only route
+to a first-party OpenAI logo file is the `brand.openai.com` login. "Use the logo
 without permission" is an explicit Don't.
 
 **Verdict — OpenAI Blossom (`logo-openai-monochrome/openai.svg`):
-not-established.** The file matches the widely mirrored public 41×41 Blossom
+operator-accepted (2026-08-27): ship as-is, nominative use + market
+precedent.** See
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+The provenance finding underneath that decision is unchanged and remains
+**not-established**. The file matches the widely mirrored public 41×41 Blossom
 SVG but cannot be traced to a first-party download, and the first-party
 download is behind the same login. Separately, Ammo renders it as a **template**
 on non-full-colour surfaces (`ProviderLogo.swift` → `imageRenderingMode`), which
 recolours it — read against "DON'T add any colors to the Blossom" and "modify it
 in any way."
 
-**Operator recommendation.** Do not ship a guess. Two options, in order of
-preference:
+**Operator recommendation (not taken for the first submission — see
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is);
+still the remedy if a vendor objects).** Two options, in order of preference:
 
 1. **Ask.** Email partnercomms@openai.com describing the exact use (a 20 pt
    glyph beside the word "Codex", labelling the user's own OpenAI account in a
@@ -190,7 +255,11 @@ out of Ammo's product/feature/company name and logo (satisfied), and never imply
 Anthropic built or endorses Ammo (satisfied).
 
 **Verdict — Claude logo (`logo-claude/claudecode-color.svg`):
-not-established.** Anthropic's guidelines are permission-first: use is allowed
+operator-accepted (2026-08-27): ship as-is, nominative use + market
+precedent.** See
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+The provenance finding underneath that decision is unchanged and remains
+**not-established**. Anthropic's guidelines are permission-first: use is allowed
 only "as specifically permitted by us and only in materials we approve
 beforehand," Anthropic supplies the image file, and no alterations are
 permitted. There is no published self-serve grant, and the plain-text carve-out
@@ -210,7 +279,9 @@ third-party icon-library redraw of the mark.
 asset is left in place per the "do not ship a guess" rule, with the verdict
 recorded rather than papered over.
 
-**Operator recommendation.**
+**Operator recommendation (not taken for the first submission — see
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is);
+still the remedy if a vendor objects).**
 
 1. **Ask.** Email marketing@anthropic.com describing the exact use and
    requesting written permission plus the trademark image file and its size /
@@ -405,8 +476,18 @@ smallest first: (a) switch the non-Cursor branch to
 one line, but the glyph then reads as a colour intrusion in a monochrome accented
 widget; (b) omit provider glyphs from widget surfaces and keep the plain-text
 provider name there; (c) accept the tint as de-minimis system-level styling and
-record the reasoning. Not decided here — it changes widget appearance, which is
-outside the scope of a provenance fix.
+record the reasoning.
+
+**Decided 2026-08-27: option (c), accepted.** Same operator decision as the
+marks themselves — see
+[Operator decision (2026-08-27)](#operator-decision-2026-08-27-anthropic-and-openai-marks-ship-as-is).
+Reasoning recorded: accented rendering is iOS's own system-wide widget
+presentation mode, applied by the OS to *all* content in the widget, not an
+Ammo redesign of a vendor mark and not a colour Ammo chose. The tension with
+"don't recolor" and "DON'T add any colors to the Blossom" is real and is
+accepted as-is, not resolved. Option (a) — one line to
+`.widgetAccentedRenderingMode(.fullColor)` — remains the cheapest remedy if a
+vendor objects.
 
 ### Re-check triggers
 
