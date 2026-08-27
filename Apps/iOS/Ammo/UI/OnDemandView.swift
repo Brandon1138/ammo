@@ -9,6 +9,7 @@ struct OnDemandView: View {
     @State private var storefrontCountryCode: String?
     @State private var billingAvailability = CodexWorkspaceBillingAvailability.checking
     @State private var isConfirmingWorkspaceBilling = false
+    @State private var presentedSheet: AmmoTabSheet?
 
     var body: some View {
         NavigationStack {
@@ -33,7 +34,7 @@ struct OnDemandView: View {
                     accountList
                 }
             }
-            .navigationTitle("On-demand")
+            .ammoTabHeader(sheet: $presentedSheet)
             .confirmationDialog(
                 "Update workspace balance",
                 isPresented: $isConfirmingWorkspaceBilling,

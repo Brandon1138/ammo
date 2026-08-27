@@ -127,7 +127,7 @@ struct ContentView: View {
 
 private struct UsageView: View {
     @Environment(AccountStore.self) private var store
-    @State private var presentedSheet: UsageSheet?
+    @State private var presentedSheet: AmmoTabSheet?
     let openOnDemand: () -> Void
     let openHistory: (UUID, String) -> Void
 
@@ -140,57 +140,7 @@ private struct UsageView: View {
                     accountList
                 }
             }
-            .navigationTitle("Ammo")
-            .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Image("AmmoLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 116, height: 25)
-                        .accessibilityLabel("Ammo")
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        presentedSheet = .settings
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if store.isDemoMode {
-                        Button("Exit Demo") { store.disableDemoMode() }
-                    } else {
-                        Menu {
-                            ForEach(ProviderID.supported) { provider in
-                                Button {
-                                    presentedSheet = .addProvider(provider)
-                                } label: {
-                                    Label {
-                                        Text(provider.displayName)
-                                    } icon: {
-                                        ProviderLogo(provider: provider, size: 16, role: .menu)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Add Account", systemImage: "plus")
-                        }
-                    }
-                }
-            }
-            .sheet(item: $presentedSheet) { sheet in
-                switch sheet {
-                case .settings:
-                    SettingsView()
-                case .reorder:
-                    ReorderAccountsView()
-                case .addProvider(let provider):
-                    ProviderSignInSheet(provider: provider)
-                case .reconnect(let account):
-                    ProviderSignInSheet(provider: account.provider, reconnecting: account)
-                }
-            }
+            .ammoTabHeader(sheet: $presentedSheet)
         }
     }
 
@@ -236,27 +186,6 @@ private struct UsageView: View {
                 await store.refreshAll(reason: .manual)
             }
             .listSectionSpacing(.custom(10))
-        }
-    }
-}
-
-private enum UsageSheet: Identifiable {
-    case settings
-    case reorder
-    case addProvider(ProviderID)
-    /// Re-runs the provider's add flow against an account that already exists.
-    case reconnect(StoredAccount)
-
-    var id: String {
-        switch self {
-        case .settings:
-            "settings"
-        case .reorder:
-            "reorder"
-        case .addProvider(let provider):
-            "add-\(provider.rawValue)"
-        case .reconnect(let account):
-            "reconnect-\(account.id.uuidString)"
         }
     }
 }
