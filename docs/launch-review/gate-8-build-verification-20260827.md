@@ -4,16 +4,27 @@ Evidence log for `docs/launch-review/submission-package.md` §5 gates 8 and 9.
 Everything below was run on **2026-08-27** against one commit and one commit
 only.
 
-**Base commit:** `b8e19b71affef8a97b781c242592cd0de9704213`
-(`Merge pull request #42 from Brandon1138/claude/asc-settings-about-build18`)
-— the exact tip of `main` this branch was provisioned from. `MARKETING_VERSION`
-0.1.0, `CURRENT_PROJECT_VERSION` 18.
+**Source commit under test:** `1ddf60cbd59ea5e5b208ea292f730fdd46fcd2fe`
+(`feat(ui): give every tab the same compact Ammo header`) — the tip of
+`unify-tab-header-20260827`, itself cut from
+`7ff1837c5f7bd0c0d0793573fa11ffd612b11499`
+(`Merge pull request #43 from Brandon1138/appstore-gates-20260827`).
+`MARKETING_VERSION` 0.1.0, `CURRENT_PROJECT_VERSION` 18, both unchanged by that
+commit.
 
-**This PR changes documentation and screenshots only.** No source, no
-`project.yml`, no asset, and no package manifest is touched, so the binary
-verified here is bit-for-bit the binary that `main` produces after this PR
-merges. If any source lands on `main` afterwards, every result below is void and
-gate 8 must be re-run.
+**Why this log was re-run.** The previous edition of this file verified
+`b8e19b71affef8a97b781c242592cd0de9704213` and stated that any later source
+change voids it. `1ddf60c` is a source change — it unifies the Usage, On-demand,
+and History top chrome — so every §1–§5 result below was produced again, from
+that one commit, and nothing is carried over.
+
+**This PR's two commits.** `1ddf60c` is source only: five Swift files, no
+`project.yml`, no asset, no package manifest, no build number. The commit that
+follows it changes **only** this file and the four PNGs plus README under
+`Screenshots/appstore/6.9-inch/`, so it cannot alter the binary or the captures
+described here — the artifact verified below is bit-for-bit what `main` produces
+after this PR merges. If any further source lands on `main` afterwards, every
+result below is void and gate 8 must be re-run.
 
 **Toolchain.**
 
@@ -62,12 +73,16 @@ xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo \
 | Check | Result |
 |---|---|
 | Build of `Ammo`, `AmmoWidgets`, `AmmoTests` for the Simulator | **PASS** |
-| Swift Testing run | **PASS** — `Test run with 166 tests in 23 suites passed after 4.976 seconds` |
+| Swift Testing run | **PASS** — `Test run with 168 tests in 24 suites passed after 4.786 seconds` |
 | xcodebuild verdict | **PASS** — `** TEST SUCCEEDED **` |
 | Failures | none |
 
-The count differs from §1 (166 vs 208) because the app-target test bundle runs a
-subset of the package suites plus the app-only suites; both runs are green.
+The count differs from §1 (168 vs 208) because the app-target test bundle runs a
+subset of the package suites plus the app-only suites; both runs are green. It
+also differs from the previous edition of this log (168 in 24 suites, was 166 in
+23) by exactly the two tests in the one suite `1ddf60c` adds,
+`TabHeaderConsistencyTests`, which pin the shared header's demo-mode trailing
+action and its single sheet route.
 
 ## 3. Release / archive checks
 
@@ -88,7 +103,7 @@ xcodebuild -exportArchive -archivePath <scratch>/Ammo.xcarchive \
 |---|---|
 | Release archive for `generic/platform=iOS` | **PASS** — `** ARCHIVE SUCCEEDED **` |
 | App Store export | **PASS** — `** EXPORT SUCCEEDED **` |
-| Exported artifact | `Ammo.ipa`, 8,605,356 bytes, `sha256 7f2d97f990fae1464ccd994aaf972564452b73d7070b16d0a3e2778b2f32211d` |
+| Exported artifact | `Ammo.ipa`, 8,608,202 bytes, `sha256 a9143242cbab718b318824184512ebf018cd156690ba07d87b12c84dfbdd2ec1` |
 
 **Signing identity differs between the two artifacts, and this matters.**
 
@@ -156,9 +171,11 @@ environment failure occurred during them.
 
 ## 5. App Store screenshots (gate 9)
 
-Captured from the **same base commit**, `b8e19b71affef8a97b781c242592cd0de9704213`,
+Captured from the **same source commit**, `1ddf60cbd59ea5e5b208ea292f730fdd46fcd2fe`,
 from a Release `iphonesimulator` build of the `Ammo` scheme installed on iPhone
-17 Pro Max, iOS 27.0 (UDID `373491EF-27BF-47DE-AD44-3FF77675C8FC`).
+17 Pro Max, iOS 27.0 (UDID `373491EF-27BF-47DE-AD44-3FF77675C8FC`). The app was
+uninstalled first, so the empty state — and therefore **See a demo** — was
+reached from a genuinely clean install rather than from a leftover marker.
 
 **Method.** Status bar normalised with
 `xcrun simctl status_bar <udid> override --time 9:41 --dataNetwork wifi
@@ -170,19 +187,40 @@ device class, so no carrier string appears. Demo mode was entered by tapping
 was pinned to `en_US` with the standard `-AppleLocale` / `-AppleLanguages`
 launch arguments, so currency renders `$82.00` rather than the host machine's
 Romanian regional format. Taps were driven by a throwaway XCUITest bundle kept
-entirely outside this repository; nothing was added to the project to make the
-capture possible. Frames are unretouched `XCUIScreen.main.screenshot()` output —
-no cropping, resizing, upscaling, compositing, or device framing.
+entirely outside this repository, in a scratch directory; nothing was added to
+the project to make the capture possible. Frames are unretouched
+`XCUIScreen.main.screenshot()` output — no cropping, resizing, upscaling,
+compositing, or device framing.
+
+**Header assertions ran with the capture.** The same throwaway bundle asserted,
+on Usage *and* On-demand *and* History before each frame, that the Settings
+button, the `Ammo`-labelled logo, and the demo-mode `Exit Demo` action all exist,
+and that no navigation bar still draws a large typed `Usage`, `On-demand`, or
+`History` title. All three screens passed; the run reported
+`** TEST SUCCEEDED **`. The frames below are what those assertions saw.
 
 **Files**, all in `Screenshots/appstore/6.9-inch/`, all verified with
 `sips -g pixelWidth -g pixelHeight`:
 
 | File | Dimensions | Portrait | Screen |
 |---|---|---|---|
-| `ammo-6.9-inch-build18-01-usage.png` | 1320 x 2868 | yes | Usage — Codex / Claude / Cursor sample accounts |
-| `ammo-6.9-inch-build18-02-on-demand.png` | 1320 x 2868 | yes | On-demand — sample personal limits |
-| `ammo-6.9-inch-build18-03-history.png` | 1320 x 2868 | yes | History — sample weekly activity heatmap and chart |
+| `ammo-6.9-inch-build18-01-usage.png` | 1320 x 2868 | yes | Usage — shared header, Codex / Claude / Cursor sample accounts |
+| `ammo-6.9-inch-build18-02-on-demand.png` | 1320 x 2868 | yes | On-demand — shared header, sample personal limits |
+| `ammo-6.9-inch-build18-03-history.png` | 1320 x 2868 | yes | History — shared header, sample weekly activity heatmap and chart |
 | `ammo-6.9-inch-build18-04-settings.png` | 1320 x 2868 | yes | Settings sheet — per-provider notification toggles |
+
+All four were re-captured and written over the build 18 files of the same name
+captured from `b8e19b71affef8a97b781c242592cd0de9704213`. The filenames are
+unchanged. On-demand and History now show the same compact chrome as Usage —
+gear, Ammo logo, `Exit Demo` while the demo is on — where they previously showed
+a large `On-demand` / `History` title and no toolbar at all.
+
+Three of the four changed on disk; the fourth did not. The new
+`ammo-6.9-inch-build18-04-settings.png` came out **byte-identical** to the
+committed one (blob `b9921d35dc84b63e7411324d2ee00b57537b8ec8`), because the
+Settings sheet renders nothing time-dependent, so git records no change to it.
+It was captured from `1ddf60c` all the same. `01-usage.png` differs only in its
+relative "Updated N sec ago" line.
 
 `sips` verification: **4 of 4 PASS**, exactly 1320 x 2868 portrait PNG each.
 
@@ -199,8 +237,9 @@ Settings About section landed. They were deleted so the wrong set cannot be
 uploaded; git history retains them.
 
 **Settings is a sheet, not a tab.** Ammo's tab bar has three tabs (Usage,
-On-demand, History); Settings opens from the gear button in the Usage screen's
-leading toolbar. The fourth screenshot is that sheet presented over Usage.
+On-demand, History); Settings opens from the gear button in the shared leading
+toolbar, which as of `1ddf60c` is present on all three tabs rather than on Usage
+alone. The fourth screenshot is that sheet presented over Usage, as before.
 
 ---
 
@@ -242,3 +281,5 @@ plutil -p /tmp/ipa-unzip/Payload/Ammo.app/PrivacyInfo.xcprivacy
 ```
 
 Re-run all of it on any new release-candidate commit. Reuse no proof above.
+This edition is itself an instance of that rule: `1ddf60c` changed source, so
+every number above was regenerated rather than inherited.
