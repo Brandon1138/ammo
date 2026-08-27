@@ -19,8 +19,8 @@ restored.
 | File | Device | Resolution | Content |
 | --- | --- | --- | --- |
 | `ammo-6.9-inch-build18-01-usage.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Usage tab with Codex, Claude, and Cursor sample accounts |
-| `ammo-6.9-inch-build18-02-on-demand.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | On-demand tab with sample personal limits |
-| `ammo-6.9-inch-build18-03-history.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | History tab with sample weekly activity heatmap and chart |
+| `ammo-6.9-inch-build18-02-on-demand.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | On-demand tab with sample personal limits, under the shared header |
+| `ammo-6.9-inch-build18-03-history.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | History tab with sample weekly activity heatmap and chart, under the shared header |
 | `ammo-6.9-inch-build18-04-settings.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Settings sheet: notification toggles per provider |
 
 The previous unversioned set (`01-usage.png` … `04-settings.png`) was captured
@@ -31,10 +31,12 @@ holds it.
 
 ## Capture and privacy notes
 
-- Captured from base commit `b8e19b71affef8a97b781c242592cd0de9704213`
-  (`MARKETING_VERSION` 0.1.0, `CURRENT_PROJECT_VERSION` 18), the exact commit
-  this branch was provisioned from, after `xcodegen generate` and a Release
-  `iphonesimulator` build of the `Ammo` scheme.
+- Captured from source commit `1ddf60cbd59ea5e5b208ea292f730fdd46fcd2fe`
+  (`MARKETING_VERSION` 0.1.0, `CURRENT_PROJECT_VERSION` 18), the source-only
+  commit of this branch, after `xcodegen generate` and a Release
+  `iphonesimulator` build of the `Ammo` scheme. The docs-and-screenshots commit
+  that carries these files does not touch source, so it cannot change what they
+  show.
 - Demo mode supplied every visible account and data point, entered by tapping
   **See a demo** in the empty state. No credentials, network requests, real
   account files, token, personal label, or account identifier appears in the
@@ -52,5 +54,23 @@ holds it.
   simulator Home Screen and system Home Screen widget placement is not
   reachable from the automation bridge. A widget shot, if wanted, is a device
   capture task.
+
+## Shared header (build 18, `1ddf60c`)
+
+All four frames were re-captured because Usage, On-demand, and History now draw
+one compact top bar: Settings gear leading, Ammo logo centred, Add Account
+trailing — `Exit Demo` in place of Add Account while the demo is on. The
+previous build 18 frames of the same filenames showed a large `On-demand` /
+`History` title and no toolbar on those two tabs. Filenames are unchanged so
+nothing downstream has to be re-pointed.
+
+Three of the four changed on disk. `04-settings.png` came out byte-identical to
+its predecessor — the Settings sheet renders nothing time-dependent — so git
+shows no change to that one file even though it was captured from `1ddf60c` with
+the rest.
+
+The capture run asserted on each of the three tabs that Settings, the
+`Ammo`-labelled logo, and `Exit Demo` are present and that no large typed title
+remains, and passed on all three.
 
 Evidence log: `docs/launch-review/gate-8-build-verification-20260827.md`.

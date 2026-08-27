@@ -31,7 +31,7 @@ struct HistoryView: View {
     @Binding var selection: HistorySelection
     @State private var range: HistoryRange = .week
     @State private var selectedTrendDate: Date?
-    @State private var presentedSheet: HistorySheet?
+    @State private var presentedSheet: AmmoTabSheet?
 
     var body: some View {
         NavigationStack {
@@ -46,19 +46,13 @@ struct HistoryView: View {
                     }
                 }
             }
-            .navigationTitle("History")
+            .ammoTabHeader(sheet: $presentedSheet)
             .onAppear {
                 store.reloadHistory()
                 normalizeSelection()
             }
             .onChange(of: store.states.map(\.id)) { _, _ in
                 normalizeSelection()
-            }
-            .sheet(item: $presentedSheet) { sheet in
-                switch sheet {
-                case .reconnect(let account):
-                    ProviderSignInSheet(provider: account.provider, reconnecting: account)
-                }
             }
         }
     }
@@ -316,16 +310,6 @@ private struct ActivityHistorySection: View {
 
 /// Repairs an expired provider session under the same account id, mirroring
 /// the account menu's "Sign In Again" on Usage — history stays attached.
-private enum HistorySheet: Identifiable {
-    case reconnect(StoredAccount)
-
-    var id: UUID {
-        switch self {
-        case .reconnect(let account): account.id
-        }
-    }
-}
-
 private enum HistoryRange: String, CaseIterable, Identifiable {
     case day = "24H"
     case week = "7D"
