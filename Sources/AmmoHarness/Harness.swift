@@ -53,6 +53,10 @@ struct Harness {
             print("CLAUDE HTTP \(status)")
             let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let block = response?["cedar_ember"] ?? NSNull()
+            let cedar = block as? [String: Any]
+            let eligible = (cedar?["eligible"] as? Bool).map(String.init) ?? "null"
+            let reason = cedar?["ineligible_reason"] as? String ?? "null"
+            print("CLAUDE cedar_ember eligible=\(eligible) ineligible_reason=\(reason)")
             let pretty = try JSONSerialization.data(
                 withJSONObject: block,
                 options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]

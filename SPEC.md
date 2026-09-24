@@ -243,32 +243,34 @@ disabled entry rather than treating the field as absent.
   "at_limit": false,
   "exhausted": ["five_hour"],
   "grants": [{
-    "id": "grant-id", "label": "Banked reset", "resets_total": 2,
+    "id": "<grant id>", "label": "Banked reset", "resets_total": 2,
     "resets_left": 1, "starts_at": null, "ends_at": "2026-10-01T00:00:00Z",
     "clears": ["five_hour"], "paused": false, "usable_now": true,
     "use_requires_limit": true, "percent_used": {"five_hour": 100},
     "blocking": []
   }],
   "next_grant_id": null, "weekly_resets_at": null,
-  "cooldown_until": null, "event_props": null
+  "cooldown_until": null, "event_props": { "surface": "claude_code_cli" }
 }
 ```
 
 Fields may be absent. Limit keys: `five_hour`, `seven_day`,
 `seven_day_overage_included`, `seven_day_opus`, `seven_day_sonnet`,
 `seven_day_cowork`, `seven_day_omelette`, `seven_day_oauth_apps`.
-Observed `ineligible_reason` values: `config_off`, `tier`, `seat`, `mobile`,
+`ineligible_reason` values declared by CLI 2.1.280: `config_off`, `tier`, `seat`, `mobile`,
 `surface`, `cli_version`, `no_grant`, `tenure`, `other_experiment`,
-`unavailable`, `unknown`. Malformed grants are skipped. When eligible and
-grants exist, sum `resets_left` from unpaused grants; expose a positive sum,
-earliest non-null `ends_at`, and whether any unpaused grant has `usable_now`.
+`unavailable`, `unknown`; only `surface` was observed live. Malformed grants are
+skipped. When eligible, sum `resets_left` from unpaused grants with
+`resets_left > 0`; use those same grants for earliest non-null `ends_at` and
+`usable_now`. Eligible with no such grants reports zero. ISO 8601 offsets
+`+00:00` and `Z` both parse.
 
 Server allowlists claude.ai and Claude Code CLI surfaces. Ammo's former headers
 returned `eligible:false` with `ineligible_reason:"surface"` on the operator's
 Max account. Operator approved the CLI surface headers above for the usage call
 only. VERIFIED 2026-09-24 (`swift run ammo-harness --raw-claude`): with those
 headers the same account answers `eligible: true`, `event_props.surface:
-"claude_code_cli"`, and one grant (`opus55-launch-promax-20260921`, `resets_left`
+"claude_code_cli"`, and one grant (`<grant id>`, `resets_left`
 1 of 1, `usable_now` true, `use_requires_limit` false, `ends_at`
 2026-10-22T16:00Z, `clears` five_hour + seven_day + seven_day_overage_included).
 The live grant also carried `arm: null` and `event_props.surface`, neither of

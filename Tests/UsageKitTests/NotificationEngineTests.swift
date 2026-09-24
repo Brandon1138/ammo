@@ -485,6 +485,33 @@ import Testing
         }
     }
 
+    @Test func preBankedSnapshotDoesNotTriggerGrantButReportedZeroDoes() throws {
+        for provider in [ProviderID.codex, .claude] {
+            let legacyJSON = """
+            {"provider":"\(provider.rawValue)","plan":null,"windows":[],
+             "fetchedAt":"2027-01-14T09:00:00Z"}
+            """
+            let legacy = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(legacyJSON.utf8))
+            #expect(legacy.bankedResets == nil)
+            let type: UsageNotificationType = provider == .codex ? .codexBankedReset : .claudeBankedReset
+            let current = snapshot(provider, weeklyUsed: 40,
+                                   weeklyReset: now.addingTimeInterval(86_400), banked: 1)
+
+            var unknownState = NotificationEngineState()
+            unknownState.lastSnapshots[accountID] = legacy
+            #expect(evaluate(current: current, preferences: enabledPreferences(),
+                             state: unknownState).request(type: type) == nil)
+
+            var zeroState = NotificationEngineState()
+            zeroState.lastSnapshots[accountID] = snapshot(provider, weeklyUsed: 40,
+                weeklyReset: now.addingTimeInterval(86_400), banked: 0,
+                fetchedAt: now.addingTimeInterval(-300))
+            #expect(zeroState.lastSnapshots[accountID]?.bankedResets?.count == 0)
+            #expect(evaluate(current: current, preferences: enabledPreferences(),
+                             state: zeroState).request(type: type) != nil)
+        }
+    }
+
     @Test func pendingEventsRetryAcrossRelaunchUntilAccepted() throws {
         var state = NotificationEngineState()
         state.lastSnapshots[accountID] = snapshot(
@@ -494,6 +521,7 @@ import Testing
             banked: 0,
             fetchedAt: now.addingTimeInterval(-300)
         )
+        #expect(state.lastSnapshots[accountID]?.bankedResets?.count == 0)
         let current = snapshot(
             .codex,
             weeklyUsed: 0,
@@ -571,7 +599,7 @@ import Testing
             provider: provider,
             plan: nil,
             windows: windows,
-            resetCreditsAvailable: banked,
+            bankedResets: banked.map { BankedResets(count: $0) },
             fetchedAt: fetchedAt ?? now
         )
     }

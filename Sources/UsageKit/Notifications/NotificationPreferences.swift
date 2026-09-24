@@ -32,14 +32,14 @@ extension NotificationPreferences {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self = .default
-        masterEnabled = try container.decode(Bool.self, forKey: .masterEnabled)
-        codexWeeklyReset = try container.decode(Bool.self, forKey: .codexWeeklyReset)
-        codexSpontaneousReset = try container.decode(Bool.self, forKey: .codexSpontaneousReset)
-        codexBankedReset = try container.decode(Bool.self, forKey: .codexBankedReset)
-        claudeBankedReset = try container.decodeIfPresent(Bool.self, forKey: .claudeBankedReset) ?? true
-        claudeSessionReset = try container.decode(Bool.self, forKey: .claudeSessionReset)
-        claudeWeeklyReset = try container.decode(Bool.self, forKey: .claudeWeeklyReset)
-        claudeSpontaneousReset = try container.decode(Bool.self, forKey: .claudeSpontaneousReset)
-        cursorMonthlyReset = try container.decode(Bool.self, forKey: .cursorMonthlyReset)
+        masterEnabled = try container.decodeIfPresent(Bool.self, forKey: .masterEnabled) ?? Self.default.masterEnabled
+        codexWeeklyReset = try container.decodeIfPresent(Bool.self, forKey: .codexWeeklyReset) ?? Self.default.codexWeeklyReset
+        codexSpontaneousReset = try container.decodeIfPresent(Bool.self, forKey: .codexSpontaneousReset) ?? Self.default.codexSpontaneousReset
+        codexBankedReset = try container.decodeIfPresent(Bool.self, forKey: .codexBankedReset) ?? Self.default.codexBankedReset
+        claudeBankedReset = try container.decodeIfPresent(Bool.self, forKey: .claudeBankedReset) ?? Self.default.claudeBankedReset
+        claudeSessionReset = try container.decodeIfPresent(Bool.self, forKey: .claudeSessionReset) ?? Self.default.claudeSessionReset
+        claudeWeeklyReset = try container.decodeIfPresent(Bool.self, forKey: .claudeWeeklyReset) ?? Self.default.claudeWeeklyReset
+        claudeSpontaneousReset = try container.decodeIfPresent(Bool.self, forKey: .claudeSpontaneousReset) ?? Self.default.claudeSpontaneousReset
+        cursorMonthlyReset = try container.decodeIfPresent(Bool.self, forKey: .cursorMonthlyReset) ?? Self.default.cursorMonthlyReset
     }
 }

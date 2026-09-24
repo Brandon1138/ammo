@@ -449,8 +449,8 @@ public enum UsageNotificationEngine {
         default:
             return
         }
-        let oldCount = previous.bankedResets?.count ?? 0
         guard preferences.isEnabled(type),
+              let oldCount = previous.bankedResets?.count,
               let newCount = current.bankedResets?.count,
               newCount > oldCount else {
             return

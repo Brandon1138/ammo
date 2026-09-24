@@ -282,7 +282,7 @@ struct UsageNotificationProcessorTests {
             provider: provider,
             plan: nil,
             windows: windows,
-            resetCreditsAvailable: banked,
+            bankedResets: banked.map { BankedResets(count: $0) },
             fetchedAt: fetchedAt
         )
     }

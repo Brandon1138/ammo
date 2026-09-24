@@ -191,6 +191,46 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
             count: 1, usableNow: false))
     }
 
+    @Test func eligibleWithoutUsableGrantsReportsZero() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[{"resets_left":0,"usable_now":true}]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 0, expiresAt: nil, usableNow: false))
+    }
+
+    @Test func missingEligibilityDoesNotReportBankedResets() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"grants":[{"resets_left":1,"usable_now":true}]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+    }
+
+    @Test func unreadPercentUsedValuesDoNotDiscardGrant() throws {
+        for percent in ["99.5", "null"] {
+            let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+                from: usageData(cedar: """
+                {"eligible":true,"grants":[{"resets_left":1,"paused":false,
+                  "usable_now":true,"percent_used":{"five_hour":\(percent)}}]}
+                """))
+            #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(count: 1))
+        }
+    }
+
+    @Test func spentGrantCannotSetExpiryOrUsability() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[
+              {"resets_left":0,"ends_at":"2026-09-25T00:00:00Z","usable_now":true},
+              {"resets_left":1,"ends_at":"2026-10-22T16:00:00+00:00","usable_now":false}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 1, expiresAt: ISO8601.parse("2026-10-22T16:00:00Z"), usableNow: false))
+    }
+
     @Test func mapsLimitsArrayToWindows() throws {
         let response = try ClaudeProvider.decoder.decode(
             ClaudeProvider.Response.self, from: Data(claudeFixture.utf8))
@@ -254,6 +294,15 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
 }
 
 @Suite struct CodexDecodeTests {
+    @Test func reportedZeroResetCreditsStayKnown() async throws {
+        let fixture = codexFixture.replacingOccurrences(
+            of: "\"available_count\": 1", with: "\"available_count\": 0")
+        let snapshot = try await CodexProvider(transport: FixtureTransport(
+            data: Data(fixture.utf8), status: 200)).fetchUsage(
+                tokens: OAuthTokens(accessToken: "test-token"))
+        #expect(snapshot.bankedResets == BankedResets(count: 0))
+    }
+
     @Test func derivesStableAmmoClientIdentityFromBundleMetadata() {
         let identity = AmmoClientIdentity.derived(from: [
             "CFBundleShortVersionString": " 0.1.0 ",

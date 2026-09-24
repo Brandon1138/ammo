@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Anthropic / Claude Code adapter.
 ///
@@ -17,13 +18,15 @@ public struct ClaudeProvider: UsageProvider {
     /// The code=true flow redirects here; the page displays a code for the user to paste.
     public static let redirectURI = "https://platform.claude.com/oauth/code/callback"
     static let betaHeader = "oauth-2025-04-20"
+    static let cliSurfaceVersion = "2.1.280"
+    private static let logger = Logger(subsystem: "com.brandon.ammo", category: "claude-usage")
 
     /// Surface identity approved for this usage request only.
     public static func usageHeaders(accessToken: String) -> [String: String] {
         [
             "Authorization": "Bearer \(accessToken)",
             "anthropic-beta": betaHeader,
-            "User-Agent": "claude-cli/2.1.280 (external, cli)",
+            "User-Agent": "claude-cli/\(cliSurfaceVersion) (external, cli)",
             "x-app": "cli",
             "anthropic-client-platform": "macos",
         ]
@@ -52,6 +55,9 @@ public struct ClaudeProvider: UsageProvider {
             response = try Self.decoder.decode(Response.self, from: data)
         } catch {
             throw UsageError.malformedResponse("claude usage: \(error)")
+        }
+        if let reason = response.cedarEmber?.ineligibleReason, reason != "no_grant" {
+            Self.logger.info("cedar_ember ineligible_reason: \(reason, privacy: .public)")
         }
         let profileBytes = await profileData
         let profile = profileBytes.flatMap(Self.profile(from:))
@@ -124,17 +130,11 @@ public struct ClaudeProvider: UsageProvider {
         struct CedarEmber: Decodable {
             struct Grant: Decodable {
                 let id: String?
-                let label: String?
-                let resetsTotal: Int?
                 let resetsLeft: Int?
-                let startsAt: String?
                 let endsAt: String?
-                let clears: [String]?
                 let paused: Bool?
                 let usableNow: Bool?
                 let useRequiresLimit: Bool?
-                let percentUsed: [String: Int]?
-                let blocking: [String]?
             }
 
             struct LossyGrant: Decodable {
@@ -145,20 +145,23 @@ public struct ClaudeProvider: UsageProvider {
             }
 
             let eligible: Bool?
+            let ineligibleReason: String?
             let grants: [Grant]
 
             init(from decoder: any Decoder) throws {
                 guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
                     eligible = nil
+                    ineligibleReason = nil
                     grants = []
                     return
                 }
                 eligible = try? container.decodeIfPresent(Bool.self, forKey: .eligible)
+                ineligibleReason = try? container.decodeIfPresent(String.self, forKey: .ineligibleReason)
                 grants = (try? container.decodeIfPresent([LossyGrant].self, forKey: .grants))?
                     .compactMap(\.value) ?? []
             }
 
-            private enum CodingKeys: String, CodingKey { case eligible, grants }
+            private enum CodingKeys: String, CodingKey { case eligible, ineligibleReason, grants }
         }
 
         struct Bucket: Decodable {
@@ -303,16 +306,12 @@ public struct ClaudeProvider: UsageProvider {
     }
 
     static func bankedResets(from response: Response) -> BankedResets? {
-        guard let cedar = response.cedarEmber, cedar.eligible != false else { return nil }
+        guard let cedar = response.cedarEmber, cedar.eligible == true else { return nil }
         let grants = cedar.grants.filter {
-            $0.id?.isEmpty == false && $0.paused != true
-                && $0.resetsLeft.map { $0 >= 0 } == true
+            $0.paused != true && ($0.resetsLeft ?? 0) > 0
         }
-        let count = grants.reduce(into: 0) { total, grant in
-            let (sum, overflow) = total.addingReportingOverflow(grant.resetsLeft ?? 0)
-            total = overflow ? Int.max : sum
-        }
-        guard count > 0 else { return nil }
+        let count = grants.reduce(0) { $0 + ($1.resetsLeft ?? 0) }
+        guard count > 0 else { return BankedResets(count: 0, expiresAt: nil, usableNow: false) }
         return BankedResets(
             count: count,
             expiresAt: grants.compactMap { ISO8601.parse($0.endsAt) }.min(),

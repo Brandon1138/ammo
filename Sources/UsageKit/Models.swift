@@ -199,7 +199,7 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
     public let plan: String?
     public let windows: [LimitWindow]
-    /// Unspent provider-granted resets. Nil when none are available.
+    /// Unspent provider-granted resets. Nil when provider did not report eligibility or count.
     public let bankedResets: BankedResets?
     /// Legacy spelling retained for source compatibility; `bankedResets` is authoritative.
     public var resetCreditsAvailable: Int? { bankedResets?.count }
@@ -215,19 +215,27 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
 
     public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
                 bankedResets: BankedResets? = nil,
-                resetCreditsAvailable: Int? = nil,
                 onDemand: [OnDemandUsage]? = nil,
                 isFreeTier: Bool? = nil,
                 fetchedAt: Date = Date()) {
         self.provider = provider
         self.plan = plan
         self.windows = windows
-        self.bankedResets = bankedResets ?? resetCreditsAvailable.flatMap {
-            $0 > 0 ? BankedResets(count: $0) : nil
-        }
+        self.bankedResets = bankedResets
         self.onDemand = onDemand
         self.isFreeTier = isFreeTier
         self.fetchedAt = fetchedAt
+    }
+
+    @available(*, deprecated, renamed: "init(provider:plan:windows:bankedResets:onDemand:isFreeTier:fetchedAt:)")
+    public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
+                resetCreditsAvailable: Int?,
+                onDemand: [OnDemandUsage]? = nil,
+                isFreeTier: Bool? = nil,
+                fetchedAt: Date = Date()) {
+        self.init(provider: provider, plan: plan, windows: windows,
+                  bankedResets: resetCreditsAvailable.map { BankedResets(count: max(0, $0)) },
+                  onDemand: onDemand, isFreeTier: isFreeTier, fetchedAt: fetchedAt)
     }
 
     /// Decoding is where persisted snapshots re-enter the app, so provider
@@ -246,7 +254,7 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
             bankedResets = try container.decodeIfPresent(BankedResets.self, forKey: .bankedResets)
         } else {
             let legacyCount = try container.decodeIfPresent(Int.self, forKey: .resetCreditsAvailable)
-            bankedResets = legacyCount.flatMap { $0 > 0 ? BankedResets(count: $0) : nil }
+            bankedResets = legacyCount.map { BankedResets(count: max(0, $0)) }
         }
         onDemand = try container.decodeIfPresent([OnDemandUsage].self, forKey: .onDemand)
         isFreeTier = try container.decodeIfPresent(Bool.self, forKey: .isFreeTier)
@@ -264,6 +272,8 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         try container.encodeIfPresent(plan, forKey: .plan)
         try container.encode(windows, forKey: .windows)
         try container.encodeIfPresent(bankedResets, forKey: .bankedResets)
+        // Remove after the next App Store build.
+        try container.encodeIfPresent(resetCreditsAvailable, forKey: .resetCreditsAvailable)
         try container.encodeIfPresent(onDemand, forKey: .onDemand)
         try container.encodeIfPresent(isFreeTier, forKey: .isFreeTier)
         try container.encode(fetchedAt, forKey: .fetchedAt)

@@ -225,9 +225,13 @@ private struct AccountSection: View {
                         .padding(.vertical, 4)
                     }
                     if let banked = snapshot.bankedResets, banked.count > 0 {
-                        Label("\(banked.count) reset\(banked.count == 1 ? "" : "s") available"
-                              + (banked.expiresAt.map {
-                                  ", use by \($0.formatted(.dateTime.month(.abbreviated).day()))"
+                        Label("\(banked.count) reset\(banked.count == 1 ? "" : "s") banked"
+                              + (banked.usableNow ? "" : " · usable at limit")
+                              + (banked.expiresAt.map { expiry in
+                                  let format = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+                                  let expiryFormat = Calendar.current.isDate(expiry, equalTo: Date(), toGranularity: .year)
+                                      ? format : format.year()
+                                  return ", use by \(expiry.formatted(expiryFormat))"
                               } ?? ""),
                               systemImage: "arrow.clockwise.circle")
                             .font(.caption)

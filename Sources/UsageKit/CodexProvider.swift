@@ -53,8 +53,8 @@ public struct CodexProvider: UsageProvider {
         return UsageSnapshot(provider: .codex,
                              plan: response.planType,
                              windows: windows,
-                             bankedResets: response.rateLimitResetCredits?.availableCount.flatMap {
-                                 $0 > 0 ? BankedResets(count: $0) : nil
+                             bankedResets: response.rateLimitResetCredits?.availableCount.map {
+                                 BankedResets(count: max(0, $0))
                              },
                              onDemand: onDemand)
     }
