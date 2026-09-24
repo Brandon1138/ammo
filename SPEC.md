@@ -266,7 +266,13 @@ earliest non-null `ends_at`, and whether any unpaused grant has `usable_now`.
 Server allowlists claude.ai and Claude Code CLI surfaces. Ammo's former headers
 returned `eligible:false` with `ineligible_reason:"surface"` on the operator's
 Max account. Operator approved the CLI surface headers above for the usage call
-only; whether they change eligibility is unverified. Do not send `skip_spend=1`:
+only. VERIFIED 2026-09-24 (`swift run ammo-harness --raw-claude`): with those
+headers the same account answers `eligible: true`, `event_props.surface:
+"claude_code_cli"`, and one grant (`opus55-launch-promax-20260921`, `resets_left`
+1 of 1, `usable_now` true, `use_requires_limit` false, `ends_at`
+2026-10-22T16:00Z, `clears` five_hour + seven_day + seven_day_overage_included).
+The live grant also carried `arm: null` and `event_props.surface`, neither of
+which the CLI schema declares; both are ignored. Do not send `skip_spend=1`:
 it may null out `extra_usage`, which Ammo needs. `limits[]` may also contain
 `group`, `is_active`, `severity`, and `scope.surface`; Ammo ignores them.
 Claiming via `POST /api/organizations/{org}/reset_rate_limits` spends a grant
