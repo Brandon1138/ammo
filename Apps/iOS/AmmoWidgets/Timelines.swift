@@ -253,8 +253,10 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
         let snapshot = SharedStore.loadSnapshot()
         if let chosen = configuration.limit,
            let state = snapshot.states.first(where: { $0.id == chosen.accountID }),
-           state.snapshot?.windows.contains(where: { $0.id == chosen.windowID }) == true {
-            return (state, chosen.windowID, snapshot.revision)
+           let window = PinnedLimitSelection.resolve(
+               windowID: chosen.windowID,
+               in: state.snapshot?.windows ?? []) {
+            return (state, window.id, snapshot.revision)
         }
 
         let orderedStates = WidgetAccountOrder.defaultOrder(snapshot.states)

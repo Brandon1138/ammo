@@ -27,13 +27,6 @@ public struct LockScreenUsagePresentation: Sendable, Equatable {
         fetchedAt = snapshot.fetchedAt
     }
 
-    /// Explicit window choice for surfaces that override neutral selection.
-    public init(indicatorWindow: LimitWindow, numericWindow: LimitWindow?, fetchedAt: Date) {
-        self.indicatorWindow = indicatorWindow
-        self.numericWindow = numericWindow
-        self.fetchedAt = fetchedAt
-    }
-
     public func isStale(
         at referenceDate: Date,
         staleAfter threshold: TimeInterval = Self.staleAfter

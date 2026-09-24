@@ -131,8 +131,8 @@ enum SharedStore {
     /// Reads cache bytes and their revision while holding the writer's lock.
     /// The decoded states may outlive the lock, but both source files always
     /// come from the same committed write.
-    ///
     static func loadSnapshot() -> SharedStoreSnapshot {
+        // Remove after the next App Store build.
         removeLegacyCodexSparkMarker()
         if DemoModeStore.isEnabled {
             return SharedStoreSnapshot(states: DemoData.states(), revision: nil)

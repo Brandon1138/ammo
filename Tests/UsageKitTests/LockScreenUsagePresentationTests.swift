@@ -83,17 +83,6 @@ import Testing
         #expect(presentation.numericWindow == nil)
     }
 
-    @Test func explicitWindowChoiceIsPreservedVerbatim() {
-        let fable = window(.modelScoped, "Fable", used: 5)
-        let weekly = window(.weekly, "Weekly", used: 100)
-
-        let presentation = LockScreenUsagePresentation(
-            indicatorWindow: fable, numericWindow: weekly, fetchedAt: now)
-
-        #expect(presentation.indicatorWindow == fable)
-        #expect(presentation.numericWindow == weekly)
-    }
-
     @Test func freshnessBecomesStaleAfterTwoQuietIntervals() throws {
         let snapshot = UsageSnapshot(
             provider: .codex,
