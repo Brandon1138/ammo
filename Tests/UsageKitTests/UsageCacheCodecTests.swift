@@ -53,4 +53,28 @@ struct UsageCacheCodecTests {
         #expect(restored.onDemand == nil)
         #expect(restored.isFreeTier == nil)
     }
+
+    @Test("Cached Codex Spark windows are removed during decode")
+    func retiredCodexWindows() throws {
+        let json = """
+        {
+          "provider": "codex",
+          "windows": [
+            {"kind": "weekly", "label": "Weekly", "usedPercent": 17},
+            {"kind": "modelScoped", "label": "Spark", "usedPercent": 1},
+            {"kind": "modelScoped", "label": "Spark session", "usedPercent": 2},
+            {"kind": "modelScoped", "label": "Spark weekly", "usedPercent": 3},
+            {"kind": "modelScoped", "label": "Spark monthly", "usedPercent": 4},
+            {"kind": "modelScoped", "label": "Other model", "usedPercent": 5}
+          ],
+          "fetchedAt": "2027-01-14T09:00:00Z"
+        }
+        """
+        let restored = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(json.utf8))
+        #expect(restored.windows.map(\.label) == ["Weekly", "Other model"])
+
+        let claude = json.replacingOccurrences(of: "\"codex\"", with: "\"claude\"")
+        let other = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(claude.utf8))
+        #expect(other.windows.count == 6)
+    }
 }

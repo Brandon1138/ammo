@@ -64,14 +64,6 @@ struct SettingsView: View {
                 .disabled(!model.preferences.masterEnabled)
 
                 Section {
-                    Toggle("Show Codex Spark meters", isOn: codexSparkBinding)
-                } header: {
-                    Text("Display")
-                } footer: {
-                    Text("Adds Spark's 5-hour and weekly meters to Codex wherever usage is shown. On the tall Home Screen widget, Codex expands and OpenRouter's section makes room for it.")
-                }
-
-                Section {
                     disclosureRow(
                         title: "Stored on this device",
                         systemImage: "iphone.and.arrow.forward",
@@ -170,13 +162,6 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    private var codexSparkBinding: Binding<Bool> {
-        Binding(
-            get: { store.showsCodexSpark },
-            set: { store.setShowsCodexSpark($0) }
-        )
     }
 
     private var masterBinding: Binding<Bool> {

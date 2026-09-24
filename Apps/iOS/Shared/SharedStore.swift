@@ -132,14 +132,10 @@ enum SharedStore {
     /// The decoded states may outlive the lock, but both source files always
     /// come from the same committed write.
     ///
-    /// This is also the presentation filter's seam: `UsageDisplayPreferences`
-    /// hides windows the person switched off here, on the read side only. The
-    /// write paths below go through `loadUnlocked()`, so a hidden window can
-    /// never be filtered out of the bytes on disk.
     static func loadSnapshot() -> SharedStoreSnapshot {
+        removeLegacyCodexSparkMarker()
         if DemoModeStore.isEnabled {
-            return SharedStoreSnapshot(states: UsageDisplayPreferences.presented(DemoData.states()),
-                                       revision: nil)
+            return SharedStoreSnapshot(states: DemoData.states(), revision: nil)
         }
         removeLegacyCodexBillingCache()
         let startedAt = Date()
@@ -158,14 +154,23 @@ enum SharedStore {
                 \(Int(Date().timeIntervalSince(startedAt) * 1000), privacy: .public) ms, \
                 \(diskSnapshot.revision?.logDescription ?? "rev=unknown", privacy: .public))
                 """)
-            return SharedStoreSnapshot(states: UsageDisplayPreferences.presented(states),
-                                       revision: diskSnapshot.revision)
+            return SharedStoreSnapshot(states: states, revision: diskSnapshot.revision)
         } catch CocoaError.fileReadNoSuchFile {
             AmmoLog.sharedStore.notice("No shared usage cache exists yet")
             return SharedStoreSnapshot(states: [], revision: nil)
         } catch {
             AmmoLog.sharedStore.error("Unable to load shared usage cache: \(String(describing: error), privacy: .private)")
             return SharedStoreSnapshot(states: [], revision: nil)
+        }
+    }
+
+    private static func removeLegacyCodexSparkMarker() {
+        let marker = AppGroup.containerURL.appendingPathComponent("codex-spark-metering-enabled")
+        guard FileManager.default.fileExists(atPath: marker.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: marker)
+        } catch {
+            AmmoLog.sharedStore.error("Unable to remove retired Codex Spark marker: \(String(describing: error), privacy: .private)")
         }
     }
 

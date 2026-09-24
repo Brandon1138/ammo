@@ -11,10 +11,9 @@ public struct LockScreenUsagePresentation: Sendable, Equatable {
     public let fetchedAt: Date
 
     public init?(snapshot: UsageSnapshot) {
-        // Model-scoped buckets (Claude's Fable, Codex's Spark) are extra
-        // meters, not the account's headline limits. Left in the pool they
-        // would claim the numeric slot whenever a provider reports a single
-        // included window — which is exactly Codex on a Pro plan.
+        // Model-scoped buckets (such as Claude's Fable) are extra meters,
+        // not the account's headline limits. Left in the pool they could
+        // claim the numeric slot when a provider reports one included window.
         let headline = snapshot.windows.filter { $0.kind != .modelScoped }
         let pool = headline.isEmpty ? snapshot.windows : headline
         guard let firstWindow = pool.first else { return nil }
@@ -28,8 +27,7 @@ public struct LockScreenUsagePresentation: Sendable, Equatable {
         fetchedAt = snapshot.fetchedAt
     }
 
-    /// Explicit window choice for surfaces that deliberately override the
-    /// neutral selection — the Codex Pro + Spark ring is the one caller.
+    /// Explicit window choice for surfaces that override neutral selection.
     public init(indicatorWindow: LimitWindow, numericWindow: LimitWindow?, fetchedAt: Date) {
         self.indicatorWindow = indicatorWindow
         self.numericWindow = numericWindow
