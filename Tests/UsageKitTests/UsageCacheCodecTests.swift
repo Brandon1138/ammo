@@ -53,4 +53,17 @@ struct UsageCacheCodecTests {
         #expect(restored.onDemand == nil)
         #expect(restored.isFreeTier == nil)
     }
+
+    @Test("Legacy Codex reset credits synthesize banked resets")
+    func legacyBankedResetsDecode() throws {
+        let json = """
+        {"provider":"codex","plan":"plus","windows":[],
+         "resetCreditsAvailable":3,"fetchedAt":"2027-01-14T09:00:00Z"}
+        """
+        let snapshot = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.bankedResets == BankedResets(count: 3))
+        #expect(snapshot.resetCreditsAvailable == 3)
+        #expect(try UsageCacheCodec.decode(UsageSnapshot.self,
+            from: UsageCacheCodec.encode(snapshot)) == snapshot)
+    }
 }

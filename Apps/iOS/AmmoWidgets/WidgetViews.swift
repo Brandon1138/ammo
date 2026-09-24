@@ -291,9 +291,9 @@ struct MediumAccountView: View {
                 value: window.remainingPercentText,
                 tint: window.isRunningLow ? window.barColor : .primary))
         }
-        if let banked = snapshot.resetCreditsAvailable, banked > 0 {
+        if let banked = snapshot.bankedResets, banked.count > 0 {
             rows.append(LedgerItem(id: "banked", label: "Banked",
-                                   value: "\(banked) reset\(banked == 1 ? "" : "s")"))
+                                   value: "\(banked.count) reset\(banked.count == 1 ? "" : "s")"))
         }
         if let usage = snapshot.verifiedMonetaryOnDemandBalance,
            let remaining = usage.remainingAmount {

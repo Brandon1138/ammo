@@ -47,10 +47,11 @@ struct SettingsView: View {
                     Toggle("Session (5h) reset", isOn: preferenceBinding(\.claudeSessionReset))
                     Toggle("Weekly reset", isOn: preferenceBinding(\.claudeWeeklyReset))
                     Toggle("Spontaneous reset granted", isOn: preferenceBinding(\.claudeSpontaneousReset))
+                    Toggle("Banked reset granted", isOn: preferenceBinding(\.claudeBankedReset))
                 } header: {
                     Text("Claude")
                 } footer: {
-                    Text("Session reset alerts only fire after you used that 5-hour session. Weekly and spontaneous alerts fire when Ammo observes those resets.")
+                    Text("Session reset alerts only fire after you used that 5-hour session. Weekly, spontaneous, and banked alerts fire when Ammo observes those resets.")
                 }
                 .disabled(!model.preferences.masterEnabled)
 

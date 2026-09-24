@@ -7,7 +7,7 @@ import Foundation
 public struct ClaudeProvider: UsageProvider {
     public let id = ProviderID.claude
 
-    public static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    public static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")!
     public static let profileURL = URL(string: "https://api.anthropic.com/api/oauth/profile")!
     public static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
     public static let authorizeURL = URL(string: "https://claude.ai/oauth/authorize")!
@@ -17,6 +17,17 @@ public struct ClaudeProvider: UsageProvider {
     /// The code=true flow redirects here; the page displays a code for the user to paste.
     public static let redirectURI = "https://platform.claude.com/oauth/code/callback"
     static let betaHeader = "oauth-2025-04-20"
+
+    /// Surface identity approved for this usage request only.
+    public static func usageHeaders(accessToken: String) -> [String: String] {
+        [
+            "Authorization": "Bearer \(accessToken)",
+            "anthropic-beta": betaHeader,
+            "User-Agent": "claude-cli/2.1.280 (external, cli)",
+            "x-app": "cli",
+            "anthropic-client-platform": "macos",
+        ]
+    }
 
     let transport: HTTPTransport
 
@@ -29,7 +40,8 @@ public struct ClaudeProvider: UsageProvider {
             "Authorization": "Bearer \(tokens.accessToken)",
             "anthropic-beta": Self.betaHeader,
         ]
-        async let usageData = transport.get(Self.usageURL, headers: headers)
+        async let usageData = transport.get(Self.usageURL,
+                                            headers: Self.usageHeaders(accessToken: tokens.accessToken))
         // Plan metadata is useful but must not make the quota surface less
         // reliable. Claude Code treats this profile call as supplemental too.
         async let profileData: Data? = try? await transport.get(Self.profileURL, headers: headers)
@@ -46,6 +58,7 @@ public struct ClaudeProvider: UsageProvider {
         return UsageSnapshot(provider: .claude,
                              plan: profile.flatMap(Self.plan(from:)),
                              windows: Self.windows(from: response),
+                             bankedResets: Self.bankedResets(from: response),
                              onDemand: Self.onDemand(from: response))
     }
 
@@ -108,6 +121,46 @@ public struct ClaudeProvider: UsageProvider {
     }()
 
     struct Response: Decodable {
+        struct CedarEmber: Decodable {
+            struct Grant: Decodable {
+                let id: String?
+                let label: String?
+                let resetsTotal: Int?
+                let resetsLeft: Int?
+                let startsAt: String?
+                let endsAt: String?
+                let clears: [String]?
+                let paused: Bool?
+                let usableNow: Bool?
+                let useRequiresLimit: Bool?
+                let percentUsed: [String: Int]?
+                let blocking: [String]?
+            }
+
+            struct LossyGrant: Decodable {
+                let value: Grant?
+                init(from decoder: any Decoder) throws {
+                    value = try? Grant(from: decoder)
+                }
+            }
+
+            let eligible: Bool?
+            let grants: [Grant]
+
+            init(from decoder: any Decoder) throws {
+                guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+                    eligible = nil
+                    grants = []
+                    return
+                }
+                eligible = try? container.decodeIfPresent(Bool.self, forKey: .eligible)
+                grants = (try? container.decodeIfPresent([LossyGrant].self, forKey: .grants))?
+                    .compactMap(\.value) ?? []
+            }
+
+            private enum CodingKeys: String, CodingKey { case eligible, grants }
+        }
+
         struct Bucket: Decodable {
             let utilization: Double?
             let resetsAt: String?
@@ -134,6 +187,7 @@ public struct ClaudeProvider: UsageProvider {
         let sevenDay: Bucket?
         let limits: [Limit]?
         let extraUsage: ExtraUsage?
+        let cedarEmber: CedarEmber?
     }
 
     struct Profile: Decodable {
@@ -246,5 +300,23 @@ public struct ClaudeProvider: UsageProvider {
             remaining: limit.map { max(0, $0 - (used ?? 0)) },
             usedPercent: extra.utilization
         )]
+    }
+
+    static func bankedResets(from response: Response) -> BankedResets? {
+        guard let cedar = response.cedarEmber, cedar.eligible != false else { return nil }
+        let grants = cedar.grants.filter {
+            $0.id?.isEmpty == false && $0.paused != true
+                && $0.resetsLeft.map { $0 >= 0 } == true
+        }
+        let count = grants.reduce(into: 0) { total, grant in
+            let (sum, overflow) = total.addingReportingOverflow(grant.resetsLeft ?? 0)
+            total = overflow ? Int.max : sum
+        }
+        guard count > 0 else { return nil }
+        return BankedResets(
+            count: count,
+            expiresAt: grants.compactMap { ISO8601.parse($0.endsAt) }.min(),
+            usableNow: grants.contains { $0.usableNow == true }
+        )
     }
 }

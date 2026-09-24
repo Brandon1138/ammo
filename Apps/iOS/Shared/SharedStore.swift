@@ -424,7 +424,7 @@ enum SharedStore {
         return UsageSnapshot(provider: snapshot.provider,
                              plan: snapshot.plan ?? recovered.plan,
                              windows: recovered.windows,
-                             resetCreditsAvailable: snapshot.resetCreditsAvailable,
+                             bankedResets: snapshot.bankedResets,
                              onDemand: snapshot.onDemand ?? recovered.onDemand,
                              isFreeTier: snapshot.isFreeTier,
                              fetchedAt: snapshot.fetchedAt)

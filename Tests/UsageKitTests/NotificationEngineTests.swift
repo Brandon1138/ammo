@@ -434,6 +434,33 @@ import Testing
         #expect(request.deliverAt == nil)
     }
 
+    @Test func claudeBankedResetIncreaseRequiresPreference() throws {
+        var state = NotificationEngineState()
+        state.lastSnapshots[accountID] = snapshot(
+            .claude,
+            weeklyUsed: 40,
+            weeklyReset: now.addingTimeInterval(86_400),
+            banked: 1,
+            fetchedAt: now.addingTimeInterval(-300)
+        )
+        let current = snapshot(
+            .claude,
+            weeklyUsed: 41,
+            weeklyReset: now.addingTimeInterval(86_400),
+            banked: 2
+        )
+        var preferences = enabledPreferences()
+        preferences.claudeBankedReset = false
+        #expect(evaluate(current: current, preferences: preferences,
+            state: state).request(type: .claudeBankedReset) == nil)
+
+        preferences.claudeBankedReset = true
+        let request = try #require(evaluate(current: current, preferences: preferences,
+            state: state).request(type: .claudeBankedReset))
+        #expect(request.title == "Claude banked reset granted")
+        #expect(request.body == "You now have 2 banked resets available.")
+    }
+
     @Test func bankedResetUnchangedOrDecreasedDoesNotFire() {
         for newCount in [2, 1] {
             var state = NotificationEngineState()
@@ -556,6 +583,7 @@ private extension NotificationPreferences {
         case .codexWeeklyReset: codexWeeklyReset = enabled
         case .codexSpontaneousReset: codexSpontaneousReset = enabled
         case .codexBankedReset: codexBankedReset = enabled
+        case .claudeBankedReset: claudeBankedReset = enabled
         case .claudeSessionReset: claudeSessionReset = enabled
         case .claudeWeeklyReset: claudeWeeklyReset = enabled
         case .claudeSpontaneousReset: claudeSpontaneousReset = enabled

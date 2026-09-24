@@ -126,6 +126,71 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
 }
 
 @Suite struct ClaudeDecodeTests {
+    private func usageData(cedar: String) -> Data {
+        Data((String(claudeFixture.dropLast()) + ", \"cedar_ember\": \(cedar)}").utf8)
+    }
+
+    @Test func usageRequestUsesCedarQueryAndCLISurfaceHeaders() {
+        #expect(ClaudeProvider.usageURL.absoluteString ==
+            "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")
+        let headers = ClaudeProvider.usageHeaders(accessToken: "test-token")
+        #expect(headers["Authorization"] == "Bearer test-token")
+        #expect(headers["anthropic-beta"] == "oauth-2025-04-20")
+        #expect(headers["User-Agent"] == "claude-cli/2.1.280 (external, cli)")
+        #expect(headers["x-app"] == "cli")
+        #expect(headers["anthropic-client-platform"] == "macos")
+    }
+
+    @Test func eligibleBankedGrantsIgnorePausedAndMapExpiry() async throws {
+        let data = usageData(cedar: """
+        {"eligible":true,"grants":[
+          {"id":"active","resets_left":2,"ends_at":"2026-10-01T00:00:00Z",
+           "paused":false,"usable_now":true},
+          {"id":"paused","resets_left":9,"ends_at":"2026-09-25T00:00:00Z",
+           "paused":true,"usable_now":true}
+        ]}
+        """)
+        let snapshot = try await ClaudeProvider(transport: FixtureTransport(data: data, status: 200))
+            .fetchUsage(tokens: OAuthTokens(accessToken: "test-token"))
+
+        #expect(snapshot.bankedResets == BankedResets(
+            count: 2,
+            expiresAt: ISO8601.parse("2026-10-01T00:00:00Z"),
+            usableNow: true))
+        #expect(snapshot.windows.count == 3)
+        #expect(snapshot.onDemand?.first?.remainingAmount == 15.6)
+    }
+
+    @Test func surfaceIneligibleHasNoBankedResets() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":false,"ineligible_reason":"surface","grants":[
+              {"id":"blocked","resets_left":2,"paused":false,"usable_now":true}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+    }
+
+    @Test func absentCedarKeepsWindowsAndExtraUsage() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: Data(claudeFixture.utf8))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+        #expect(ClaudeProvider.windows(from: response).count == 3)
+        #expect(ClaudeProvider.onDemand(from: response)?.first?.remainingAmount == 15.6)
+    }
+
+    @Test func malformedGrantIsSkippedWithoutLosingValidGrant() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[
+              {"id":"bad","resets_left":"two","paused":false},
+              {"id":"valid","resets_left":1,"paused":false,"usable_now":false}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 1, usableNow: false))
+    }
+
     @Test func mapsLimitsArrayToWindows() throws {
         let response = try ClaudeProvider.decoder.decode(
             ClaudeProvider.Response.self, from: Data(claudeFixture.utf8))

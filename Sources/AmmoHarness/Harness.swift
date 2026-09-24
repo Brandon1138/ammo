@@ -12,6 +12,10 @@ import UsageKit
 @main
 struct Harness {
     static func main() async {
+        if CommandLine.arguments.contains("--raw-claude") {
+            await runRawClaude()
+            return
+        }
         print("AMMO harness — \(Self.timestamp())\n")
         async let claude: Void = runClaude()
         async let codex: Void = runCodex()
@@ -31,6 +35,31 @@ struct Harness {
             print(render(snapshot, plan: creds.subscriptionType))
         } catch {
             print(section("CLAUDE", detail: "FAILED — \(error)"))
+        }
+    }
+
+    static func runRawClaude() async {
+        do {
+            let creds = try claudeKeychainCredentials()
+            if let expiresAt = creds.expiresAt, expiresAt < Date() {
+                print("CLAUDE token expired — run `claude` once to refresh, then retry")
+                return
+            }
+            var request = URLRequest(url: ClaudeProvider.usageURL)
+            for (name, value) in ClaudeProvider.usageHeaders(accessToken: creds.tokens.accessToken) {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
+            let (data, status) = try await URLSessionTransport().request(request)
+            print("CLAUDE HTTP \(status)")
+            let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let block = response?["cedar_ember"] ?? NSNull()
+            let pretty = try JSONSerialization.data(
+                withJSONObject: block,
+                options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]
+            )
+            print(String(decoding: pretty, as: UTF8.self))
+        } catch {
+            print("CLAUDE raw FAILED — \(error)")
         }
     }
 
@@ -109,8 +138,13 @@ struct Harness {
             out += String(format: "  %@ %@ %3.0f%% used   %@\n",
                           label, bar, window.usedPercent, reset)
         }
-        if let resets = snapshot.resetCreditsAvailable, resets > 0 {
-            out += "  resets available: \(resets)\n"
+        if let banked = snapshot.bankedResets, banked.count > 0 {
+            out += "  resets available: \(banked.count)"
+            if let expiresAt = banked.expiresAt {
+                out += " (use by \(Self.timestamp(expiresAt)))"
+            }
+            if !banked.usableNow { out += " (not usable now)" }
+            out += "\n"
         }
         if snapshot.windows.isEmpty {
             out += "  (no active limit windows reported)\n"
@@ -133,10 +167,10 @@ struct Harness {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    static func timestamp() -> String {
+    static func timestamp(_ date: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: Date())
+        return formatter.string(from: date)
     }
 }
 

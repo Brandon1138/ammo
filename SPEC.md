@@ -191,9 +191,12 @@ integration seam; notification delivery is outside the current on-demand scope.
 **Usage endpoint**
 
 ```
-GET https://api.anthropic.com/api/oauth/usage
+GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1
 Authorization: Bearer <access_token>          # sk-ant-oat01-…
 anthropic-beta: oauth-2025-04-20
+User-Agent: claude-cli/2.1.280 (external, cli)
+x-app: cli
+anthropic-client-platform: macos
 ```
 
 Response (fields Ammo consumes):
@@ -228,6 +231,46 @@ milliseconds before parsing.
 `monthly_limit` and `used_credits` from minor to major currency units, retain the
 provider-reported utilization, and preserve `is_enabled == false` as an explicit
 disabled entry rather than treating the field as absent.
+
+**Banked usage-limit resets — CLI 2.1.280 contract extracted 2026-09-24**
+
+`cedar_ember` is optional or null. Its shape is:
+
+```jsonc
+{
+  "eligible": true,
+  "ineligible_reason": null,
+  "at_limit": false,
+  "exhausted": ["five_hour"],
+  "grants": [{
+    "id": "grant-id", "label": "Banked reset", "resets_total": 2,
+    "resets_left": 1, "starts_at": null, "ends_at": "2026-10-01T00:00:00Z",
+    "clears": ["five_hour"], "paused": false, "usable_now": true,
+    "use_requires_limit": true, "percent_used": {"five_hour": 100},
+    "blocking": []
+  }],
+  "next_grant_id": null, "weekly_resets_at": null,
+  "cooldown_until": null, "event_props": null
+}
+```
+
+Fields may be absent. Limit keys: `five_hour`, `seven_day`,
+`seven_day_overage_included`, `seven_day_opus`, `seven_day_sonnet`,
+`seven_day_cowork`, `seven_day_omelette`, `seven_day_oauth_apps`.
+Observed `ineligible_reason` values: `config_off`, `tier`, `seat`, `mobile`,
+`surface`, `cli_version`, `no_grant`, `tenure`, `other_experiment`,
+`unavailable`, `unknown`. Malformed grants are skipped. When eligible and
+grants exist, sum `resets_left` from unpaused grants; expose a positive sum,
+earliest non-null `ends_at`, and whether any unpaused grant has `usable_now`.
+
+Server allowlists claude.ai and Claude Code CLI surfaces. Ammo's former headers
+returned `eligible:false` with `ineligible_reason:"surface"` on the operator's
+Max account. Operator approved the CLI surface headers above for the usage call
+only; whether they change eligibility is unverified. Do not send `skip_spend=1`:
+it may null out `extra_usage`, which Ammo needs. `limits[]` may also contain
+`group`, `is_active`, `severity`, and `scope.surface`; Ammo ignores them.
+Claiming via `POST /api/organizations/{org}/reset_rate_limits` spends a grant
+irreversibly. Claiming is out of scope; Ammo must never call that endpoint.
 
 **Plan profile (best effort)**
 

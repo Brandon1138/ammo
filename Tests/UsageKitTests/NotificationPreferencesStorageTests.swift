@@ -14,6 +14,7 @@ struct NotificationPreferencesStorageTests {
         var expected = NotificationPreferences.default
         expected.masterEnabled = true
         expected.codexBankedReset = false
+        expected.claudeBankedReset = false
         expected.claudeSessionReset = false
         expected.cursorMonthlyReset = false
 
@@ -54,6 +55,25 @@ struct NotificationPreferencesStorageTests {
 
         defaults.set(Data("not json".utf8), forKey: NotificationPreferences.storageKey)
         #expect(storage.load() == .default)
+    }
+
+    @Test("Existing preferences retain values when Claude banked toggle is absent")
+    func legacyPreferencesDecode() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "masterEnabled": true,
+            "codexWeeklyReset": false,
+            "codexSpontaneousReset": true,
+            "codexBankedReset": false,
+            "claudeSessionReset": true,
+            "claudeWeeklyReset": true,
+            "claudeSpontaneousReset": false,
+            "cursorMonthlyReset": true,
+        ])
+        let preferences = try JSONDecoder().decode(NotificationPreferences.self, from: data)
+        #expect(preferences.masterEnabled)
+        #expect(!preferences.codexBankedReset)
+        #expect(!preferences.claudeSpontaneousReset)
+        #expect(preferences.claudeBankedReset)
     }
 
     @Test("Engine state created before pending events remains readable")

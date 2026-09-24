@@ -183,12 +183,26 @@ public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
 }
 
 /// The result of one usage fetch for one account.
+public struct BankedResets: Codable, Sendable, Equatable {
+    public let count: Int
+    public let expiresAt: Date?
+    public let usableNow: Bool
+
+    public init(count: Int, expiresAt: Date? = nil, usableNow: Bool = true) {
+        self.count = count
+        self.expiresAt = expiresAt
+        self.usableNow = usableNow
+    }
+}
+
 public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
     public let plan: String?
     public let windows: [LimitWindow]
-    /// Codex: number of "rate limit reset" credits available (nil where not applicable).
-    public let resetCreditsAvailable: Int?
+    /// Unspent provider-granted resets. Nil when none are available.
+    public let bankedResets: BankedResets?
+    /// Legacy spelling retained for source compatibility; `bankedResets` is authoritative.
+    public var resetCreditsAvailable: Int? { bankedResets?.count }
     /// Paid continuation capacity reported by the provider. `nil` means the
     /// contract supplied no on-demand data; an entry with `isEnabled == false`
     /// means the provider explicitly reported that pool as disabled.
@@ -200,6 +214,7 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let fetchedAt: Date
 
     public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
+                bankedResets: BankedResets? = nil,
                 resetCreditsAvailable: Int? = nil,
                 onDemand: [OnDemandUsage]? = nil,
                 isFreeTier: Bool? = nil,
@@ -207,7 +222,9 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         self.provider = provider
         self.plan = plan
         self.windows = windows
-        self.resetCreditsAvailable = resetCreditsAvailable
+        self.bankedResets = bankedResets ?? resetCreditsAvailable.flatMap {
+            $0 > 0 ? BankedResets(count: $0) : nil
+        }
         self.onDemand = onDemand
         self.isFreeTier = isFreeTier
         self.fetchedAt = fetchedAt
@@ -225,11 +242,31 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         windows = provider == .cursor
             ? CursorProvider.migratingLegacyWindowLabels(decodedWindows)
             : decodedWindows
-        resetCreditsAvailable = try container.decodeIfPresent(Int.self,
-                                                             forKey: .resetCreditsAvailable)
+        if container.contains(.bankedResets) {
+            bankedResets = try container.decodeIfPresent(BankedResets.self, forKey: .bankedResets)
+        } else {
+            let legacyCount = try container.decodeIfPresent(Int.self, forKey: .resetCreditsAvailable)
+            bankedResets = legacyCount.flatMap { $0 > 0 ? BankedResets(count: $0) : nil }
+        }
         onDemand = try container.decodeIfPresent([OnDemandUsage].self, forKey: .onDemand)
         isFreeTier = try container.decodeIfPresent(Bool.self, forKey: .isFreeTier)
         fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider, plan, windows, bankedResets, resetCreditsAvailable
+        case onDemand, isFreeTier, fetchedAt
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(provider, forKey: .provider)
+        try container.encodeIfPresent(plan, forKey: .plan)
+        try container.encode(windows, forKey: .windows)
+        try container.encodeIfPresent(bankedResets, forKey: .bankedResets)
+        try container.encodeIfPresent(onDemand, forKey: .onDemand)
+        try container.encodeIfPresent(isFreeTier, forKey: .isFreeTier)
+        try container.encode(fetchedAt, forKey: .fetchedAt)
     }
 }
 

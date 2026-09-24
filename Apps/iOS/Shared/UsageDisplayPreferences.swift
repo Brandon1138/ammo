@@ -51,7 +51,7 @@ enum UsageDisplayPreferences {
         return UsageSnapshot(provider: snapshot.provider,
                              plan: snapshot.plan,
                              windows: snapshot.windows.filter { !$0.isCodexSparkWindow },
-                             resetCreditsAvailable: snapshot.resetCreditsAvailable,
+                             bankedResets: snapshot.bankedResets,
                              onDemand: snapshot.onDemand,
                              isFreeTier: snapshot.isFreeTier,
                              fetchedAt: snapshot.fetchedAt)
