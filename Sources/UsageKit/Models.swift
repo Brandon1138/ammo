@@ -213,18 +213,24 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         self.fetchedAt = fetchedAt
     }
 
-    /// Decoding is where persisted snapshots re-enter the app, so provider
-    /// label migrations belong here: a cached or historical snapshot must
-    /// present the same window identity (`kind:label`) as a fresh fetch, or the
-    /// history graphs read the rename as the window disappearing.
+    /// Decoding is where persisted snapshots re-enter the app. Migrate legacy
+    /// Cursor labels and remove retired Codex meters before presentation.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         provider = try container.decode(ProviderID.self, forKey: .provider)
         plan = try container.decodeIfPresent(String.self, forKey: .plan)
         let decodedWindows = try container.decode([LimitWindow].self, forKey: .windows)
-        windows = provider == .cursor
-            ? CursorProvider.migratingLegacyWindowLabels(decodedWindows)
-            : decodedWindows
+        switch provider {
+        case .cursor:
+            windows = CursorProvider.migratingLegacyWindowLabels(decodedWindows)
+        case .codex:
+            windows = decodedWindows.filter {
+                $0.kind != .modelScoped ||
+                    ($0.label != "Spark" && !$0.label.hasPrefix("Spark "))
+            }
+        default:
+            windows = decodedWindows
+        }
         resetCreditsAvailable = try container.decodeIfPresent(Int.self,
                                                              forKey: .resetCreditsAvailable)
         onDemand = try container.decodeIfPresent([OnDemandUsage].self, forKey: .onDemand)

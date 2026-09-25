@@ -53,7 +53,6 @@ private let codexFixture = """
     },
     "secondary_window": null
   },
-  "additional_rate_limits": null,
   "credits": {
     "has_credits": true,
     "unlimited": false,
@@ -229,6 +228,24 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
         #expect(windows[0].label == "Weekly")
         #expect(windows[0].usedPercent == 5)
         #expect(windows[0].resetsAt == Date(timeIntervalSince1970: 1_784_797_038))
+    }
+
+    @Test func ignoresUnknownAdditionalRateLimits() throws {
+        let fixture = codexFixture.replacingOccurrences(
+            of: "\"credits\": {",
+            with: """
+            "additional_rate_limits": [{
+              "limit_name": "Future model",
+              "rate_limit": {"primary_window": {
+                "used_percent": 77, "limit_window_seconds": 18000
+              }}
+            }],
+            "credits": {
+            """)
+        let response = try CodexProvider.decoder.decode(
+            CodexProvider.Response.self, from: Data(fixture.utf8))
+
+        #expect(CodexProvider.windows(from: response).map(\.label) == ["Weekly"])
     }
 
     @Test func classifiesWindowsByLengthNotPosition() {

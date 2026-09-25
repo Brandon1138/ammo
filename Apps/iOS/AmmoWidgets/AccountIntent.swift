@@ -155,9 +155,7 @@ struct LimitQuery: EntityQuery {
     }
 
     static func preferredWindow(in windows: [LimitWindow]) -> LimitWindow? {
-        windows.first(where: { $0.kind == .weekly })
-            ?? windows.first(where: { $0.kind == .monthly })
-            ?? windows.first
+        PinnedLimitSelection.preferredWindow(in: windows)
     }
 }
 

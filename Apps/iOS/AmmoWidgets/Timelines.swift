@@ -253,8 +253,10 @@ struct ActivityTimelineProvider: AppIntentTimelineProvider {
         let snapshot = SharedStore.loadSnapshot()
         if let chosen = configuration.limit,
            let state = snapshot.states.first(where: { $0.id == chosen.accountID }),
-           state.snapshot?.windows.contains(where: { $0.id == chosen.windowID }) == true {
-            return (state, chosen.windowID, snapshot.revision)
+           let window = PinnedLimitSelection.resolve(
+               windowID: chosen.windowID,
+               in: state.snapshot?.windows ?? []) {
+            return (state, window.id, snapshot.revision)
         }
 
         let orderedStates = WidgetAccountOrder.defaultOrder(snapshot.states)
@@ -360,21 +362,11 @@ extension AccountState {
         providerBoardPlaceholders(includesFable: false)
     }
 
-    private static func providerBoardPlaceholders(
-        includesFable: Bool,
-        includesCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark
-    ) -> [AccountState] {
-        // The sample follows the same display preference the real board does,
-        // so the gallery never advertises meters the person switched off.
+    private static func providerBoardPlaceholders(includesFable: Bool) -> [AccountState] {
         let codexWindows = [
             LimitWindow(kind: .weekly, label: "Weekly", usedPercent: 30,
                         resetsAt: Date(timeIntervalSinceNow: 5.9 * 86400)),
-        ] + (includesCodexSpark ? [
-            LimitWindow(kind: .modelScoped, label: "Spark session", usedPercent: 12,
-                        resetsAt: Date(timeIntervalSinceNow: 3.2 * 3600)),
-            LimitWindow(kind: .modelScoped, label: "Spark weekly", usedPercent: 34,
-                        resetsAt: Date(timeIntervalSinceNow: 6.8 * 86400)),
-        ] : [])
+        ]
 
         let claudeWindows = [
             LimitWindow(kind: .session, label: "Session", usedPercent: 36,
