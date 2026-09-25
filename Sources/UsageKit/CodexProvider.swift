@@ -52,7 +52,9 @@ public struct CodexProvider: UsageProvider {
         return UsageSnapshot(provider: .codex,
                              plan: response.planType,
                              windows: windows,
-                             resetCreditsAvailable: response.rateLimitResetCredits?.availableCount,
+                             bankedResets: response.rateLimitResetCredits?.availableCount.map {
+                                 BankedResets(count: max(0, $0))
+                             },
                              onDemand: onDemand)
     }
 
@@ -339,7 +341,7 @@ public struct CodexProvider: UsageProvider {
             provider: snapshot.provider,
             plan: snapshot.plan,
             windows: snapshot.windows,
-            resetCreditsAvailable: snapshot.resetCreditsAvailable,
+            bankedResets: snapshot.bankedResets,
             onDemand: sanitized,
             fetchedAt: snapshot.fetchedAt
         )

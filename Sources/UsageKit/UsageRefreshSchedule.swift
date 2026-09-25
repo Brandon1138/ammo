@@ -53,7 +53,7 @@ public enum UsageRefreshSchedule {
     public static func usageChanged(from previous: UsageSnapshot?, to current: UsageSnapshot) -> Bool {
         guard let previous else { return false }
         guard previous.provider == current.provider,
-              previous.resetCreditsAvailable == current.resetCreditsAvailable,
+              previous.bankedResets == current.bankedResets,
               previous.onDemand == current.onDemand,
               previous.windows.count == current.windows.count else { return true }
 

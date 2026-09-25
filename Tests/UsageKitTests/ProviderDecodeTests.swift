@@ -125,6 +125,111 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
 }
 
 @Suite struct ClaudeDecodeTests {
+    private func usageData(cedar: String) -> Data {
+        Data((String(claudeFixture.dropLast()) + ", \"cedar_ember\": \(cedar)}").utf8)
+    }
+
+    @Test func usageRequestUsesCedarQueryAndCLISurfaceHeaders() {
+        #expect(ClaudeProvider.usageURL.absoluteString ==
+            "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")
+        let headers = ClaudeProvider.usageHeaders(accessToken: "test-token")
+        #expect(headers["Authorization"] == "Bearer test-token")
+        #expect(headers["anthropic-beta"] == "oauth-2025-04-20")
+        #expect(headers["User-Agent"] == "claude-cli/2.1.280 (external, cli)")
+        #expect(headers["x-app"] == "cli")
+        #expect(headers["anthropic-client-platform"] == "macos")
+    }
+
+    @Test func eligibleBankedGrantsIgnorePausedAndMapExpiry() async throws {
+        let data = usageData(cedar: """
+        {"eligible":true,"grants":[
+          {"id":"active","resets_left":2,"ends_at":"2026-10-01T00:00:00Z",
+           "paused":false,"usable_now":true},
+          {"id":"paused","resets_left":9,"ends_at":"2026-09-25T00:00:00Z",
+           "paused":true,"usable_now":true}
+        ]}
+        """)
+        let snapshot = try await ClaudeProvider(transport: FixtureTransport(data: data, status: 200))
+            .fetchUsage(tokens: OAuthTokens(accessToken: "test-token"))
+
+        #expect(snapshot.bankedResets == BankedResets(
+            count: 2,
+            expiresAt: ISO8601.parse("2026-10-01T00:00:00Z"),
+            usableNow: true))
+        #expect(snapshot.windows.count == 3)
+        #expect(snapshot.onDemand?.first?.remainingAmount == 15.6)
+    }
+
+    @Test func surfaceIneligibleHasNoBankedResets() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":false,"ineligible_reason":"surface","grants":[
+              {"id":"blocked","resets_left":2,"paused":false,"usable_now":true}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+    }
+
+    @Test func absentCedarKeepsWindowsAndExtraUsage() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: Data(claudeFixture.utf8))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+        #expect(ClaudeProvider.windows(from: response).count == 3)
+        #expect(ClaudeProvider.onDemand(from: response)?.first?.remainingAmount == 15.6)
+    }
+
+    @Test func malformedGrantIsSkippedWithoutLosingValidGrant() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[
+              {"id":"bad","resets_left":"two","paused":false},
+              {"id":"valid","resets_left":1,"paused":false,"usable_now":false}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 1, usableNow: false))
+    }
+
+    @Test func eligibleWithoutUsableGrantsReportsZero() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[{"resets_left":0,"usable_now":true}]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 0, expiresAt: nil, usableNow: false))
+    }
+
+    @Test func missingEligibilityDoesNotReportBankedResets() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"grants":[{"resets_left":1,"usable_now":true}]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == nil)
+    }
+
+    @Test func unreadPercentUsedValuesDoNotDiscardGrant() throws {
+        for percent in ["99.5", "null"] {
+            let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+                from: usageData(cedar: """
+                {"eligible":true,"grants":[{"resets_left":1,"paused":false,
+                  "usable_now":true,"percent_used":{"five_hour":\(percent)}}]}
+                """))
+            #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(count: 1))
+        }
+    }
+
+    @Test func spentGrantCannotSetExpiryOrUsability() throws {
+        let response = try ClaudeProvider.decoder.decode(ClaudeProvider.Response.self,
+            from: usageData(cedar: """
+            {"eligible":true,"grants":[
+              {"resets_left":0,"ends_at":"2026-09-25T00:00:00Z","usable_now":true},
+              {"resets_left":1,"ends_at":"2026-10-22T16:00:00+00:00","usable_now":false}
+            ]}
+            """))
+        #expect(ClaudeProvider.bankedResets(from: response) == BankedResets(
+            count: 1, expiresAt: ISO8601.parse("2026-10-22T16:00:00Z"), usableNow: false))
+    }
+
     @Test func mapsLimitsArrayToWindows() throws {
         let response = try ClaudeProvider.decoder.decode(
             ClaudeProvider.Response.self, from: Data(claudeFixture.utf8))
@@ -188,6 +293,15 @@ private final class RequestRecordingTransport: HTTPTransport, @unchecked Sendabl
 }
 
 @Suite struct CodexDecodeTests {
+    @Test func reportedZeroResetCreditsStayKnown() async throws {
+        let fixture = codexFixture.replacingOccurrences(
+            of: "\"available_count\": 1", with: "\"available_count\": 0")
+        let snapshot = try await CodexProvider(transport: FixtureTransport(
+            data: Data(fixture.utf8), status: 200)).fetchUsage(
+                tokens: OAuthTokens(accessToken: "test-token"))
+        #expect(snapshot.bankedResets == BankedResets(count: 0))
+    }
+
     @Test func derivesStableAmmoClientIdentityFromBundleMetadata() {
         let identity = AmmoClientIdentity.derived(from: [
             "CFBundleShortVersionString": " 0.1.0 ",

@@ -52,6 +52,34 @@ struct UsageCacheCodecTests {
         #expect(restored.windows.first?.usedPercent == 17)
         #expect(restored.onDemand == nil)
         #expect(restored.isFreeTier == nil)
+        #expect(restored.bankedResets == nil)
+    }
+
+    @Test("Legacy Codex reset credits synthesize banked resets")
+    func legacyBankedResetsDecode() throws {
+        let json = """
+        {"provider":"codex","plan":"plus","windows":[],
+         "resetCreditsAvailable":3,"fetchedAt":"2027-01-14T09:00:00Z"}
+        """
+        let snapshot = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.bankedResets == BankedResets(count: 3))
+        #expect(snapshot.resetCreditsAvailable == 3)
+        #expect(try UsageCacheCodec.decode(UsageSnapshot.self,
+            from: UsageCacheCodec.encode(snapshot)) == snapshot)
+    }
+
+    @Test("Legacy zero reset credits remain known and encoder keeps rollback key")
+    func legacyZeroBankedResetsDecode() throws {
+        let json = """
+        {"provider":"codex","plan":"plus","windows":[],
+         "resetCreditsAvailable":0,"fetchedAt":"2027-01-14T09:00:00Z"}
+        """
+        let snapshot = try UsageCacheCodec.decode(UsageSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.bankedResets == BankedResets(count: 0))
+        let encoded = try UsageCacheCodec.encode(snapshot)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["resetCreditsAvailable"] as? Int == 0)
+        #expect(try UsageCacheCodec.decode(UsageSnapshot.self, from: encoded) == snapshot)
     }
 
     @Test("Cached Codex Spark windows are removed during decode")

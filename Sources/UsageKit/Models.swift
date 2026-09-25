@@ -183,12 +183,26 @@ public struct OnDemandUsage: Codable, Sendable, Identifiable, Equatable {
 }
 
 /// The result of one usage fetch for one account.
+public struct BankedResets: Codable, Sendable, Equatable {
+    public let count: Int
+    public let expiresAt: Date?
+    public let usableNow: Bool
+
+    public init(count: Int, expiresAt: Date? = nil, usableNow: Bool = true) {
+        self.count = count
+        self.expiresAt = expiresAt
+        self.usableNow = usableNow
+    }
+}
+
 public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
     public let plan: String?
     public let windows: [LimitWindow]
-    /// Codex: number of "rate limit reset" credits available (nil where not applicable).
-    public let resetCreditsAvailable: Int?
+    /// Unspent provider-granted resets. Nil when provider did not report eligibility or count.
+    public let bankedResets: BankedResets?
+    /// Legacy spelling retained for source compatibility; `bankedResets` is authoritative.
+    public var resetCreditsAvailable: Int? { bankedResets?.count }
     /// Paid continuation capacity reported by the provider. `nil` means the
     /// contract supplied no on-demand data; an entry with `isEnabled == false`
     /// means the provider explicitly reported that pool as disabled.
@@ -200,21 +214,34 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
     public let fetchedAt: Date
 
     public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
-                resetCreditsAvailable: Int? = nil,
+                bankedResets: BankedResets? = nil,
                 onDemand: [OnDemandUsage]? = nil,
                 isFreeTier: Bool? = nil,
                 fetchedAt: Date = Date()) {
         self.provider = provider
         self.plan = plan
         self.windows = windows
-        self.resetCreditsAvailable = resetCreditsAvailable
+        self.bankedResets = bankedResets
         self.onDemand = onDemand
         self.isFreeTier = isFreeTier
         self.fetchedAt = fetchedAt
     }
 
-    /// Decoding is where persisted snapshots re-enter the app. Migrate legacy
-    /// Cursor labels and remove retired Codex meters before presentation.
+    @available(*, deprecated, renamed: "init(provider:plan:windows:bankedResets:onDemand:isFreeTier:fetchedAt:)")
+    public init(provider: ProviderID, plan: String?, windows: [LimitWindow],
+                resetCreditsAvailable: Int?,
+                onDemand: [OnDemandUsage]? = nil,
+                isFreeTier: Bool? = nil,
+                fetchedAt: Date = Date()) {
+        self.init(provider: provider, plan: plan, windows: windows,
+                  bankedResets: resetCreditsAvailable.map { BankedResets(count: max(0, $0)) },
+                  onDemand: onDemand, isFreeTier: isFreeTier, fetchedAt: fetchedAt)
+    }
+
+    /// Decoding is where persisted snapshots re-enter the app, so provider
+    /// label migrations belong here: a cached or historical snapshot must
+    /// present the same window identity (`kind:label`) as a fresh fetch, or the
+    /// history graphs read the rename as the window disappearing.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         provider = try container.decode(ProviderID.self, forKey: .provider)
@@ -231,11 +258,33 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         default:
             windows = decodedWindows
         }
-        resetCreditsAvailable = try container.decodeIfPresent(Int.self,
-                                                             forKey: .resetCreditsAvailable)
+        if container.contains(.bankedResets) {
+            bankedResets = try container.decodeIfPresent(BankedResets.self, forKey: .bankedResets)
+        } else {
+            let legacyCount = try container.decodeIfPresent(Int.self, forKey: .resetCreditsAvailable)
+            bankedResets = legacyCount.map { BankedResets(count: max(0, $0)) }
+        }
         onDemand = try container.decodeIfPresent([OnDemandUsage].self, forKey: .onDemand)
         isFreeTier = try container.decodeIfPresent(Bool.self, forKey: .isFreeTier)
         fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider, plan, windows, bankedResets, resetCreditsAvailable
+        case onDemand, isFreeTier, fetchedAt
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(provider, forKey: .provider)
+        try container.encodeIfPresent(plan, forKey: .plan)
+        try container.encode(windows, forKey: .windows)
+        try container.encodeIfPresent(bankedResets, forKey: .bankedResets)
+        // Remove after the next App Store build.
+        try container.encodeIfPresent(resetCreditsAvailable, forKey: .resetCreditsAvailable)
+        try container.encodeIfPresent(onDemand, forKey: .onDemand)
+        try container.encodeIfPresent(isFreeTier, forKey: .isFreeTier)
+        try container.encode(fetchedAt, forKey: .fetchedAt)
     }
 }
 

@@ -4,6 +4,7 @@ public enum UsageNotificationType: String, CaseIterable, Codable, Sendable {
     case codexWeeklyReset
     case codexSpontaneousReset
     case codexBankedReset
+    case claudeBankedReset
     case claudeSessionReset
     case claudeWeeklyReset
     case claudeSpontaneousReset
@@ -435,23 +436,34 @@ public enum UsageNotificationEngine {
         state: inout NotificationEngineState,
         commands: inout [UsageNotificationCommand]
     ) {
-        guard previous.provider == current.provider,
-              current.provider == .codex,
-              preferences.codexBankedReset,
-              let oldCount = previous.resetCreditsAvailable,
-              let newCount = current.resetCreditsAvailable,
+        guard previous.provider == current.provider else { return }
+        let type: UsageNotificationType
+        let title: String
+        switch current.provider {
+        case .codex:
+            type = .codexBankedReset
+            title = "Codex banked reset granted"
+        case .claude:
+            type = .claudeBankedReset
+            title = "Claude banked reset granted"
+        default:
+            return
+        }
+        guard preferences.isEnabled(type),
+              let oldCount = previous.bankedResets?.count,
+              let newCount = current.bankedResets?.count,
               newCount > oldCount else {
             return
         }
 
         let marker = "count:\(newCount):\(milliseconds(current.fetchedAt))"
-        let markerKey = firedMarkerKey(type: .codexBankedReset, accountID: accountID)
+        let markerKey = firedMarkerKey(type: type, accountID: accountID)
         guard state.lastFiredMarkers[markerKey] != marker else { return }
         let noun = newCount == 1 ? "reset" : "resets"
         let request = UsageNotificationRequest(
-            identifier: "\(UsageNotificationType.codexBankedReset.identifierPrefix)\(accountID).\(marker)",
-            type: .codexBankedReset,
-            title: "Codex banked reset granted",
+            identifier: "\(type.identifierPrefix)\(accountID).\(marker)",
+            type: type,
+            title: title,
             body: "You now have \(newCount) banked \(noun) available.",
             deliverAt: nil
         )
@@ -510,6 +522,7 @@ private extension NotificationPreferences {
         case .codexWeeklyReset: codexWeeklyReset
         case .codexSpontaneousReset: codexSpontaneousReset
         case .codexBankedReset: codexBankedReset
+        case .claudeBankedReset: claudeBankedReset
         case .claudeSessionReset: claudeSessionReset
         case .claudeWeeklyReset: claudeWeeklyReset
         case .claudeSpontaneousReset: claudeSpontaneousReset

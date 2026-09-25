@@ -224,8 +224,15 @@ private struct AccountSection: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    if let credits = snapshot.resetCreditsAvailable, credits > 0 {
-                        Label("\(credits) reset\(credits == 1 ? "" : "s") available",
+                    if let banked = snapshot.bankedResets, banked.count > 0 {
+                        Label("\(banked.count) reset\(banked.count == 1 ? "" : "s") banked"
+                              + (banked.usableNow ? "" : " · usable at limit")
+                              + (banked.expiresAt.map { expiry in
+                                  let format = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+                                  let expiryFormat = Calendar.current.isDate(expiry, equalTo: Date(), toGranularity: .year)
+                                      ? format : format.year()
+                                  return ", use by \(expiry.formatted(expiryFormat))"
+                              } ?? ""),
                               systemImage: "arrow.clockwise.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
