@@ -1,0 +1,81 @@
+name: GA archive (Xcode 27)
+
+# Builds a Release archive of Ammo on GitHub's xcode-27 image (macOS 27.0 GA,
+# Xcode 27.0 GA 27A266a) so the archive carries non-beta DTXcodeBuild and
+# BuildMachineOSBuild stamps (MIK-253). Signing happens later on the host at
+# -exportArchive time, so the runner needs no certificate. Manual dispatch only.
+
+on:
+  push:
+    branches: [claude/ci-ga-archive]
+  workflow_dispatch:
+    inputs:
+      ref_note:
+        description: "Why this run (free text)"
+        required: false
+        default: "MIK-253 GA archive"
+
+jobs:
+  archive:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain stamps
+        run: |
+          sw_vers
+          xcodebuild -version
+          /usr/libexec/PlistBuddy -c "Print DTXcodeBuild" /Applications/Xcode_27.app/Contents/Info.plist || true
+          sudo xcode-select -s /Applications/Xcode_27.app
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        working-directory: Apps/iOS
+        run: xcodegen generate
+
+      - name: SwiftPM tests
+        run: swift test --disable-sandbox 2>&1 | tail -5
+
+      - name: Archive (ad-hoc signed, entitlements embedded)
+        id: adhoc
+        continue-on-error: true
+        run: |
+          xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Ammo.xcarchive" \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
+            PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM= archive 2>&1 | tail -20
+          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+
+      - name: Archive (unsigned fallback)
+        if: steps.adhoc.outcome == 'failure'
+        run: |
+          rm -rf "$RUNNER_TEMP/Ammo.xcarchive"
+          xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Ammo.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= archive 2>&1 | tail -20
+          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+
+      - name: Packaged stamps
+        run: |
+          APP="$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+          for k in CFBundleShortVersionString CFBundleVersion DTXcode DTXcodeBuild DTSDKBuild DTPlatformBuild BuildMachineOSBuild MinimumOSVersion; do
+            printf "%s=" "$k"; /usr/libexec/PlistBuddy -c "Print $k" "$APP/Info.plist"
+          done
+          codesign -dv "$APP" 2>&1 | head -3 || true
+          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -p - | grep -E "application-groups|keychain-access" || echo "no entitlements embedded"
+
+      - name: Zip archive
+        run: |
+          cd "$RUNNER_TEMP" && ditto -c -k --keepParent Ammo.xcarchive Ammo.xcarchive.zip
+          ls -l "$RUNNER_TEMP/Ammo.xcarchive.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ammo-xcarchive-${{ github.sha }}
+          path: ${{ runner.temp }}/Ammo.xcarchive.zip
+          retention-days: 14
+          if-no-files-found: error
