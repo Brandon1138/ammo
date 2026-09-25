@@ -150,12 +150,11 @@ struct MIK157Tests {
         let complete = fullState(id: codexID, provider: .codex, label: "Work")
 
         let heuristic = WidgetProviderPanels.slots(
-            states: [placed, complete], showingCodexSpark: false, order: .empty)
+            states: [placed, complete], order: .empty)
         #expect(heuristic.first(where: { $0.provider == .codex })?.state?.id == codexID)
 
         let chosen = WidgetProviderPanels.slots(
             states: [placed, complete],
-            showingCodexSpark: false,
             order: AccountOrder(ids: [secondCodexID, codexID]))
         #expect(chosen.first(where: { $0.provider == .codex })?.state?.id == secondCodexID)
     }
@@ -170,7 +169,6 @@ struct MIK157Tests {
         // by usage completeness.
         let slots = WidgetProviderPanels.slots(
             states: [bareCodex, completeCodex, placedClaude],
-            showingCodexSpark: false,
             order: AccountOrder(ids: [claudeID]))
 
         #expect(slots.first(where: { $0.provider == .codex })?.state?.id == codexID)

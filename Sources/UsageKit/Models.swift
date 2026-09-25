@@ -247,9 +247,17 @@ public struct UsageSnapshot: Codable, Sendable, Equatable {
         provider = try container.decode(ProviderID.self, forKey: .provider)
         plan = try container.decodeIfPresent(String.self, forKey: .plan)
         let decodedWindows = try container.decode([LimitWindow].self, forKey: .windows)
-        windows = provider == .cursor
-            ? CursorProvider.migratingLegacyWindowLabels(decodedWindows)
-            : decodedWindows
+        switch provider {
+        case .cursor:
+            windows = CursorProvider.migratingLegacyWindowLabels(decodedWindows)
+        case .codex:
+            windows = decodedWindows.filter {
+                $0.kind != .modelScoped ||
+                    ($0.label != "Spark" && !$0.label.hasPrefix("Spark "))
+            }
+        default:
+            windows = decodedWindows
+        }
         if container.contains(.bankedResets) {
             bankedResets = try container.decodeIfPresent(BankedResets.self, forKey: .bankedResets)
         } else {

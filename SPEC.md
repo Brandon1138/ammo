@@ -346,18 +346,6 @@ Response (fields Ammo consumes):
                           "reset_after_seconds": 590909, "reset_at": 1784797038 },
     "secondary_window": null
   },
-  "additional_rate_limits": [              // VERIFIED 2026-08-20; null on plans without it
-    {
-      "limit_name": "GPT-5.3-Codex-Spark",
-      "metered_feature": "codex_bengalfox",
-      "rate_limit": {
-        "primary_window":   { "used_percent": 0, "limit_window_seconds": 18000,
-                              "reset_after_seconds": 18000, "reset_at": 1787254942 },
-        "secondary_window": { "used_percent": 0, "limit_window_seconds": 604800,
-                              "reset_after_seconds": 604800, "reset_at": 1787841742 }
-      }
-    }
-  ],
   "credits": {
     "has_credits": true, "unlimited": false, "balance": null,
     "overage_limit_reached": false
@@ -378,16 +366,8 @@ a weekly window only, and windows may reshuffle again (<24 h → Session, <8 d �
 else Monthly). `reset_at` is epoch seconds. Surface `available_count` as
 "N resets available".
 
-Each `additional_rate_limits[]` entry is a model-specific bucket carrying its own
-`rate_limit` with the same two window slots. Ammo recognizes the Spark bucket by
-`metered_feature == "codex_bengalfox"` or a `limit_name` containing "spark", and
-maps its windows onto the ordinary Codex snapshot as `modelScoped` windows labeled
-**Spark** and **Spark weekly** — classified by `limit_window_seconds`, never by
-slot, exactly like the included windows. The upstream `limit_name` /
-`metered_feature` strings stay inside `CodexProvider`. Absent, unrecognized, or
-malformed buckets yield no windows and no error. Presentation of the Spark meters
-is behind an app-group display preference (Settings → Display); ingestion always
-parses them, so the switch never triggers a refetch.
+2026-09-24: Spark was retired 2026-09-14. Its bucket is no longer parsed from
+`additional_rate_limits`; only primary and secondary `rate_limit` windows are used.
 
 Map `self_serve_business_usage_based` to the user-facing badge **Business**; unknown
 raw tags get word-wise formatting instead of exposing underscores. `credits` is a

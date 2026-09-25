@@ -54,15 +54,13 @@ import Testing
     }
 
     @Test func modelScopedWindowsNeverClaimEitherSlot() throws {
-        // Codex on Pro with Spark shown: one included window plus two Spark
-        // buckets. The gauge must read exactly as it does without Spark.
+        // Extra model-scoped windows cannot displace included headline limits.
         let snapshot = UsageSnapshot(
-            provider: .codex,
-            plan: "prolite",
+            provider: .claude,
+            plan: "max",
             windows: [
                 window(.weekly, "Weekly", used: 100),
-                window(.modelScoped, "Spark session", used: 5),
-                window(.modelScoped, "Spark weekly", used: 2),
+                window(.modelScoped, "Fable", used: 5),
             ],
             fetchedAt: now)
 
@@ -83,17 +81,6 @@ import Testing
 
         #expect(presentation.indicatorWindow.label == "Fable")
         #expect(presentation.numericWindow == nil)
-    }
-
-    @Test func explicitWindowChoiceIsPreservedVerbatim() {
-        let spark = window(.modelScoped, "Spark session", used: 5)
-        let weekly = window(.weekly, "Weekly", used: 100)
-
-        let presentation = LockScreenUsagePresentation(
-            indicatorWindow: spark, numericWindow: weekly, fetchedAt: now)
-
-        #expect(presentation.indicatorWindow == spark)
-        #expect(presentation.numericWindow == weekly)
     }
 
     @Test func freshnessBecomesStaleAfterTwoQuietIntervals() throws {

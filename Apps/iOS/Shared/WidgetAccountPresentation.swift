@@ -67,21 +67,8 @@ enum WidgetProviderPanels {
     /// account ordering so the board does not move between refreshes.
     static let allProviders: [ProviderID] = [.codex, .claude, .cursor, .openRouter]
 
-    /// With Codex Spark metering on, Codex claims three meters instead of one
-    /// and the board runs out of height. OpenRouter is the panel that yields:
-    /// it draws money rather than a percentage window, so it is the one section
-    /// whose absence costs no rate-limit information.
-    static let sparkProviders: [ProviderID] = [.codex, .claude, .cursor]
-
-    static func providers(showingCodexSpark: Bool) -> [ProviderID] {
-        showingCodexSpark ? sparkProviders : allProviders
-    }
-
-    /// The board as currently configured. Off — the default — is the existing
-    /// four-provider board, unchanged.
-    static var providers: [ProviderID] {
-        providers(showingCodexSpark: UsageDisplayPreferences.showsCodexSpark)
-    }
+    /// Four shipping providers always occupy the board.
+    static var providers: [ProviderID] { allProviders }
 
     /// Families the Accounts widget offers. The board is drawn in
     /// `systemExtraLargePortrait`, the tall portrait family iOS 27 added to the
@@ -109,10 +96,7 @@ enum WidgetProviderPanels {
 
     /// Three windows preserve Claude's Session, Weekly, and provider-reported
     /// model bucket (currently Fable) without manufacturing a row on plans that
-    /// omit it. It is also exactly what an expanded Codex needs — its Weekly
-    /// window plus the two Spark meters — as verified against the live
-    /// `wham/usage` payload, which reports one included window for Codex. Other
-    /// providers naturally collapse to their shorter lists.
+    /// omit it. Other providers naturally collapse to their shorter lists.
     static let boardWindowLimit = 3
 
     /// One slot per shipping provider. Where several accounts share a provider,
@@ -122,10 +106,9 @@ enum WidgetProviderPanels {
     /// panels are resolved against the same stored list.
     static func slots(
         states: [AccountState],
-        showingCodexSpark: Bool = UsageDisplayPreferences.showsCodexSpark,
         order: AccountOrder = AccountOrderStore.load()
     ) -> [WidgetProviderSlot] {
-        providers(showingCodexSpark: showingCodexSpark).map { provider in
+        providers.map { provider in
             let candidates = states.filter { $0.account.provider == provider }
             return WidgetProviderSlot(
                 provider: provider,
@@ -134,35 +117,12 @@ enum WidgetProviderPanels {
     }
 }
 
-extension UsageSnapshot {
-    /// The individual paid Codex tiers — "pro" (20x) and "prolite" (5x), both
-    /// presented as Pro. Business and unknown plans keep the neutral gauge.
-    var isCodexProFamilyPlan: Bool {
-        guard provider == .codex, let plan = plan?.lowercased() else { return false }
-        return plan == "pro" || plan == "prolite"
-    }
-}
-
 extension AccountState {
     var widgetPercentageWindow: LimitWindow? { snapshot?.worstWindow }
 
-    /// Lock Screen gauge selection. The neutral rule everywhere, plus one
-    /// Codex refinement: a Pro plan reports no included session window, so
-    /// when Spark meters are shown, Spark's own session meter drives the ring
-    /// — the numeric slot keeps reading the plan's Weekly window, exactly as
-    /// the marker gauge did. With Spark hidden the snapshot carries no Spark
-    /// windows and this is the neutral selection unchanged.
+    /// Lock Screen gauge uses the shared neutral window selection.
     var lockScreenUsagePresentation: LockScreenUsagePresentation? {
-        guard let snapshot,
-              let base = LockScreenUsagePresentation(snapshot: snapshot) else { return nil }
-        guard snapshot.isCodexProFamilyPlan,
-              base.indicatorWindow.kind != .session,
-              let sparkSession = snapshot.windows.first(where: \.isCodexSparkSessionWindow)
-        else { return base }
-        return LockScreenUsagePresentation(
-            indicatorWindow: sparkSession,
-            numericWindow: base.indicatorWindow,
-            fetchedAt: snapshot.fetchedAt)
+        snapshot.flatMap(LockScreenUsagePresentation.init(snapshot:))
     }
 
     /// Lock Screen gauge for an account whose provider reported spend but no
