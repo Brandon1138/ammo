@@ -18,25 +18,30 @@ restored.
 
 | File | Device | Resolution | Content |
 | --- | --- | --- | --- |
-| `ammo-6.9-inch-build18-01-usage.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Usage tab with Codex, Claude, and Cursor sample accounts |
-| `ammo-6.9-inch-build18-02-on-demand.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | On-demand tab with sample personal limits, under the shared header |
-| `ammo-6.9-inch-build18-03-history.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | History tab with sample weekly activity heatmap and chart, under the shared header |
-| `ammo-6.9-inch-build18-04-settings.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Settings sheet: notification toggles per provider |
+| `ammo-6.9-inch-build19-01-usage.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Usage tab with Codex, Claude, and Cursor sample accounts |
+| `ammo-6.9-inch-build19-02-on-demand.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | On-demand tab with sample personal limits, under the shared header |
+| `ammo-6.9-inch-build19-03-history.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | History tab with sample weekly activity heatmap and chart, under the shared header |
+| `ammo-6.9-inch-build19-04-settings.png` | iPhone 17 Pro Max, iOS 27.0 | 1320 x 2868 native | Settings sheet: notification toggles per provider, including the Claude "Banked reset granted" toggle |
 
-The previous unversioned set (`01-usage.png` … `04-settings.png`) was captured
-from `a7fc5d54c045db0c630d5fe006bd68e3917b55c6`, before build 18 and before the
-Settings About section landed. It is superseded by the build 18 set above and
-was removed so no stale capture can be uploaded by mistake. Git history still
-holds it.
+The build 18 set (`ammo-6.9-inch-build18-01…04.png`, captured from `1ddf60c`)
+was removed with this set. Its Settings frame showed the "Display" section
+with the "Show Codex Spark meters" toggle that PR #45 deleted, and lacked the
+Claude "Banked reset granted" toggle that PR #46 added, so it no longer
+matched the shipping app. Git history still holds it.
 
 ## Capture and privacy notes
 
-- Captured from source commit `1ddf60cbd59ea5e5b208ea292f730fdd46fcd2fe`
-  (`MARKETING_VERSION` 0.1.0, `CURRENT_PROJECT_VERSION` 18), the source-only
-  commit of this branch, after `xcodegen generate` and a Release
-  `iphonesimulator` build of the `Ammo` scheme. The docs-and-screenshots commit
-  that carries these files does not touch source, so it cannot change what they
-  show.
+- Captured from source commit `a747ab037ba7596bf031f537f98f3aca0cd49e5a`
+  (`MARKETING_VERSION` 0.1.0, `CURRENT_PROJECT_VERSION` 19), the source-only
+  commit of this branch, after `xcodegen generate` and a Debug
+  `iphonesimulator` build of the `Ammo` scheme driven by a throwaway XCUITest
+  target that was never committed. The test tapped **See a demo**, walked the
+  three tabs, opened Settings, asserted on each frame that the `Settings`
+  button, the `Ammo`-labelled logo and `Exit Demo` were present, asserted that
+  Settings shows two "Banked reset granted" switches and no "Display" section,
+  and wrote `XCUIScreen.main.screenshot()` to disk unmodified. The
+  docs-and-screenshots commit that carries these files does not touch source,
+  so it cannot change what they show.
 - Demo mode supplied every visible account and data point, entered by tapping
   **See a demo** in the empty state. No credentials, network requests, real
   account files, token, personal label, or account identifier appears in the
@@ -54,6 +59,19 @@ holds it.
   simulator Home Screen and system Home Screen widget placement is not
   reachable from the automation bridge. A widget shot, if wanted, is a device
   capture task.
+
+## Build 19 recapture (`a747ab0`, 2026-09-25)
+
+All four frames were recaptured because build 19 folds in PR #45 and PR #46.
+Only the Settings frame changed in content: the Claude group gained a
+"Banked reset granted" toggle and the "Display" section is gone. Usage,
+On-demand and History are visually the same as the build 18 frames; the Usage
+and History bytes differ only through the "Updated N sec ago" stamp and the
+date-relative history axis, and the On-demand frame came out byte-identical to
+its build 18 predecessor. Demo mode carries no Spark meter and no banked
+reset, so neither PR changes the Usage frame.
+
+Evidence log: `docs/launch-review/asc-readiness-build19-20260925.md`.
 
 ## Shared header (build 18, `1ddf60c`)
 
