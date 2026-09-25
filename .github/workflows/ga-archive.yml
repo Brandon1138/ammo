@@ -6,6 +6,8 @@ name: GA archive (Xcode 27)
 # -exportArchive time, so the runner needs no certificate. Manual dispatch only.
 
 on:
+  push:
+    branches: [claude/ci-ga-archive]
   workflow_dispatch:
     inputs:
       ref_note:
