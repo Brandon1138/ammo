@@ -151,3 +151,29 @@ xcodebuild -exportArchive -archivePath <scratch>/Ammo.xcarchive \
 `ExportOptions.plist` is the gate 8 one: `method` `app-store-connect`,
 `teamID` `JN24JD42L3`, `signingStyle` `automatic`, `uploadSymbols` true,
 `destination` `export`.
+
+## Addendum 2026-09-27 — build 19 uploaded on GA toolchain (MIK-253)
+
+The beta-stamp blocker in §4 was cleared without installing Xcode 27 GA on
+the host. The archive was built by the `GA archive (Xcode 27)` workflow on
+GitHub's `xcode-27` runner (PR #48, manual dispatch), ad-hoc signed locally
+with the app-group and keychain-group entitlements, then exported and
+uploaded from the host with Xcode 27.0 beta 3's `xcodebuild` using the
+cloud-managed Apple Distribution certificate.
+
+| Check (Ammo.app and AmmoWidgets.appex) | Result |
+| -- | -- |
+| `DTXcodeBuild` / `DTSDKBuild` / `BuildMachineOSBuild` | `27A266a` / `24A430` / `26A428` |
+| Version | 0.1.0 (19) |
+| Signing | Cloud Managed Apple Distribution, team `JN24JD42L3`, expires 2027-07-20 |
+| `codesign --verify --deep --strict` | OK |
+| Entitlements | app group + keychain-access-groups present, `get-task-allow` false |
+| IPA sha256 | `426ff8a4ef7b8df9ccb98936845e89876e86cbe12c206a983bbd8d1932ab586b` |
+| Upload (`-exportArchive`, `destination=upload`) | `Upload succeeded`, 2026-09-27 10:05 local |
+
+Export initially failed with `No Accounts` / `No signing certificate "iOS
+Distribution" found` because the Apple ID session in Xcode had expired; a
+manual re-sign-in in Xcode → Settings → Accounts fixed it.
+
+Still open in App Store Connect: attach build 19 to 0.1.0, replace the four
+6.9-inch screenshots, and the three owner items from `asc-progress-20260905.md`.
