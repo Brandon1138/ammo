@@ -2,8 +2,13 @@ name: GA archive (Xcode 27)
 
 # Builds a Release archive of Ammo on GitHub's xcode-27 image (macOS 27.0 GA,
 # Xcode 27.0 GA 27A266a) so the archive carries non-beta DTXcodeBuild and
-# BuildMachineOSBuild stamps (MIK-253). Signing happens later on the host at
-# -exportArchive time, so the runner needs no certificate. Manual dispatch only.
+# BuildMachineOSBuild stamps (MIK-253). The archive is UNSIGNED: ad-hoc
+# signing is refused by the iOS SDK ("Ad Hoc code signing is not allowed with
+# SDK 'iOS 27.0'", run 36196015228), so signing and the app-group /
+# keychain-access-groups entitlements are applied on the host at
+# -exportArchive time with the cloud-managed Apple Distribution certificate.
+# The host must verify both bundles' entitlements after export. The runner
+# needs no certificate. Manual dispatch only.
 
 on:
   workflow_dispatch:
@@ -12,68 +17,108 @@ on:
         description: "Why this run (free text)"
         required: false
         default: "MIK-253 GA archive"
+      expected_xcode_build:
+        description: "Required DTXcodeBuild stamp (GA Xcode build)"
+        required: true
+        default: "27A266a"
+      expected_os_build:
+        description: "Required BuildMachineOSBuild stamp (GA macOS build)"
+        required: true
+        default: "26A428"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit bash gives `bash --noprofile --norc -eo pipefail {0}`, so a
+    # failing swift test / xcodebuild fails the step even when piped to tail.
+    shell: bash
 
 jobs:
   archive:
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - name: Toolchain stamps
+      - name: Select Xcode and record toolchain stamps
         run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
           sw_vers
           xcodebuild -version
-          /usr/libexec/PlistBuddy -c "Print DTXcodeBuild" /Applications/Xcode_27.app/Contents/Info.plist || true
-          sudo xcode-select -s /Applications/Xcode_27.app
-          xcodebuild -version
+          /usr/libexec/PlistBuddy -c "Print DTXcodeBuild" /Applications/Xcode_27.app/Contents/Info.plist
 
       - name: Install xcodegen
-        run: brew install xcodegen
+        run: |
+          brew install xcodegen
+          xcodegen --version
 
       - name: Generate project
         working-directory: Apps/iOS
         run: xcodegen generate
 
       - name: SwiftPM tests
-        run: swift test --disable-sandbox 2>&1 | tail -5
+        run: swift test --disable-sandbox
 
-      - name: Archive (ad-hoc signed, entitlements embedded)
-        id: adhoc
-        continue-on-error: true
-        run: |
-          xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Ammo.xcarchive" \
-            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
-            PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM= archive 2>&1 | tail -20
-          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
-
-      - name: Archive (unsigned fallback)
-        if: steps.adhoc.outcome == 'failure'
+      - name: Archive (unsigned; signed on the host at export)
         run: |
           rm -rf "$RUNNER_TEMP/Ammo.xcarchive"
           xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Ammo.xcarchive" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= archive 2>&1 | tail -20
           test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app/PlugIns/AmmoWidgets.appex"
 
-      - name: Packaged stamps
+      - name: Assert GA stamps and write provenance
+        env:
+          EXPECTED_XCODE_BUILD: ${{ inputs.expected_xcode_build }}
+          EXPECTED_OS_BUILD: ${{ inputs.expected_os_build }}
+          REF_NOTE: ${{ inputs.ref_note }}
         run: |
           APP="$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
-          for k in CFBundleShortVersionString CFBundleVersion DTXcode DTXcodeBuild DTSDKBuild DTPlatformBuild BuildMachineOSBuild MinimumOSVersion; do
-            printf "%s=" "$k"; /usr/libexec/PlistBuddy -c "Print $k" "$APP/Info.plist"
+          PROV="$RUNNER_TEMP/provenance.txt"
+          {
+            echo "source_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "ref_note=${REF_NOTE}"
+            echo "xcode_path=$(xcode-select -p)"
+            echo "xcode_version=$(xcodebuild -version | tr '\n' ' ')"
+            echo "macos=$(sw_vers -productVersion) build=$(sw_vers -buildVersion)"
+            echo "xcodegen=$(xcodegen --version)"
+            echo "signing=unsigned (CODE_SIGNING_ALLOWED=NO); entitlements applied on host at export"
+          } | tee "$PROV"
+          fail=0
+          for bundle in "$APP" "$APP/PlugIns/AmmoWidgets.appex"; do
+            plist="$bundle/Info.plist"
+            name=$(basename "$bundle")
+            for k in CFBundleShortVersionString CFBundleVersion DTXcode DTXcodeBuild DTSDKBuild DTPlatformBuild BuildMachineOSBuild MinimumOSVersion; do
+              printf "%s %s=%s\n" "$name" "$k" "$(/usr/libexec/PlistBuddy -c "Print $k" "$plist")" | tee -a "$PROV"
+            done
+            got_xcode=$(/usr/libexec/PlistBuddy -c "Print DTXcodeBuild" "$plist")
+            got_os=$(/usr/libexec/PlistBuddy -c "Print BuildMachineOSBuild" "$plist")
+            if [ "$got_xcode" != "$EXPECTED_XCODE_BUILD" ]; then
+              echo "::error::$name DTXcodeBuild=$got_xcode, expected $EXPECTED_XCODE_BUILD"; fail=1
+            fi
+            if [ "$got_os" != "$EXPECTED_OS_BUILD" ]; then
+              echo "::error::$name BuildMachineOSBuild=$got_os, expected $EXPECTED_OS_BUILD"; fail=1
+            fi
           done
-          codesign -dv "$APP" 2>&1 | head -3 || true
-          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -p - | grep -E "application-groups|keychain-access" || echo "no entitlements embedded"
+          exit $fail
 
       - name: Zip archive
         run: |
           cd "$RUNNER_TEMP" && ditto -c -k --keepParent Ammo.xcarchive Ammo.xcarchive.zip
           ls -l "$RUNNER_TEMP/Ammo.xcarchive.zip"
+          echo "zip_sha256=$(shasum -a 256 Ammo.xcarchive.zip | cut -d' ' -f1)" | tee -a "$RUNNER_TEMP/provenance.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Ammo-xcarchive-${{ github.sha }}
-          path: ${{ runner.temp }}/Ammo.xcarchive.zip
+          path: |
+            ${{ runner.temp }}/Ammo.xcarchive.zip
+            ${{ runner.temp }}/provenance.txt
           retention-days: 14
           if-no-files-found: error
