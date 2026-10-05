@@ -132,7 +132,11 @@ jobs:
             if [ "$got_group" != "$EXPECTED_KEYCHAIN_GROUP" ]; then
               echo "::error::$name AmmoKeychainAccessGroup=$got_group, expected $EXPECTED_KEYCHAIN_GROUP"; fail=1
             fi
-            if grep -q '\$(' "$plist" 2>/dev/null || plutil -p "$plist" | grep -q '\$('; then
+            # grep without -q reads all of plutil's output, so pipefail cannot
+            # turn a match into a SIGPIPE failure; a plutil error also fails.
+            if ! decoded=$(plutil -p "$plist"); then
+              echo "::error::$name Info.plist could not be decoded by plutil"; fail=1
+            elif grep '\$(' <<<"$decoded" >/dev/null; then
               echo "::error::$name Info.plist still contains an unexpanded \$(...) build setting"; fail=1
             fi
           done
