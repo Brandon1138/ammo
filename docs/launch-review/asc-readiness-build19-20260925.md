@@ -164,11 +164,14 @@ xcodebuild -exportArchive -archivePath <scratch>/Ammo.xcarchive \
 The beta-stamp blocker in §4 was cleared without installing Xcode 27 GA on
 the host. The archive was built by the `GA archive (Xcode 27)` workflow on
 GitHub's `xcode-27` runner (Actions run `36196015228`, triggered by a push of
-commit `2e68e8c` on the PR #48 branch; the workflow steps were identical to
-the final manual-dispatch-only version), ad-hoc signed locally with the
-app-group and keychain-group entitlements, then exported and uploaded from
-the host with Xcode 27.0 beta 3's `xcodebuild` using the cloud-managed Apple
-Distribution certificate.
+commit `2e68e8c` on the PR #48 branch). The runner's ad-hoc signing step
+failed ("Ad Hoc code signing is not allowed with SDK 'iOS 27.0'"), so the
+workflow's unsigned fallback produced the archive and it left the runner
+with no entitlements embedded. Signing, the app-group and keychain-group
+entitlements, export and upload all happened on the host with Xcode 27.0
+beta 3's `xcodebuild` and the cloud-managed Apple Distribution certificate;
+the table below records the result. PR #48 has since been reworked to make
+the unsigned archive the only path and to assert the GA stamps.
 
 | Check (Ammo.app and AmmoWidgets.appex) | Result |
 | -- | -- |
