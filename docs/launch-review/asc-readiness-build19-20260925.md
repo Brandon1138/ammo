@@ -9,6 +9,10 @@ inherited from the build 18 evidence in
 
 ## Verdict
 
+**Superseded 2026-09-27.** The toolchain blocker below was cleared and build
+19 was uploaded on the GA toolchain; see the addendum at the end of this
+document. The original 2026-09-25 verdict is kept below for the record.
+
 **Not uploadable from this machine as it stands.** The app, listing and
 screenshots are ready; the toolchain is not. One blocker, three owner items
 carried over from `asc-progress-20260905.md`, nothing new on the app side.
@@ -56,7 +60,10 @@ Read from the archived `Ammo.app`, not from `project.yml`.
 | `PrivacyInfo.xcprivacy` | tracking false, no collected data types, no tracking domains, one accessed-API entry (UserDefaults, reason `1C8F.1`) — unchanged from build 18 |
 | Leftover "Spark" strings in the binary | 2, both the retired-marker cleanup path (`codex-spark-metering-enabled` and its log line). No user-visible string. |
 
-## 4. BLOCKER — beta toolchain and beta build machine
+## 4. BLOCKER (cleared 2026-09-27) — beta toolchain and beta build machine
+
+The blocker below was cleared on 2026-09-27; see the addendum at the end of
+this document for the GA archive and successful upload.
 
 App Store Connect rejects an upload with ITMS-90111 "Invalid Toolchain" when
 either the Xcode that built it or the macOS it was built on is a beta. Both
@@ -71,7 +78,7 @@ So the IPA in §2 proves the source archives and exports; it is not an
 uploadable binary. This was already the standing owner decision on
 2026-09-05, when only the Xcode side was known.
 
-Required before upload, in order:
+Original 2026-09-25 steps required before upload (cleared 2026-09-27):
 
 1. Install Xcode 27.0 GA (`27A266a`) from the Mac App Store or developer
    downloads. It requires macOS 26.6 or later; the host satisfies that.
@@ -156,10 +163,12 @@ xcodebuild -exportArchive -archivePath <scratch>/Ammo.xcarchive \
 
 The beta-stamp blocker in §4 was cleared without installing Xcode 27 GA on
 the host. The archive was built by the `GA archive (Xcode 27)` workflow on
-GitHub's `xcode-27` runner (PR #48, manual dispatch), ad-hoc signed locally
-with the app-group and keychain-group entitlements, then exported and
-uploaded from the host with Xcode 27.0 beta 3's `xcodebuild` using the
-cloud-managed Apple Distribution certificate.
+GitHub's `xcode-27` runner (Actions run `36196015228`, triggered by a push of
+commit `2e68e8c` on the PR #48 branch; the workflow steps were identical to
+the final manual-dispatch-only version), ad-hoc signed locally with the
+app-group and keychain-group entitlements, then exported and uploaded from
+the host with Xcode 27.0 beta 3's `xcodebuild` using the cloud-managed Apple
+Distribution certificate.
 
 | Check (Ammo.app and AmmoWidgets.appex) | Result |
 | -- | -- |
