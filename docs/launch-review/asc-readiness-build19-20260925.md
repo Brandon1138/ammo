@@ -102,8 +102,9 @@ Original 2026-09-25 steps required before upload (cleared 2026-09-27):
      metadata edit only and changes no code.
 3. Re-run §2 and §3 on the same source commit and confirm `DTXcodeBuild` is
    `27A266a` and `BuildMachineOSBuild` is `26A428`.
-4. Upload (Xcode Organizer, Transporter or `xcrun altool`), wait for
-   processing, then attach build 19 to version 0.1.0 in App Store Connect.
+4. Upload (Xcode Organizer, Transporter or `xcrun altool`) and wait for
+   processing. ~~Then attach build 19 to version 0.1.0 in App Store
+   Connect.~~ Do not attach build 19; see the 2026-10-05 addendum.
 
 The `systemExtraLargePortrait` concern from 2026-09-05 (source compiling only
 under the iOS 27 SDK) is moot with Xcode 27 GA.
