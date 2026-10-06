@@ -1,0 +1,158 @@
+name: GA archive (Xcode 27)
+
+# Builds a Release archive of Ammo on GitHub's xcode-27 image (macOS 27.0 GA,
+# Xcode 27.0 GA 27A266a) so the archive carries non-beta DTXcodeBuild and
+# BuildMachineOSBuild stamps (MIK-253). The archive is UNSIGNED: ad-hoc
+# signing is refused by the iOS SDK ("Ad Hoc code signing is not allowed with
+# SDK 'iOS 27.0'", run 36196015228). Because nothing is signed here,
+# $(AppIdentifierPrefix) would expand to nothing in the two Info.plists and
+# AmmoKeychainAccessGroup would lose its team prefix (that is what shipped in
+# build 19), so the team prefix is passed in as a build setting and asserted
+# on both bundles below.
+#
+# Host steps after downloading the artifact, before upload (see
+# docs/launch-review/asc-readiness-build19-20260925.md addenda): ad-hoc
+# re-sign Ammo.app and AmmoWidgets.appex with the app-group and
+# keychain-access-groups entitlements, export with the cloud-managed Apple
+# Distribution certificate, then check in both IPA bundles that the Info.plist
+# AmmoKeychainAccessGroup string appears in the keychain-access-groups array
+# from `codesign -d --entitlements`. The runner needs no certificate. Manual
+# dispatch only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref_note:
+        description: "Why this run (free text)"
+        required: false
+        default: "MIK-253 GA archive"
+      team_id:
+        description: "Apple team id; becomes AppIdentifierPrefix (team_id + '.') in the unsigned build"
+        required: true
+        default: "JN24JD42L3"
+      expected_xcode_build:
+        description: "Required DTXcodeBuild stamp (GA Xcode build)"
+        required: true
+        default: "27A266a"
+      expected_os_build:
+        description: "Required BuildMachineOSBuild stamp (GA macOS build)"
+        required: true
+        default: "26A428"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit bash gives `bash --noprofile --norc -eo pipefail {0}`, so a
+    # failing swift test / xcodebuild fails the step even when piped to tail.
+    shell: bash
+
+jobs:
+  archive:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode and record toolchain stamps
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          sw_vers
+          xcodebuild -version
+          /usr/libexec/PlistBuddy -c "Print DTXcodeBuild" /Applications/Xcode_27.app/Contents/Info.plist
+
+      - name: Install xcodegen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate project
+        working-directory: Apps/iOS
+        run: xcodegen generate
+
+      - name: SwiftPM tests
+        run: swift test --disable-sandbox
+
+      - name: Archive (unsigned; re-signed on the host before export)
+        env:
+          TEAM_ID: ${{ inputs.team_id }}
+        run: |
+          rm -rf "$RUNNER_TEMP/Ammo.xcarchive"
+          # AppIdentifierPrefix is normally derived from the signing identity.
+          # With signing disabled it is empty, so supply it explicitly; the
+          # Info.plist key AmmoKeychainAccessGroup depends on it.
+          xcodebuild -project Apps/iOS/Ammo.xcodeproj -scheme Ammo -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Ammo.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            "AppIdentifierPrefix=${TEAM_ID}." archive 2>&1 | tail -20
+          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+          test -d "$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app/PlugIns/AmmoWidgets.appex"
+
+      - name: Assert GA stamps and keychain group, write provenance
+        env:
+          TEAM_ID: ${{ inputs.team_id }}
+          EXPECTED_XCODE_BUILD: ${{ inputs.expected_xcode_build }}
+          EXPECTED_OS_BUILD: ${{ inputs.expected_os_build }}
+          REF_NOTE: ${{ inputs.ref_note }}
+        run: |
+          APP="$RUNNER_TEMP/Ammo.xcarchive/Products/Applications/Ammo.app"
+          PROV="$RUNNER_TEMP/provenance.txt"
+          # Must match the keychain-access-groups entry in project.yml.
+          EXPECTED_KEYCHAIN_GROUP="${TEAM_ID}.com.brandon.ammo.shared"
+          pb() { /usr/libexec/PlistBuddy -c "Print $1" "$2" 2>/dev/null || echo "MISSING"; }
+          {
+            echo "source_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "ref_note=${REF_NOTE}"
+            echo "xcode_path=$(xcode-select -p)"
+            echo "xcode_version=$(xcodebuild -version | tr '\n' ' ')"
+            echo "macos=$(sw_vers -productVersion) build=$(sw_vers -buildVersion)"
+            echo "xcodegen=$(xcodegen --version)"
+            echo "signing=unsigned (CODE_SIGNING_ALLOWED=NO, AppIdentifierPrefix=${TEAM_ID}.); re-signed with entitlements on host before export"
+          } | tee "$PROV"
+          fail=0
+          for bundle in "$APP" "$APP/PlugIns/AmmoWidgets.appex"; do
+            plist="$bundle/Info.plist"
+            name=$(basename "$bundle")
+            for k in CFBundleShortVersionString CFBundleVersion DTXcode DTXcodeBuild DTSDKBuild DTPlatformBuild BuildMachineOSBuild MinimumOSVersion AmmoKeychainAccessGroup; do
+              printf "%s %s=%s\n" "$name" "$k" "$(pb "$k" "$plist")" | tee -a "$PROV"
+            done
+            got_xcode=$(pb DTXcodeBuild "$plist")
+            got_os=$(pb BuildMachineOSBuild "$plist")
+            got_group=$(pb AmmoKeychainAccessGroup "$plist")
+            if [ "$got_xcode" != "$EXPECTED_XCODE_BUILD" ]; then
+              echo "::error::$name DTXcodeBuild=$got_xcode, expected $EXPECTED_XCODE_BUILD"; fail=1
+            fi
+            if [ "$got_os" != "$EXPECTED_OS_BUILD" ]; then
+              echo "::error::$name BuildMachineOSBuild=$got_os, expected $EXPECTED_OS_BUILD"; fail=1
+            fi
+            if [ "$got_group" != "$EXPECTED_KEYCHAIN_GROUP" ]; then
+              echo "::error::$name AmmoKeychainAccessGroup=$got_group, expected $EXPECTED_KEYCHAIN_GROUP"; fail=1
+            fi
+            # grep without -q reads all of plutil's output, so pipefail cannot
+            # turn a match into a SIGPIPE failure; a plutil error also fails.
+            if ! decoded=$(plutil -p "$plist"); then
+              echo "::error::$name Info.plist could not be decoded by plutil"; fail=1
+            elif grep '\$(' <<<"$decoded" >/dev/null; then
+              echo "::error::$name Info.plist still contains an unexpanded \$(...) build setting"; fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Zip archive
+        run: |
+          cd "$RUNNER_TEMP" && ditto -c -k --keepParent Ammo.xcarchive Ammo.xcarchive.zip
+          ls -l "$RUNNER_TEMP/Ammo.xcarchive.zip"
+          echo "zip_sha256=$(shasum -a 256 Ammo.xcarchive.zip | cut -d' ' -f1)" | tee -a "$RUNNER_TEMP/provenance.txt"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Ammo-xcarchive-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/Ammo.xcarchive.zip
+            ${{ runner.temp }}/provenance.txt
+          retention-days: 14
+          if-no-files-found: error
