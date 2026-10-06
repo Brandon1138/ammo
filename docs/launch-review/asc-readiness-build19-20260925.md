@@ -5,9 +5,20 @@ Source commit under test: `a747ab037ba7596bf031f537f98f3aca0cd49e5a`
 Codex Spark retirement) and PR #46 (MIK-252, Anthropic banked usage-limit
 resets). Every number below was regenerated on this commit; nothing is
 inherited from the build 18 evidence in
-`gate-8-build-verification-20260827.md`.
+`gate-8-build-verification-20260827.md`. The archive that was uploaded on
+2026-09-27 was built from `2e68e8c` on the PR #48 branch; its app source is
+identical to `a747ab0` (the diff outside `docs/`, `.github/` and
+`Screenshots/` is empty).
 
 ## Verdict
+
+**Superseded 2026-09-27, then placed on HOLD 2026-10-05.** The toolchain
+blocker below was cleared and build 19 was uploaded on the GA toolchain
+(addendum 2026-09-27). Final review on 2026-10-05 found that the uploaded
+build carries an unprefixed `AmmoKeychainAccessGroup` in both Info.plists, so
+build 19 must not be attached to 0.1.0 or submitted; the fix goes into build
+20 (addendum 2026-10-05). The original 2026-09-25 verdict is kept below for
+the record.
 
 **Not uploadable from this machine as it stands.** The app, listing and
 screenshots are ready; the toolchain is not. One blocker, three owner items
@@ -56,7 +67,10 @@ Read from the archived `Ammo.app`, not from `project.yml`.
 | `PrivacyInfo.xcprivacy` | tracking false, no collected data types, no tracking domains, one accessed-API entry (UserDefaults, reason `1C8F.1`) — unchanged from build 18 |
 | Leftover "Spark" strings in the binary | 2, both the retired-marker cleanup path (`codex-spark-metering-enabled` and its log line). No user-visible string. |
 
-## 4. BLOCKER — beta toolchain and beta build machine
+## 4. BLOCKER (cleared 2026-09-27) — beta toolchain and beta build machine
+
+The blocker below was cleared on 2026-09-27; see the addendum at the end of
+this document for the GA archive and successful upload.
 
 App Store Connect rejects an upload with ITMS-90111 "Invalid Toolchain" when
 either the Xcode that built it or the macOS it was built on is a beta. Both
@@ -71,7 +85,7 @@ So the IPA in §2 proves the source archives and exports; it is not an
 uploadable binary. This was already the standing owner decision on
 2026-09-05, when only the Xcode side was known.
 
-Required before upload, in order:
+Original 2026-09-25 steps required before upload (cleared 2026-09-27):
 
 1. Install Xcode 27.0 GA (`27A266a`) from the Mac App Store or developer
    downloads. It requires macOS 26.6 or later; the host satisfies that.
@@ -88,8 +102,9 @@ Required before upload, in order:
      metadata edit only and changes no code.
 3. Re-run §2 and §3 on the same source commit and confirm `DTXcodeBuild` is
    `27A266a` and `BuildMachineOSBuild` is `26A428`.
-4. Upload (Xcode Organizer, Transporter or `xcrun altool`), wait for
-   processing, then attach build 19 to version 0.1.0 in App Store Connect.
+4. Upload (Xcode Organizer, Transporter or `xcrun altool`) and wait for
+   processing. ~~Then attach build 19 to version 0.1.0 in App Store
+   Connect.~~ Do not attach build 19; see the 2026-10-05 addendum.
 
 The `systemExtraLargePortrait` concern from 2026-09-05 (source compiling only
 under the iOS 27 SDK) is moot with Xcode 27 GA.
@@ -151,3 +166,76 @@ xcodebuild -exportArchive -archivePath <scratch>/Ammo.xcarchive \
 `ExportOptions.plist` is the gate 8 one: `method` `app-store-connect`,
 `teamID` `JN24JD42L3`, `signingStyle` `automatic`, `uploadSymbols` true,
 `destination` `export`.
+
+These steps reproduce the host archive, which carries beta toolchain stamps.
+They do not reproduce the build 19 that was uploaded: that came from the PR
+#48 workflow artifact, ad-hoc re-signed with entitlements on the host,
+exported, and uploaded as described in the addenda below.
+
+## Addendum 2026-09-27 — build 19 uploaded on GA toolchain (MIK-253)
+
+The beta-stamp blocker in §4 was cleared without installing Xcode 27 GA on
+the host. The archive was built by the `GA archive (Xcode 27)` workflow on
+GitHub's `xcode-27` runner (Actions run `36196015228`, triggered by a push of
+commit `2e68e8c` on the PR #48 branch). The runner's ad-hoc signing step
+failed ("Ad Hoc code signing is not allowed with SDK 'iOS 27.0'"), so the
+workflow's unsigned fallback produced the archive and it left the runner
+with no entitlements embedded. On the host the archive was ad-hoc re-signed
+with the app-group and keychain-group entitlements copied from the
+dev-signed build 19 archive (procedure in the operator's
+`ammo-release/README.md`, outside this repo), then exported and uploaded
+with Xcode 27.0 beta 3's `xcodebuild` and the cloud-managed Apple
+Distribution certificate; the table below records the result. PR #48 has
+since been reworked to make the unsigned archive the only path, to resolve
+the team prefix, and to assert the GA stamps and the keychain access group
+(addendum 2026-10-05); the reworked workflow has not run on the runner yet.
+
+| Check (Ammo.app and AmmoWidgets.appex) | Result |
+| -- | -- |
+| `DTXcodeBuild` / `DTSDKBuild` / `BuildMachineOSBuild` | `27A266a` / `24A430` / `26A428` |
+| Version | 0.1.0 (19) |
+| Signing | Cloud Managed Apple Distribution, team `JN24JD42L3`, expires 2027-07-20 |
+| `codesign --verify --deep --strict` | OK |
+| Entitlements | `group.com.brandon.ammo` + `keychain-access-groups` `JN24JD42L3.com.brandon.ammo.shared`, `get-task-allow` false. **But** Info.plist `AmmoKeychainAccessGroup` = `com.brandon.ammo.shared`, unprefixed, in both bundles (addendum 2026-10-05) |
+| IPA sha256 | `426ff8a4ef7b8df9ccb98936845e89876e86cbe12c206a983bbd8d1932ab586b` |
+| Upload (`-exportArchive`, `destination=upload`) | `Upload succeeded`, 2026-09-27 10:05 local |
+
+Export initially failed with `No Accounts` / `No signing certificate "iOS
+Distribution" found` because the Apple ID session in Xcode had expired; a
+manual re-sign-in in Xcode → Settings → Accounts fixed it.
+
+In App Store Connect: do **not** attach build 19 to 0.1.0 (addendum
+2026-10-05). Still open: replace the four 6.9-inch screenshots, and the three
+owner items from `asc-progress-20260905.md`.
+
+## Addendum 2026-10-05 — build 19 keychain access group mismatch (HOLD)
+
+Final review of PRs #48 and #49 found that the uploaded build 19 IPA (sha256
+above) has `AmmoKeychainAccessGroup` = `com.brandon.ammo.shared` in both
+`Ammo.app/Info.plist` and `AmmoWidgets.appex/Info.plist`, while the signed
+entitlements grant `JN24JD42L3.com.brandon.ammo.shared`. Cause: the runner
+archive was built with `CODE_SIGNING_ALLOWED=NO`, so `$(AppIdentifierPrefix)`
+in `project.yml` expanded to nothing in Info.plist; the host re-sign rewrites
+entitlements, not Info.plist. `KeychainStore.configuredAccessGroup()` accepts
+the unprefixed value, so every keychain query in build 19 is expected to fail
+with `errSecMissingEntitlement` (-34018): existing accounts cannot load
+tokens, sign-in cannot save them, widgets get no data. This is read from the
+IPA and the code; it has not yet been observed on a device.
+
+- Do not attach build 19 to 0.1.0 or submit it. Expire it in TestFlight once
+  the device check confirms the failure.
+- PR #48 now passes `AppIdentifierPrefix=<team_id>.` to the unsigned archive
+  and asserts `AmmoKeychainAccessGroup` equals
+  `<team_id>.com.brandon.ammo.shared` in both bundles. Verified on 2026-10-05
+  with an unsigned archive on the host (both Info.plists resolved to
+  `JN24JD42L3.com.brandon.ammo.shared`); not yet on the xcode-27 runner.
+- Next build: bump to 20, dispatch the fixed workflow and confirm the
+  assertion passes, ad-hoc re-sign with entitlements, export, and before
+  upload check in both IPA bundles that the Info.plist
+  `AmmoKeychainAccessGroup` string appears in the `keychain-access-groups`
+  array from `codesign -d --entitlements`.
+- Device overinstall: run it from build 18 to build 20. If build 19 is
+  installed over build 18 for diagnosis, do not remove and re-add accounts in
+  build 19: `KeychainStore.delete(for:)` also issues a delete without an
+  access group, which could destroy the build 18 tokens in the shared group
+  (from reading the code, not observed).
